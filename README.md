@@ -122,7 +122,11 @@ mark IN/OUT anywhere in the archive and the clip *already exists* — it's just 
 timerange URL against the store (zero media copied). One click more muxes it to
 a take-home MP4 by segment concat: a 15s clip of the live show exports in ~1.5s.
 This is TAMS's reason to exist — live-to-clip while the event runs — working
-against an MXL production.
+against an MXL production. There's also a shared **clip bin**: saving a clip
+creates a *new TAMS flow* that re-registers the same media objects under the
+clip's timerange — zero bytes copied, and the store refcounts so deleting a
+clip never touches the archive. Every visitor sees the same bin (it lives in
+the store, not the browser).
 
 Next on the bench: a **grain-native segmenter** — reading v210 grains straight
 from the domain and grouping them into TAMS Flow Segments without the H.264

@@ -55,9 +55,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <span style="margin-left:auto;display:flex;gap:8px">
         <button id="prevclip" disabled>&#9654; Preview</button>
         <button id="fullshow" style="display:none">&#8634; Full show</button>
+        <button id="saveclip" disabled style="border-color:#28d17c;color:#7de8ad">&#128190; Save to bin</button>
         <button id="copylink" disabled>&#128279; Copy link</button>
         <button id="dlclip" disabled style="border-color:#ffb400;color:#ffb400">&#11015; MP4</button>
       </span>
+    </div>
+    <div id="bin" class="tmbar" style="border-top:1px solid #1a2338;overflow-x:auto;flex-wrap:nowrap;min-height:46px">
+      <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5;flex:0 0 auto">BIN</span>
+      <span id="binempty" style="font-size:12px;color:#8b96b5">no saved clips yet — mark IN/OUT and hit Save</span>
     </div>
   </div>
   <div class="pane">
@@ -128,6 +133,38 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     navigator.clipboard.writeText(share).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
   };
   dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE+'&out='+outE};
+
+  // ── clip bin (server-side: every visitor sees the same queue) ──
+  var sv=document.getElementById('saveclip'),bin=document.getElementById('bin'),be=document.getElementById('binempty');
+  function paintClip2(){sv.disabled=pv.disabled}
+  var _pc=paintClip;paintClip=function(){_pc();paintClip2()};
+  function binRow(c){
+    var d=document.createElement('span');
+    d.style.cssText='flex:0 0 auto;display:flex;align-items:center;gap:5px;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:4px 8px;font-size:11px';
+    d.innerHTML='<b style="color:#cfd8ef">'+c.label.replace(/</g,'&lt;')+'</b><span style="color:#8b96b5">'+(c.out-c.in)+'s</span>';
+    function btn(txt,fn,title){var b=document.createElement('button');b.textContent=txt;b.title=title;b.style.cssText='font-size:11px;padding:2px 7px;background:#0c1220;border:1px solid #26314d;border-radius:5px;color:#cfd8ef;cursor:pointer';b.onclick=fn;d.appendChild(b)}
+    btn('▶',function(){inE=c.in;outE=c.out;paintClip();pv.onclick()},'play clip');
+    btn('🔗',function(){navigator.clipboard.writeText(location.origin+location.pathname+'?clip='+c.in+'_'+c.out)},'copy share link');
+    btn('⬇',function(){window.location='/api/mxl/clip.mp4?in='+c.in+'&out='+c.out},'download MP4');
+    btn('✕',function(){fetch('/api/mxl/clip/'+c.id,{method:'DELETE'}).then(loadBin)},'delete');
+    return d;
+  }
+  function loadBin(){
+    fetch('/api/mxl/clips').then(function(r){return r.json()}).then(function(cs){
+      bin.querySelectorAll('.binrow').forEach(function(n){n.remove()});
+      be.style.display=cs.length?'none':'';
+      cs.forEach(function(c){var r=binRow(c);r.className='binrow';bin.appendChild(r)});
+    }).catch(function(){});
+  }
+  sv.onclick=function(){
+    var label=prompt('Clip name?','Highlight '+fmtE(inE))||'';
+    sv.disabled=true;sv.textContent='saving…';
+    fetch('/api/mxl/clip/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({in:inE,out:outE,label:label})})
+      .then(function(r){return r.json()})
+      .then(function(){sv.textContent='💾 Save to bin';paintClip();loadBin()})
+      .catch(function(){sv.textContent='💾 Save to bin';paintClip()});
+  };
+  loadBin();setInterval(loadBin,20000);
 
   // shared clip link: ?clip=IN_OUT opens straight into clip playback
   var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
