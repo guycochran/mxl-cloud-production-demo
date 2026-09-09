@@ -1,6 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Office Hours × MXL — TAMS Time Machine</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -34,6 +35,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     <div class="brand">Office Hours <span>&times;</span> MXL &mdash; TAMS Time Machine</div>
     <div class="tag">Left: <b style="color:#cfd8ef">scrub the show's recorded history</b> &mdash; pulled by time address from a <b style="color:#cfd8ef">BBC TAMS store</b>, while it's still being recorded. Right: the live program.</div>
   </div>
+  <a href="/mxl.html" style="font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;text-decoration:none;white-space:nowrap">&#127899; Drive the camera &rarr;</a>
   <div class="live"><span class="dot"></span>RECORDING &middot; MXL grains &rarr; TAMS Flow Segments</div>
 </header>
 <main>
@@ -59,6 +61,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
         <button id="fullshow" style="display:none">&#8634; Back</button>
         <button id="saveclip" disabled style="border-color:#28d17c;color:#7de8ad">&#128190; Save to bin</button>
         <button id="copylink" disabled>&#128279; Copy link</button>
+        <button id="qrclip" disabled>&#128241; Take it home</button>
         <button id="dlclip" disabled style="border-color:#ffb400;color:#ffb400">&#11015; MP4</button>
       </span>
     </div>
@@ -72,6 +75,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     <iframe src="https://fabric-feed.YOUR-DOMAIN/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
   </div>
 </main>
+<div id="qrmodal" style="display:none;position:fixed;inset:0;background:rgba(4,6,12,.85);backdrop-filter:blur(4px);z-index:50;align-items:center;justify-content:center">
+  <div style="background:#0c1220;border:1px solid #26314d;border-radius:14px;padding:26px 30px;text-align:center;max-width:400px">
+    <div style="font-size:15px;font-weight:750;margin-bottom:4px">&#128241; Take your clip home</div>
+    <div id="qrlabel" style="font-size:12px;color:#8b96b5;margin-bottom:14px"></div>
+    <div id="qrbox" style="background:#fff;padding:12px;border-radius:10px;display:inline-block"></div>
+    <div style="font-size:11px;color:#8b96b5;margin:12px 0 14px">Scan with your phone &mdash; it opens your clip playing, with the MP4 one tap away.</div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <a id="qrmail" style="font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;text-decoration:none">&#9993; Email it to myself</a>
+      <button id="qrclose" style="font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;cursor:pointer">Close</button>
+    </div>
+  </div>
+</div>
 <div class="foot"><b>Keys:</b> <b>I</b>/<b>O</b> mark in/out &middot; <b>space</b> play/pause &middot; <b>&larr;/&rarr;</b> &plusmn;1s (shift &plusmn;10s) &middot; <b>J/K/L</b> shuttle &middot; <b>S</b> save clip &nbsp;|&nbsp; <b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered &mdash; with capture-accurate timeranges &mdash; into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster &approx; $1.15/hr.</div>
 <script>
 (function(){
@@ -136,6 +151,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var ok=inE!=null&&outE!=null&&outE>inE;
     ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT')+(ok?(' · '+(outE-inE)+'s'):'');
     pv.disabled=cl.disabled=dl.disabled=sv.disabled=!ok;
+    document.getElementById('qrclip').disabled=!ok;
   }
   function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
   si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip()};
@@ -152,6 +168,24 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   };
   dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE+'&out='+outE};
 
+  // ── "take it home": QR + mailto (no server email, no stored PII) ──
+  var qb=document.getElementById('qrclip'),qm=document.getElementById('qrmodal'),
+      qbox=document.getElementById('qrbox'),ql=document.getElementById('qrlabel'),qmail=document.getElementById('qrmail');
+  var qr=null;
+  function shareUrl(i,o){return location.origin+location.pathname+'?clip='+i+'_'+o}
+  function showQR(i,o,label){
+    var url=shareUrl(i,o);
+    qbox.innerHTML='';
+    qr=new QRCode(qbox,{text:url,width:196,height:196,correctLevel:QRCode.CorrectLevel.M});
+    ql.textContent=(label||'Your clip')+' · '+(o-i)+'s · '+fmtE(i);
+    var body='Your clip from the Office Hours × MXL live demo:%0D%0A%0D%0AWatch: '+encodeURIComponent(url)+'%0D%0ADownload MP4: '+encodeURIComponent(location.origin+'/api/mxl/clip.mp4?in='+i+'&out='+o)+'%0D%0A%0D%0AMade with EBU MXL + BBC TAMS on a $1/hr cloud cluster — github.com/guycochran/mxl-cloud-production-demo';
+    qmail.href='mailto:?subject='+encodeURIComponent('My clip from the MXL live demo')+'&body='+body;
+    qm.style.display='flex';
+  }
+  qb.onclick=function(){showQR(inE,outE)};
+  document.getElementById('qrclose').onclick=function(){qm.style.display='none'};
+  qm.addEventListener('click',function(e){if(e.target===qm)qm.style.display='none'});
+
   // ── clip bin (server-side, shared by all visitors) ──
   var bin=document.getElementById('bin'),be=document.getElementById('binempty');
   function binRow(c){
@@ -162,6 +196,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     btn('▶',function(){inE=c.in;outE=c.out;paintClip();pv.onclick()},'play clip');
     btn('🔗',function(){navigator.clipboard.writeText(location.origin+location.pathname+'?clip='+c.in+'_'+c.out)},'copy share link');
     btn('⬇',function(){window.location='/api/mxl/clip.mp4?in='+c.in+'&out='+c.out},'download MP4');
+    btn('📱',function(){showQR(c.in,c.out,c.label)},'take it home (QR/email)');
     btn('✕',function(){fetch('/api/mxl/clip/'+c.id,{method:'DELETE'}).then(loadBin)},'delete');
     return d;
   }
