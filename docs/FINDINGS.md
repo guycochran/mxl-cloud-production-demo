@@ -69,7 +69,31 @@ dependency order (see `backend/mxl-routes.js` `/api/mxl/repair`). Upstream
 suggestions: readers could detect flow-file replacement and re-open; status
 APIs should report a stalled read.
 
-## 7. Assorted
+## 7. Cross-host fabric: it works, and the receiving host is idle
+
+We bridged the domain across VMs with the Fabrics API (TCP provider) and ran it
+as a three-node cluster (production VM → fabric peer VM → isolated "island" VM):
+
+- **30 grains/s sustained** shipping the live 1080p30 v210 program (~1.3 Gbps),
+  zero drops over 100k+ grains per leg, bidirectional legs concurrently.
+- **Initiator ~10% of one core; target ~0% CPU** — remote writes land in the
+  destination ring without the receiving host's CPU in the data path.
+- Destination write-age 0.2–8 ms; with both hosts on NTP, the remote flow's
+  head index equalled the locally-generated flows' heads — the stock input
+  selector cut the fabric-delivered flow on air with no special handling.
+  TAI-indexed grains quietly solve multi-flow alignment when hosts are synced.
+- **libfabric ≥ 2.x is required** (`FI_SOCKADDR_IP`): Ubuntu 24.04's packaged
+  1.17 — and even 1.22 — fail; we built 2.6.0 from the release tarball.
+- **Non-routed networks:** TargetInfo embeds the target's *private* bind
+  sockaddr. Patching the address bytes ([4:8] of the base64 blob) to the
+  target's public IP lets the initiator connect across unpeered VNets through
+  cloud NAT at full rate — which is the exact recipe for cross-region or
+  cross-cloud fabric. (Our actual cross-region attempt was blocked only by
+  subscription SKU capacity, not by the technology.)
+- Upstream suggestion: a supported "advertised address" field in TargetInfo
+  would make NAT traversal first-class instead of a byte-patch.
+
+## 8. Assorted
 
 - **CEF/HTML5 keyer on CPU tops out ~50 fps at 1080p** (SwiftShader, no GPU on
   Azure D-series): keying 1080p60 drifts and eventually freezes. Run the chain

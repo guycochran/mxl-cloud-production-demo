@@ -67,10 +67,39 @@ Cloudflare tunnel (stable HTTPS URL, survives reboots via systemd), while WebRTC
 *media* flows directly to the VM's IP — so only the media port is internet-open
 and every control surface stays IP-locked.
 
-**Where this goes next:** the MXL Fabrics API supports bridging a domain across
-hosts (TCP / RDMA / AWS EFA) — the natural growth path is a small cluster: one
-VM for ingest + production, a second for playout/graphics, a third for encode —
-the DMF white paper's cluster model at hobby prices. That experiment is queued.
+## Update: it's a three-VM fabric cluster now
+
+The Fabrics API experiment landed. The same live program (camera + keyed
+graphics, produced on VM1) now **crosses hosts through the MXL Fabrics API**
+(TCP provider) and is served out of a *different VM's* shared memory:
+
+**🔴 Watch the fabric-delivered program: [fabric-feed.cochran.cloud/mxl2webrtc/](https://fabric-feed.cochran.cloud/mxl2webrtc/)**
+
+```
+        VM1 "production" (D8s_v5)          VM2 "fabric peer" (D8s_v5)
+        ┌─────────────────────────┐        ┌──────────────────────────┐
+        │ camera/playout/patterns │ fabric │ domain (/dev/shm)        │
+        │ selector → keyer → PGM ─┼─(tcp)─►│  "VM1 Program via        │
+        │ domain (/dev/shm)       │  ~1.3  │   Fabric" → mxl2webrtc ──┼─► public viewer
+        │      ▲                  │  Gbps  │                          │   (named tunnel)
+        │      └── TG return leg ◄┼────────┼── test-generator         │
+        └─────────────────────────┘        └──────────────────────────┘
+                   │ fabric (tcp, via PUBLIC IP — sockaddr patched)
+                   ▼
+        VM3 "network island" (D4s_v5, its own unpeered VNet)
+        ┌─────────────────────────┐
+        │ domain ← same program   │  ← proves the cross-region/cross-cloud
+        │ mxl2webrtc viewer       │    recipe: only the address changes
+        └─────────────────────────┘
+```
+
+Measured: **30 grains/s sustained (1080p30 v210, ~1.3 Gbps), zero drops over
+100k+ grains, initiator ~10% of one core, receiving host ~0% CPU** — remote
+writes really do land without target CPU involvement. With both hosts on NTP,
+the remote flow's head index matched the locally-generated flows, so the stock
+input selector briefly cut the *fabric-delivered* flow on air. Whole cluster:
+~$0.95/hr. Details and gotchas (libfabric ≥ 2.x required, TargetInfo sockaddr
+patching for non-routed networks) in [docs/FINDINGS.md](docs/FINDINGS.md).
 
 Runtime apps are the stock **[cbcrc/mxl-hands-on](https://github.com/cbcrc/mxl-hands-on)**
 containers (test generator, file player, input selector, HTML5 keyer, mxl2webrtc),
