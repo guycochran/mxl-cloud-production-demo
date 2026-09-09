@@ -101,6 +101,21 @@ input selector briefly cut the *fabric-delivered* flow on air. Whole cluster:
 ~$0.95/hr. Details and gotchas (libfabric ≥ 2.x required, TargetInfo sockaddr
 patching for non-routed networks) in [docs/FINDINGS.md](docs/FINDINGS.md).
 
+## Update 2: live MXL → TAMS record (EBU's two flagship projects, united)
+
+The DMF white paper lists the MXL↔TAMS relationship as an open topic and notes
+that *"MXL Grains can be grouped as TAMS Flow Segments."* We built it: the
+fabric-delivered program on VM2 is cut into 1-second segments and registered —
+with capture-derived TAI timeranges — into a **[TAMS](https://github.com/bbc/tams)
+store** (Eyevinn [tams-gateway](https://github.com/Eyevinn/tams-gateway) +
+MinIO + CouchDB) running on the island VM. The store's HLS endpoint plays any
+timerange of the show **while it's still being recorded** — we pulled a frame
+from 11½ minutes in the past whose in-picture cloud-keyed clock matched its
+TAMS timerange to the second. Capture timing preserved from camera → fabric →
+store → playback: live production into time-addressable storage, on the same
+~$1/hr cluster. Bridge code: a ~90-line shipper (segment → presigned PUT →
+`POST /flows/{id}/segments`) plus one ffmpeg segmenter.
+
 Runtime apps are the stock **[cbcrc/mxl-hands-on](https://github.com/cbcrc/mxl-hands-on)**
 containers (test generator, file player, input selector, HTML5 keyer, mxl2webrtc),
 orchestrated with **[CLOUDflex-broadcast/easy-mxl](https://github.com/CLOUDflex-broadcast/easy-mxl)**.
