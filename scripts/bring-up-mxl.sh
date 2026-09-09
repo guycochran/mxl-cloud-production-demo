@@ -21,7 +21,7 @@ if ! $SSH true 2>/dev/null; then
   az vm start -g ohg-mxl-lab -n mxl-lab 2>/dev/null \
     || die "VM down and az start failed. Login first: az login --service-principal (SP mxl-lab-cli), then re-run."
   for i in $(seq 1 30); do $SSH true 2>/dev/null && break; sleep 10; done
-  $SSH true 2>/dev/null || die "VM started but SSH still unreachable (NSG allows only site IP 50.106.4.50/32 — did the site IP change?)"
+  $SSH true 2>/dev/null || die "VM started but SSH still unreachable (NSG allows only site IP YOUR.SITE.IP/32 — did the site IP change?)"
 fi
 echo "  ✓ SSH ok"
 
@@ -98,22 +98,13 @@ restart 9601 '{"domain_path":"/mxl-domain","video_flow_uuid":"5c73394e-85df-50a3
 echo "  ✓ pipelines restarted"
 VMEOF
 
-# ── 4. Feed tunnel (ephemeral trycloudflare URL) ─────────────────────────────
-step "Ensuring cloudflared feed tunnel on VM"
-FEED_URL=$($SSH 'pgrep -f "cloudflared tunnel --url http://127.0.0.1:8889" >/dev/null || \
-    (nohup cloudflared tunnel --url http://127.0.0.1:8889 >/tmp/mxl-mtx-tunnel.log 2>&1 & sleep 8); \
-  grep -ho "https://[a-z0-9-]*\.trycloudflare\.com" /tmp/mxl-mtx-tunnel.log 2>/dev/null | tail -1')
-[ -n "$FEED_URL" ] || die "Could not determine tunnel URL — check /tmp/mxl-mtx-tunnel.log on the VM"
-echo "  ✓ feed tunnel: $FEED_URL"
-
-# ── 5. Point mxl.html at the current tunnel URL ──────────────────────────────
-step "Updating mxl.html iframe (static file, no backend restart)"
-if grep -q "$FEED_URL" "$MXL_HTML"; then
-  echo "  ✓ already current"
-else
-  sed -i.bak-bringup -E "s#https://[a-z0-9-]+\.trycloudflare\.com#$FEED_URL#g" "$MXL_HTML"
-  echo "  ✓ rewrote tunnel URL → $FEED_URL (backup: mxl.html.bak-bringup)"
-fi
+# ── 4. Feed tunnel (named: mxl-feed.YOUR-DOMAIN, systemd on the VM) ────────
+# Tunnel UUID YOUR_TUNNEL_UUID; config /etc/cloudflared/mxl-feed.yml.
+# systemd auto-starts it on boot — this just makes sure and verifies.
+step "Ensuring mxl-feed named tunnel on VM"
+$SSH 'sudo systemctl start mxl-feed-tunnel.service; systemctl is-active mxl-feed-tunnel.service' | tail -1
+FEED_URL=https://mxl-feed.YOUR-DOMAIN
+echo "  ✓ feed tunnel: $FEED_URL (stable — mxl.html needs no rewriting)"
 
 # ── 6. Verify ────────────────────────────────────────────────────────────────
 step "Verifying"

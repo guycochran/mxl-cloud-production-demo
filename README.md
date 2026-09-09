@@ -8,6 +8,10 @@ Built by [Office Hours Global](https://officehours.global) ahead of IBC 2026 to 
 the Dynamic Media Facility vision isn't just for broadcasters with NVIDIA partnerships —
 one person can stand up cloud shared-memory production in a weekend with the open tooling.
 
+**🔴 Try it live: [prodbots.com/mxl.html](https://prodbots.com/mxl.html)** — cut the
+program, change patterns, and pan the *real* camera in the studio. No login. (Running
+through IBC 2026; be kind, it's one VM.)
+
 ![Live camera through MXL](docs/images/demo-camera.png)
 *Live PTZ camera (US studio) → SRT → MXL domain in Azure → HTML5 graphics keyed in-cloud →
 WebRTC to the browser. The visitor pans the real camera from the right-hand console.*
@@ -33,23 +37,40 @@ WebRTC to the browser. The visitor pans the real camera from the right-hand cons
 
 ## Architecture
 
+Three machines, two sites, one shared-memory domain:
+
 ```
-US studio                              Azure VM (D8s_v5, Ubuntu 24.04)
-─────────                              ────────────────────────────────────────────
-PTZ camera ──RTSP──► ffmpeg ──SRT──►   mediamtx ──RTSP──► cam_ingest.py ─┐
-             (re-encode 1080p30)                     (PTS re-stamped     │ /dev/shm
-                                                      to "now"+margin)   ▼
-                                       test-generator ──────────► ┌──────────────┐
-                                       file-player (episode) ───► │  MXL domain   │
-                                       audio_pgm.py (PGM audio) ► │ (shared mem)  │
-                                                                  └──────┬────────┘
-                                       input-selector ◄── reads ─────────┤
-                                       html5-keyer (CEF, lower-third) ◄──┤
-                                       mxl2webrtc + mediamtx ◄───────────┘
-                                              │
-Browser ◄─────────── WebRTC ◄─────────────────┘   (kiosk page cuts program via
-                                                   small Express proxy routes)
+┌─ US STUDIO ────────────────────────┐      ┌─ AZURE VM (D8s_v5, Ubuntu 24.04) ──────────────┐
+│                                    │      │                                                 │
+│  PTZ camera (VISCA + RTSP 1080p60) │      │  mediamtx ◄─SRT─┐    ┌────────────────────────┐ │
+│        │ RTSP                      │      │      │ RTSP     │    │  MXL domain (/dev/shm) │ │
+│        ▼                           │      │      ▼          │    │                        │ │
+│  Relay/kiosk box (Linux)           │      │  cam_ingest.py ─┼──► │ CAM Live               │ │
+│   ├─ ffmpeg re-encode 1080p30 ─────┼─SRT──┼─────────────────┘    │ Clip Video/Audio ◄──── │ │ file-player (episode)
+│   ├─ Express backend:              │      │  audio_pgm.py ─────► │ PGM Audio              │ │
+│   │    /api/mxl/* control proxy    │      │  test-generator ───► │ TG Video/Audio         │ │
+│   └─ serves mxl.html (kiosk page)  │      │                      │                        │ │
+│                                    │      │  input-selector ◄──► │ Selector PGM           │ │
+└────────────────────────────────────┘      │  html5-keyer ◄─────► │ Keyer PGM              │ │
+                                            │  mxl2webrtc ◄──────── └───────────────────────┘ │
+        Viewer's browser                    │      │                                          │
+        ─────────────────                   │      ▼                                          │
+        page + WHEP signaling ◄──named──────┼── mediamtx :8889                                │
+        (https, Cloudflare      tunnel      │                                                 │
+         tunnel, stable URL)                │                                                 │
+        media (RTP) ◄───direct UDP 8189─────┼── (NSG: media port open; control ports locked)  │
+                                            └─────────────────────────────────────────────────┘
 ```
+
+Note the split delivery path: the player page and WHEP signaling ride a named
+Cloudflare tunnel (stable HTTPS URL, survives reboots via systemd), while WebRTC
+*media* flows directly to the VM's IP — so only the media port is internet-open
+and every control surface stays IP-locked.
+
+**Where this goes next:** the MXL Fabrics API supports bridging a domain across
+hosts (TCP / RDMA / AWS EFA) — the natural growth path is a small cluster: one
+VM for ingest + production, a second for playout/graphics, a third for encode —
+the DMF white paper's cluster model at hobby prices. That experiment is queued.
 
 Runtime apps are the stock **[cbcrc/mxl-hands-on](https://github.com/cbcrc/mxl-hands-on)**
 containers (test generator, file player, input selector, HTML5 keyer, mxl2webrtc),
