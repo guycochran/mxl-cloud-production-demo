@@ -42,6 +42,20 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   <div class="pane tm">
     <div class="hd">&#9202; Time machine <span class="chip rec">&#9679; REC</span> <span class="chip" id="segcount">&hellip;</span></div>
     <video id="tmv" controls muted playsinline></video>
+    <div style="flex:0 0 auto;padding:10px 14px 4px;background:#0c1220;border-top:1px solid #1a2338">
+      <div id="scrub" style="position:relative;height:18px;cursor:pointer;touch-action:none">
+        <div style="position:absolute;left:0;right:0;top:7px;height:5px;background:#1a2338;border-radius:3px"></div>
+        <div id="played" style="position:absolute;left:0;top:7px;height:5px;width:0;background:#ffb400;border-radius:3px"></div>
+        <div id="mkin" style="display:none;position:absolute;top:0;width:2px;height:18px;background:#28d17c"></div>
+        <div id="mkout" style="display:none;position:absolute;top:0;width:2px;height:18px;background:#e5484d"></div>
+        <div id="ghost" style="display:none;position:absolute;top:2px;width:2px;height:14px;background:#eef2ff"></div>
+        <div id="hovertip" style="display:none;position:absolute;bottom:24px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:8px;padding:5px;text-align:center;pointer-events:none;z-index:5">
+          <img id="hovimg" style="display:block;width:160px;height:90px;object-fit:cover;border-radius:5px;background:#000" alt="">
+          <div id="hovt" style="font-size:11px;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:3px">--:--:--</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:#5b6885;margin-top:2px">drag to preview &middot; release to jump &mdash; thumbnails come straight from the store</div>
+    </div>
     <div class="tmbar">
       <button id="mlive" class="on">&#9210; Recent</button>
       <button id="march">&#128252; Full archive</button>
@@ -94,6 +108,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var BASE='https://tams.YOUR-DOMAIN/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
   var hls=null,mode='live';  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
+  var winStart=null,winDur=0,winMedia0=0;  // playlist window: absolute start Date, duration s, media-time of first frag
 
   function fmtD(d){return d?d.toISOString().substr(11,8)+'Z':'--:--:--'}
   function playingDate(){
@@ -103,17 +118,21 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   function newHls(){
     if(hls)hls.destroy();
     hls=new Hls({
-      // never force a jump back to the live edge while someone is scrubbing
-      liveSyncDurationCount:3,liveMaxLatencyDurationCount:99999,lowLatencyMode:false
+      // never force a jump back to the live edge while someone is scrubbing;
+      // small buffers = snappy seeks (each fragment is a 1s fetch anyway)
+      liveSyncDurationCount:3,liveMaxLatencyDurationCount:99999,lowLatencyMode:false,
+      maxBufferLength:8,backBufferLength:20
     });
     hls.on(Hls.Events.ERROR,function(e,d){if(d.fatal)console.log('hls fatal',d.details)});
     hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
       var d=data.details,f=d.fragments;
       if(f.length){
         var s=f[0].programDateTime?new Date(f[0].programDateTime):null;
+        winStart=s;winDur=d.totalduration;winMedia0=f[0].start;
         var en=s?new Date(s.getTime()+d.totalduration*1000):null;
         rng.textContent=(mode==='clip'?'clip: ':mode==='archive'?'archive: ':'recent: ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
         sc.textContent=f.length+' segments';
+        paintMarkers();
       }
     });
     hls.attachMedia(v);
@@ -139,6 +158,46 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   document.getElementById('back5').onclick=function(){v.currentTime=Math.max(0,v.currentTime-300)};
   v.addEventListener('timeupdate',function(){at.textContent=fmtD(playingDate())});
 
+  // ── custom timeline: hover thumbnails, seek ONLY on release ──
+  var scr=document.getElementById('scrub'),played=document.getElementById('played'),
+      ghost=document.getElementById('ghost'),tip=document.getElementById('hovertip'),
+      hovimg=document.getElementById('hovimg'),hovt=document.getElementById('hovt'),
+      mkin=document.getElementById('mkin'),mkout=document.getElementById('mkout');
+  var dragging=false;
+  function fracToMedia(fr){return winMedia0+fr*winDur}
+  function fracToEpoch(fr){return winStart?Math.floor(winStart.getTime()/1000+fr*winDur):null}
+  function evFrac(e){var r=scr.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))}
+  function showTip(fr){
+    var x=fr*scr.getBoundingClientRect().width;
+    ghost.style.display='block';ghost.style.left=x+'px';
+    tip.style.display='block';tip.style.left=x+'px';
+    var ep=fracToEpoch(fr);
+    hovt.textContent=ep?fmtE(ep):'--:--:--';
+    if(ep){var u='https://tams-obj.YOUR-DOMAIN/tams-media/thumbs/'+ep+'.jpg';
+      if(hovimg.dataset.ep!==String(ep)){hovimg.dataset.ep=ep;hovimg.src=u}}
+  }
+  hovimg.onerror=function(){hovimg.removeAttribute('src')};
+  scr.addEventListener('pointermove',function(e){showTip(evFrac(e))});
+  scr.addEventListener('pointerdown',function(e){dragging=true;scr.setPointerCapture(e.pointerId);showTip(evFrac(e))});
+  scr.addEventListener('pointerup',function(e){
+    if(!dragging)return;dragging=false;
+    v.currentTime=fracToMedia(evFrac(e));   // the ONLY seek — on release
+    tip.style.display='none';ghost.style.display='none';
+  });
+  scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
+  setInterval(function(){ // played-position fill (cheap, no layout thrash)
+    if(winDur>0&&!dragging){var fr=(v.currentTime-winMedia0)/winDur;played.style.width=Math.min(100,Math.max(0,fr*100))+'%'}
+  },250);
+  function paintMarkers(){
+    if(!winStart||!winDur){mkin.style.display=mkout.style.display='none';return}
+    var w0=winStart.getTime()/1000;
+    function place(mk,ep){
+      if(ep==null||ep<w0||ep>w0+winDur){mk.style.display='none';return}
+      mk.style.display='block';mk.style.left=((ep-w0)/winDur*100)+'%';
+    }
+    place(mkin,inE);place(mkout,outE);
+  }
+
   // ── clipping ──
   var inE=null,outE=null;
   var si=document.getElementById('setin'),so=document.getElementById('setout'),
@@ -152,6 +211,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT')+(ok?(' · '+(outE-inE)+'s'):'');
     pv.disabled=cl.disabled=dl.disabled=sv.disabled=!ok;
     document.getElementById('qrclip').disabled=!ok;
+    paintMarkers();
   }
   function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
   si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip()};

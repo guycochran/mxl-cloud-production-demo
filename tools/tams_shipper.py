@@ -14,6 +14,7 @@ import concurrent.futures
 import glob
 import json
 import os
+import subprocess
 import time
 import urllib.request
 
@@ -52,6 +53,17 @@ def ship(path):
     obj = json.loads(body)['media_objects'][0]
     bucket, key = obj['object_id'].split('/', 1)
     S3.put_object(Bucket=bucket, Key=key, Body=payload, ContentType='video/mp2t')
+    # scrub-bar thumbnail: one ~5KB jpeg per second, public-read prefix
+    try:
+        th = subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', path,
+                             '-frames:v', '1', '-vf', 'scale=192:-1', '-q:v', '8',
+                             '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1'],
+                            capture_output=True, timeout=10).stdout
+        if th:
+            S3.put_object(Bucket=bucket, Key=f'thumbs/{epoch}.jpg', Body=th,
+                          ContentType='image/jpeg', CacheControl='public, max-age=86400')
+    except Exception:
+        pass
     seg = {'object_id': obj['object_id'],
            'timerange': f'[{epoch}:0_{epoch + SEG_SECS}:0)'}
     req('POST', f'{TAMS}/flows/{FLOW}/segments', data=json.dumps(seg).encode())
@@ -72,6 +84,16 @@ def prune():
         print(f'pruned store before {cutoff}', flush=True)
     except Exception as e:
         print(f'prune err: {e}', flush=True)
+    try:  # expire old thumbnails too
+        pages = S3.get_paginator('list_objects_v2').paginate(Bucket='tams-media', Prefix='thumbs/')
+        old = [{'Key': o['Key']} for pg in pages for o in pg.get('Contents', [])
+               if int(o['Key'].split('/')[1].split('.')[0]) < cutoff]
+        for i in range(0, len(old), 1000):
+            S3.delete_objects(Bucket='tams-media', Delete={'Objects': old[i:i+1000]})
+        if old:
+            print(f'pruned {len(old)} thumbs', flush=True)
+    except Exception as e:
+        print(f'thumb prune err: {e}', flush=True)
 
 POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
