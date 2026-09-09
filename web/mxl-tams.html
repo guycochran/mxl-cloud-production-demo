@@ -22,7 +22,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 .tmbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#0c1220;border-top:1px solid #1a2338}
 .tmbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;cursor:pointer}
 .tmbar button:hover{border-color:#3c4a70}
-#attime{font-size:13px;font-weight:700;color:#ffb400;font-variant-numeric:tabular-nums;min-width:150px}
+.tmbar button.on{background:#ffb400;border-color:#ffb400;color:#141414}
+#attime{font-size:13px;font-weight:700;color:#ffb400;font-variant-numeric:tabular-nums;min-width:120px}
 #range{font-size:11px;color:#8b96b5;margin-left:auto;white-space:nowrap}
 .foot{flex:0 0 auto;padding:8px 20px;font-size:12px;color:#8b96b5;border-top:1px solid #1a2338;background:#0a0e1a}
 .foot b{color:#cfd8ef}
@@ -30,8 +31,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 </style></head><body>
 <header>
   <div>
-    <div class="brand">Office Hours <span>×</span> MXL &mdash; TAMS Time Machine</div>
-    <div class="tag">Left: <b style="color:#cfd8ef">scrub the show's recorded history</b> — pulled by time address from a <b style="color:#cfd8ef">BBC TAMS store</b>, while it's still being recorded. Right: the live program.</div>
+    <div class="brand">Office Hours <span>&times;</span> MXL &mdash; TAMS Time Machine</div>
+    <div class="tag">Left: <b style="color:#cfd8ef">scrub the show's recorded history</b> &mdash; pulled by time address from a <b style="color:#cfd8ef">BBC TAMS store</b>, while it's still being recorded. Right: the live program.</div>
   </div>
   <div class="live"><span class="dot"></span>RECORDING &middot; MXL grains &rarr; TAMS Flow Segments</div>
 </header>
@@ -40,10 +41,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     <div class="hd">&#9202; Time machine <span class="chip rec">&#9679; REC</span> <span class="chip" id="segcount">&hellip;</span></div>
     <video id="tmv" controls muted playsinline></video>
     <div class="tmbar">
-      <button id="jstart">&#9198; Oldest</button>
-      <button id="back5">-5 min</button>
+      <button id="mlive" class="on">&#9210; Recent</button>
+      <button id="march">&#128252; Full archive</button>
+      <button id="marefresh" style="display:none">&#8635;</button>
       <button id="back1">-1 min</button>
-      <button id="jend">Newest &#9197;</button>
+      <button id="back5">-5 min</button>
       <span id="attime">--:--:--</span>
       <span id="range">loading&hellip;</span>
     </div>
@@ -54,7 +56,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <span id="clipinfo" style="font-size:12px;color:#cfd8ef;font-variant-numeric:tabular-nums">no in/out set</span>
       <span style="margin-left:auto;display:flex;gap:8px">
         <button id="prevclip" disabled>&#9654; Preview</button>
-        <button id="fullshow" style="display:none">&#8634; Full show</button>
+        <button id="fullshow" style="display:none">&#8634; Back</button>
         <button id="saveclip" disabled style="border-color:#28d17c;color:#7de8ad">&#128190; Save to bin</button>
         <button id="copylink" disabled>&#128279; Copy link</button>
         <button id="dlclip" disabled style="border-color:#ffb400;color:#ffb400">&#11015; MP4</button>
@@ -62,7 +64,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     </div>
     <div id="bin" class="tmbar" style="border-top:1px solid #1a2338;overflow-x:auto;flex-wrap:nowrap;min-height:46px">
       <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5;flex:0 0 auto">BIN</span>
-      <span id="binempty" style="font-size:12px;color:#8b96b5">no saved clips yet — mark IN/OUT and hit Save</span>
+      <span id="binempty" style="font-size:12px;color:#8b96b5">no saved clips yet &mdash; mark IN/OUT and hit Save</span>
     </div>
   </div>
   <div class="pane">
@@ -70,78 +72,92 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     <iframe src="https://fabric-feed.YOUR-DOMAIN/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
   </div>
 </main>
-<div class="foot"><b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered — with capture-accurate timeranges — into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster ≈ $1.15/hr.</div>
+<div class="foot"><b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered &mdash; with capture-accurate timeranges &mdash; into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster &approx; $1.15/hr.</div>
 <script>
 (function(){
-  var M3U8='https://tams.YOUR-DOMAIN/flows/7a350001-aaaa-4bbb-8ccc-000000000001/output.m3u8';
+  var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
+  var BASE='https://tams.YOUR-DOMAIN/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
-  var t0=null,hls=null,firstLoad=true;
-  function fmt(d){return d.toISOString().substr(11,8)+'Z'}
-  function load(keepPos){
-    var pos=keepPos&&!isNaN(v.currentTime)?v.currentTime:null;
-    var wasPaused=v.paused;
+  var hls=null,mode='live';  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
+
+  function fmtD(d){return d?d.toISOString().substr(11,8)+'Z':'--:--:--'}
+  function playingDate(){
+    if(hls&&hls.playingDate)return hls.playingDate;
+    return null;
+  }
+  function newHls(){
     if(hls)hls.destroy();
-    hls=new Hls({maxBufferLength:10});
-    hls.loadSource(M3U8+'?t='+Date.now());
-    hls.attachMedia(v);
+    hls=new Hls({
+      // never force a jump back to the live edge while someone is scrubbing
+      liveSyncDurationCount:3,liveMaxLatencyDurationCount:99999,lowLatencyMode:false
+    });
+    hls.on(Hls.Events.ERROR,function(e,d){if(d.fatal)console.log('hls fatal',d.details)});
     hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
-      var d=data.details;
-      if(d.fragments.length){
-        t0=d.fragments[0].programDateTime?new Date(d.fragments[0].programDateTime):null;
-        var end=new Date(t0.getTime()+d.totalduration*1000);
-        rng.textContent='recorded: '+fmt(t0)+' → '+fmt(end)+' ('+Math.round(d.totalduration/60)+' min)';
-        sc.textContent=d.fragments.length+' segments';
-        if(firstLoad){v.currentTime=0;v.play().catch(function(){});firstLoad=false}
-        else if(pos!=null){v.currentTime=pos;if(!wasPaused)v.play().catch(function(){})}
+      var d=data.details,f=d.fragments;
+      if(f.length){
+        var s=f[0].programDateTime?new Date(f[0].programDateTime):null;
+        var en=s?new Date(s.getTime()+d.totalduration*1000):null;
+        rng.textContent=(mode==='clip'?'clip: ':mode==='archive'?'archive: ':'recent: ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
+        sc.textContent=f.length+' segments';
       }
     });
+    hls.attachMedia(v);
+    return hls;
   }
-  v.addEventListener('timeupdate',function(){if(t0)at.textContent=fmt(new Date(t0.getTime()+v.currentTime*1000))});
-  document.getElementById('jstart').onclick=function(){v.currentTime=0};
-  document.getElementById('jend').onclick=function(){v.currentTime=Math.max(0,v.duration-3)};
+  function goLive(){
+    mode='live';paintMode();
+    newHls().loadSource(BASE+'?type=live&t='+Date.now());
+    hls.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
+  }
+  function goArchive(){
+    mode='archive';paintMode();
+    newHls().loadSource(BASE+'?t='+Date.now());
+    hls.on(Hls.Events.MANIFEST_PARSED,function(){v.currentTime=0;v.play().catch(function(){})});
+  }
+  var ml=document.getElementById('mlive'),ma=document.getElementById('march'),mr=document.getElementById('marefresh'),fs=document.getElementById('fullshow');
+  function paintMode(){
+    ml.classList.toggle('on',mode==='live');ma.classList.toggle('on',mode==='archive');
+    mr.style.display=mode==='archive'?'':'none';fs.style.display=mode==='clip'?'':'none';
+  }
+  ml.onclick=goLive; ma.onclick=goArchive; mr.onclick=goArchive;
   document.getElementById('back1').onclick=function(){v.currentTime=Math.max(0,v.currentTime-60)};
   document.getElementById('back5').onclick=function(){v.currentTime=Math.max(0,v.currentTime-300)};
-  load(false);
-  var reload=setInterval(function(){if(!clipMode)load(true)},45000); // extend history, keep position
+  v.addEventListener('timeupdate',function(){at.textContent=fmtD(playingDate())});
 
-  // ── clipping: mark in/out → the clip already exists as a TAMS timerange ──
-  var inE=null,outE=null,clipMode=false;
+  // ── clipping ──
+  var inE=null,outE=null;
   var si=document.getElementById('setin'),so=document.getElementById('setout'),
       ci=document.getElementById('clipinfo'),pv=document.getElementById('prevclip'),
-      fs=document.getElementById('fullshow'),cl=document.getElementById('copylink'),
-      dl=document.getElementById('dlclip');
-  function curEpoch(){return t0?Math.floor((t0.getTime()+v.currentTime*1000)/1000):null}
+      cl=document.getElementById('copylink'),dl=document.getElementById('dlclip'),
+      sv=document.getElementById('saveclip');
+  function curEpoch(){var d=playingDate();return d?Math.floor(d.getTime()/1000):null}
   function fmtE(e){return new Date(e*1000).toISOString().substr(11,8)+'Z'}
   function paintClip(){
     var ok=inE!=null&&outE!=null&&outE>inE;
     ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT')+(ok?(' · '+(outE-inE)+'s'):'');
-    pv.disabled=cl.disabled=dl.disabled=!ok;
+    pv.disabled=cl.disabled=dl.disabled=sv.disabled=!ok;
   }
-  function clipUrl(){return 'https://tams.YOUR-DOMAIN/flows/7a350001-aaaa-4bbb-8ccc-000000000001/output.m3u8?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
-  si.onclick=function(){inE=curEpoch();if(outE!=null&&outE<=inE)outE=null;paintClip()};
-  so.onclick=function(){outE=curEpoch();if(inE!=null&&inE>=outE)inE=null;paintClip()};
+  function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
+  si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip()};
+  so.onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip()};
   pv.onclick=function(){
-    clipMode=true;fs.style.display='';pv.textContent='▶ Previewing…';
-    if(hls)hls.destroy();
-    hls=new Hls();hls.loadSource(clipUrl());hls.attachMedia(v);
+    mode='clip';paintMode();
+    newHls().loadSource(clipUrl());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.currentTime=0;v.play().catch(function(){})});
   };
-  fs.onclick=function(){clipMode=false;fs.style.display='none';pv.textContent='▶ Preview';firstLoad=true;load(false)};
+  fs.onclick=goLive;
   cl.onclick=function(){
-    // share a PLAYER link (browsers can't play raw .m3u8) — opens this page in clip mode
     var share=location.origin+location.pathname+'?clip='+inE+'_'+outE;
     navigator.clipboard.writeText(share).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
   };
   dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE+'&out='+outE};
 
-  // ── clip bin (server-side: every visitor sees the same queue) ──
-  var sv=document.getElementById('saveclip'),bin=document.getElementById('bin'),be=document.getElementById('binempty');
-  function paintClip2(){sv.disabled=pv.disabled}
-  var _pc=paintClip;paintClip=function(){_pc();paintClip2()};
+  // ── clip bin (server-side, shared by all visitors) ──
+  var bin=document.getElementById('bin'),be=document.getElementById('binempty');
   function binRow(c){
-    var d=document.createElement('span');
+    var d=document.createElement('span');d.className='binrow';
     d.style.cssText='flex:0 0 auto;display:flex;align-items:center;gap:5px;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:4px 8px;font-size:11px';
-    d.innerHTML='<b style="color:#cfd8ef">'+c.label.replace(/</g,'&lt;')+'</b><span style="color:#8b96b5">'+(c.out-c.in)+'s</span>';
+    d.innerHTML='<b style="color:#cfd8ef">'+String(c.label).replace(/</g,'&lt;')+'</b><span style="color:#8b96b5">'+(c.out-c.in)+'s</span>';
     function btn(txt,fn,title){var b=document.createElement('button');b.textContent=txt;b.title=title;b.style.cssText='font-size:11px;padding:2px 7px;background:#0c1220;border:1px solid #26314d;border-radius:5px;color:#cfd8ef;cursor:pointer';b.onclick=fn;d.appendChild(b)}
     btn('▶',function(){inE=c.in;outE=c.out;paintClip();pv.onclick()},'play clip');
     btn('🔗',function(){navigator.clipboard.writeText(location.origin+location.pathname+'?clip='+c.in+'_'+c.out)},'copy share link');
@@ -153,7 +169,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     fetch('/api/mxl/clips').then(function(r){return r.json()}).then(function(cs){
       bin.querySelectorAll('.binrow').forEach(function(n){n.remove()});
       be.style.display=cs.length?'none':'';
-      cs.forEach(function(c){var r=binRow(c);r.className='binrow';bin.appendChild(r)});
+      cs.forEach(function(c){bin.appendChild(binRow(c))});
     }).catch(function(){});
   }
   sv.onclick=function(){
@@ -168,10 +184,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 
   // shared clip link: ?clip=IN_OUT opens straight into clip playback
   var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
-  if(m){
-    inE=parseInt(m[1],10);outE=parseInt(m[2],10);paintClip();
-    setTimeout(function(){pv.onclick()},800);
-  }
+  if(m){inE=parseInt(m[1],10);outE=parseInt(m[2],10);paintClip();pv.onclick()}
+  else goLive();
 })();
 </script>
 </body></html>
