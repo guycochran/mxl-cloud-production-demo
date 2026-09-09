@@ -123,9 +123,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   };
   fs.onclick=function(){clipMode=false;fs.style.display='none';pv.textContent='▶ Preview';firstLoad=true;load(false)};
   cl.onclick=function(){
-    navigator.clipboard.writeText(clipUrl()).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
+    // share a PLAYER link (browsers can't play raw .m3u8) — opens this page in clip mode
+    var share=location.origin+location.pathname+'?clip='+inE+'_'+outE;
+    navigator.clipboard.writeText(share).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
   };
   dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE+'&out='+outE};
+
+  // shared clip link: ?clip=IN_OUT opens straight into clip playback
+  var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
+  if(m){
+    inE=parseInt(m[1],10);outE=parseInt(m[2],10);paintClip();
+    setTimeout(function(){pv.onclick()},800);
+  }
 })();
 </script>
 </body></html>
