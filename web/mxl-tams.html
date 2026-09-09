@@ -65,23 +65,21 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <span id="attime">--:--:--</span>
       <span id="range">loading&hellip;</span>
     </div>
-    <div class="tmbar" style="border-top:1px solid #1a2338">
+    <div class="tmbar" style="border-top:1px solid #1a2338;flex-wrap:wrap;gap:7px">
       <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5">CLIP</span>
       <button id="setin" title="shortcut: I">&#10218; IN <kbd style="font-size:9px;opacity:.6">I</kbd></button>
       <button id="setout" title="shortcut: O">OUT <kbd style="font-size:9px;opacity:.6">O</kbd> &#10219;</button>
+      <button id="saveclip" disabled style="border-color:#28d17c;color:#7de8ad">&#128190; Save <kbd style="font-size:9px;opacity:.6">S</kbd></button>
+      <button id="prevclip" disabled>&#9654; Preview</button>
+      <button id="fullshow" style="display:none">&#8634; Back</button>
+      <button id="copylink" disabled>&#128279; Link</button>
+      <button id="qrclip" disabled>&#128241; Take home</button>
+      <button id="dlclip" disabled style="border-color:#ffb400;color:#ffb400">&#11015; MP4</button>
       <span id="clipinfo" style="font-size:12px;color:#cfd8ef;font-variant-numeric:tabular-nums">no in/out set</span>
-      <span style="margin-left:auto;display:flex;gap:8px">
-        <button id="prevclip" disabled>&#9654; Preview</button>
-        <button id="fullshow" style="display:none">&#8634; Back</button>
-        <button id="saveclip" disabled style="border-color:#28d17c;color:#7de8ad">&#128190; Save to bin</button>
-        <button id="copylink" disabled>&#128279; Copy link</button>
-        <button id="qrclip" disabled>&#128241; Take it home</button>
-        <button id="dlclip" disabled style="border-color:#ffb400;color:#ffb400">&#11015; MP4</button>
-      </span>
     </div>
-    <div id="bin" class="tmbar" style="border-top:1px solid #1a2338;overflow-x:auto;flex-wrap:nowrap;min-height:46px">
-      <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5;flex:0 0 auto">BIN</span>
-      <span id="binempty" style="font-size:12px;color:#8b96b5">no saved clips yet &mdash; mark IN/OUT and hit Save</span>
+    <div style="flex:0 0 auto;border-top:1px solid #1a2338;background:#0c1220;padding:8px 14px;max-height:150px;overflow-y:auto">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5;margin-bottom:6px">BIN <span id="binempty" style="font-weight:400;text-transform:none;letter-spacing:0">&mdash; no saved clips yet, mark IN/OUT and hit Save</span></div>
+      <div id="bin" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:7px"></div>
     </div>
   </div>
   <div class="pane">
@@ -249,9 +247,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // ── clip bin (server-side, shared by all visitors) ──
   var bin=document.getElementById('bin'),be=document.getElementById('binempty');
   function binRow(c){
-    var d=document.createElement('span');d.className='binrow';
-    d.style.cssText='flex:0 0 auto;display:flex;align-items:center;gap:5px;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:4px 8px;font-size:11px';
-    d.innerHTML='<b style="color:#cfd8ef">'+String(c.label).replace(/</g,'&lt;')+'</b><span style="color:#8b96b5">'+(c.out-c.in)+'s</span>';
+    var d=document.createElement('div');d.className='binrow';
+    d.style.cssText='display:flex;align-items:center;gap:5px;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:5px 8px;font-size:11px;min-width:0';
+    d.innerHTML='<b style="color:#cfd8ef;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0">'+String(c.label).replace(/</g,'&lt;')+'</b><span style="color:#8b96b5;flex:0 0 auto">'+(c.out-c.in)+'s</span>';
     function btn(txt,fn,title){var b=document.createElement('button');b.textContent=txt;b.title=title;b.style.cssText='font-size:11px;padding:2px 7px;background:#0c1220;border:1px solid #26314d;border-radius:5px;color:#cfd8ef;cursor:pointer';b.onclick=fn;d.appendChild(b)}
     btn('▶',function(){inE=c.in;outE=c.out;paintClip();pv.onclick()},'play clip');
     btn('🔗',function(){navigator.clipboard.writeText(location.origin+location.pathname+'?clip='+c.in+'_'+c.out)},'copy share link');
