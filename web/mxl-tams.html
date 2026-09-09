@@ -51,8 +51,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     </div>
     <div class="tmbar" style="border-top:1px solid #1a2338">
       <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5">CLIP</span>
-      <button id="setin">&#10218; Set IN</button>
-      <button id="setout">Set OUT &#10219;</button>
+      <button id="setin" title="shortcut: I">&#10218; IN <kbd style="font-size:9px;opacity:.6">I</kbd></button>
+      <button id="setout" title="shortcut: O">OUT <kbd style="font-size:9px;opacity:.6">O</kbd> &#10219;</button>
       <span id="clipinfo" style="font-size:12px;color:#cfd8ef;font-variant-numeric:tabular-nums">no in/out set</span>
       <span style="margin-left:auto;display:flex;gap:8px">
         <button id="prevclip" disabled>&#9654; Preview</button>
@@ -72,7 +72,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     <iframe src="https://fabric-feed.YOUR-DOMAIN/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
   </div>
 </main>
-<div class="foot"><b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered &mdash; with capture-accurate timeranges &mdash; into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster &approx; $1.15/hr.</div>
+<div class="foot"><b>Keys:</b> <b>I</b>/<b>O</b> mark in/out &middot; <b>space</b> play/pause &middot; <b>&larr;/&rarr;</b> &plusmn;1s (shift &plusmn;10s) &middot; <b>J/K/L</b> shuttle &middot; <b>S</b> save clip &nbsp;|&nbsp; <b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered &mdash; with capture-accurate timeranges &mdash; into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster &approx; $1.15/hr.</div>
 <script>
 (function(){
   var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
@@ -181,6 +181,24 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       .catch(function(){sv.textContent='💾 Save to bin';paintClip()});
   };
   loadBin();setInterval(loadBin,20000);
+
+  // ── editor keyboard: I/O mark, space, arrows, J/K/L, S save ──
+  document.addEventListener('keydown',function(e){
+    if(e.metaKey||e.ctrlKey||e.altKey)return;
+    var tag=(e.target.tagName||'').toLowerCase();
+    if(tag==='input'||tag==='textarea'||e.target.isContentEditable)return;
+    var k=e.key.toLowerCase(),step=e.shiftKey?10:1;
+    if(k==='i'){si.onclick();flash(si)}
+    else if(k==='o'){so.onclick();flash(so)}
+    else if(k===' '){e.preventDefault();v.paused?v.play():v.pause()}
+    else if(k==='arrowleft'){e.preventDefault();v.currentTime=Math.max(0,v.currentTime-step)}
+    else if(k==='arrowright'){e.preventDefault();v.currentTime=Math.min(v.duration||1e9,v.currentTime+step)}
+    else if(k==='j'){v.currentTime=Math.max(0,v.currentTime-10)}
+    else if(k==='k'){v.pause()}
+    else if(k==='l'){v.paused?v.play():v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)}
+    else if(k==='s'){if(!sv.disabled)sv.onclick()}
+  });
+  function flash(b){b.style.background='#ffb400';b.style.color='#141414';setTimeout(function(){b.style.background='';b.style.color=''},180)}
 
   // shared clip link: ?clip=IN_OUT opens straight into clip playback
   var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
