@@ -117,7 +117,12 @@ store → playback: live production into time-addressable storage, on the same
 `POST /flows/{id}/segments`) plus one ffmpeg segmenter.
 
 **🔴 Scrub the show while it's being recorded: [prodbots.com/mxl-tams.html](https://prodbots.com/mxl-tams.html)**
-— the TAMS "time machine" side-by-side with the live program.
+— the TAMS "time machine" side-by-side with the live program, **with live clipping**:
+mark IN/OUT anywhere in the archive and the clip *already exists* — it's just a
+timerange URL against the store (zero media copied). One click more muxes it to
+a take-home MP4 by segment concat: a 15s clip of the live show exports in ~1.5s.
+This is TAMS's reason to exist — live-to-clip while the event runs — working
+against an MXL production.
 
 Next on the bench: a **grain-native segmenter** — reading v210 grains straight
 from the domain and grouping them into TAMS Flow Segments without the H.264
