@@ -1,0 +1,91 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office Hours × MXL — TAMS Time Machine</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#080b14;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto;padding:11px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #1a2338;background:linear-gradient(90deg,#0c1220,#0a0e1a)}
+header .brand{font-size:16px;font-weight:750;white-space:nowrap}
+header .brand span{color:#ffb400}
+header .tag{font-size:12px;color:#8b96b5;line-height:1.4;margin-top:2px}
+header .live{margin-left:auto;font-size:11px;color:#28d17c;white-space:nowrap;display:flex;align-items:center;gap:6px}
+header .live .dot{width:8px;height:8px;border-radius:50%;background:#28d17c;box-shadow:0 0 8px #28d17c;animation:p 1.6s ease-in-out infinite}
+@keyframes p{50%{opacity:.35}}
+main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.pane{position:relative;min-height:0;display:flex;flex-direction:column;background:#000}
+.pane.tm{border-right:1px solid #1a2338}
+.pane video,.pane iframe{flex:1 1 auto;min-height:0;width:100%;border:0;background:#000;object-fit:contain}
+.pane .hd{flex:0 0 auto;padding:7px 14px;font-size:11px;font-weight:700;letter-spacing:.6px;color:#8b96b5;background:#0c1220;text-transform:uppercase;display:flex;gap:10px;align-items:center}
+.pane .hd .chip{background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:2px 8px;color:#cfd8ef;font-weight:600;text-transform:none;letter-spacing:0}
+.pane .hd .chip.rec{border-color:#e5484d;color:#ff8f92}
+.tmbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#0c1220;border-top:1px solid #1a2338}
+.tmbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;cursor:pointer}
+.tmbar button:hover{border-color:#3c4a70}
+#attime{font-size:13px;font-weight:700;color:#ffb400;font-variant-numeric:tabular-nums;min-width:150px}
+#range{font-size:11px;color:#8b96b5;margin-left:auto;white-space:nowrap}
+.foot{flex:0 0 auto;padding:8px 20px;font-size:12px;color:#8b96b5;border-top:1px solid #1a2338;background:#0a0e1a}
+.foot b{color:#cfd8ef}
+@media(max-width:920px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.pane.tm{border-right:0;border-bottom:1px solid #1a2338}}
+</style></head><body>
+<header>
+  <div>
+    <div class="brand">Office Hours <span>×</span> MXL &mdash; TAMS Time Machine</div>
+    <div class="tag">Left: <b style="color:#cfd8ef">scrub the show's recorded history</b> — pulled by time address from a <b style="color:#cfd8ef">BBC TAMS store</b>, while it's still being recorded. Right: the live program.</div>
+  </div>
+  <div class="live"><span class="dot"></span>RECORDING &middot; MXL grains &rarr; TAMS Flow Segments</div>
+</header>
+<main>
+  <div class="pane tm">
+    <div class="hd">&#9202; Time machine <span class="chip rec">&#9679; REC</span> <span class="chip" id="segcount">&hellip;</span></div>
+    <video id="tmv" controls muted playsinline></video>
+    <div class="tmbar">
+      <button id="jstart">&#9198; Oldest</button>
+      <button id="back5">-5 min</button>
+      <button id="back1">-1 min</button>
+      <button id="jend">Newest &#9197;</button>
+      <span id="attime">--:--:--</span>
+      <span id="range">loading&hellip;</span>
+    </div>
+  </div>
+  <div class="pane">
+    <div class="hd">&#9654; Live program (for comparison) <span class="chip">via MXL fabric</span></div>
+    <iframe src="https://fabric-feed.YOUR-DOMAIN/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
+  </div>
+</main>
+<div class="foot"><b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered — with capture-accurate timeranges — into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster ≈ $1.15/hr.</div>
+<script>
+(function(){
+  var M3U8='https://tams.YOUR-DOMAIN/flows/7a350001-aaaa-4bbb-8ccc-000000000001/output.m3u8';
+  var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
+  var t0=null,hls=null,firstLoad=true;
+  function fmt(d){return d.toISOString().substr(11,8)+'Z'}
+  function load(keepPos){
+    var pos=keepPos&&!isNaN(v.currentTime)?v.currentTime:null;
+    var wasPaused=v.paused;
+    if(hls)hls.destroy();
+    hls=new Hls({maxBufferLength:10});
+    hls.loadSource(M3U8+'?t='+Date.now());
+    hls.attachMedia(v);
+    hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
+      var d=data.details;
+      if(d.fragments.length){
+        t0=d.fragments[0].programDateTime?new Date(d.fragments[0].programDateTime):null;
+        var end=new Date(t0.getTime()+d.totalduration*1000);
+        rng.textContent='recorded: '+fmt(t0)+' → '+fmt(end)+' ('+Math.round(d.totalduration/60)+' min)';
+        sc.textContent=d.fragments.length+' segments';
+        if(firstLoad){v.currentTime=0;v.play().catch(function(){});firstLoad=false}
+        else if(pos!=null){v.currentTime=pos;if(!wasPaused)v.play().catch(function(){})}
+      }
+    });
+  }
+  v.addEventListener('timeupdate',function(){if(t0)at.textContent=fmt(new Date(t0.getTime()+v.currentTime*1000))});
+  document.getElementById('jstart').onclick=function(){v.currentTime=0};
+  document.getElementById('jend').onclick=function(){v.currentTime=Math.max(0,v.duration-3)};
+  document.getElementById('back1').onclick=function(){v.currentTime=Math.max(0,v.currentTime-60)};
+  document.getElementById('back5').onclick=function(){v.currentTime=Math.max(0,v.currentTime-300)};
+  load(false);
+  setInterval(function(){load(true)},45000); // pull in newly recorded history, keep position
+})();
+</script>
+</body></html>
