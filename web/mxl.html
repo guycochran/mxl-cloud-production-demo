@@ -1,0 +1,94 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office Hours × MXL — Live Cloud Production</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#080b14;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto;padding:11px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #1a2338;background:linear-gradient(90deg,#0c1220,#0a0e1a)}
+header .brand{font-size:16px;font-weight:750;letter-spacing:.2px;white-space:nowrap}
+header .brand span{color:#ffb400}
+header .tag{font-size:12px;color:#8b96b5;line-height:1.4;margin-top:2px}
+header .live{margin-left:auto;font-size:11px;color:#28d17c;white-space:nowrap;display:flex;align-items:center;gap:6px}
+header .live .dot{width:8px;height:8px;border-radius:50%;background:#28d17c;box-shadow:0 0 8px #28d17c;animation:p 1.6s ease-in-out infinite}
+@keyframes p{50%{opacity:.35}}
+main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
+.pane{position:relative;min-height:0}
+.feed{background:#000;border-right:1px solid #1a2338}
+.feed iframe,.ctrl iframe{width:100%;height:100%;border:0;display:block}
+.badge{position:absolute;left:14px;bottom:12px;background:rgba(8,11,20,.74);backdrop-filter:blur(4px);padding:7px 12px;border-radius:8px;font-size:12px;color:#cfd8ef;border-left:3px solid #ffb400;pointer-events:none;z-index:3;max-width:80%}
+.feed{display:flex;flex-direction:column}
+.feedview{position:relative;flex:1 1 auto;min-height:0}
+.feedview iframe{width:100%;height:100%;border:0;display:block}
+.mxlbar{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:9px 14px;background:#0c1220;border-top:1px solid #1a2338;flex-wrap:nowrap;overflow-x:auto;min-height:44px}
+.mxlbar .lbl{font-size:10px;font-weight:700;letter-spacing:.7px;color:#8b96b5;text-transform:uppercase;margin-right:2px}
+.mxlbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;cursor:pointer;transition:all .15s}
+.mxlbar button:hover{border-color:#3c4a70;background:#182238}
+.mxlbar button.on{background:#ffb400;border-color:#ffb400;color:#141414}
+.mxlbar button:disabled{opacity:.45;cursor:wait}
+.mxlbar #keybtn.on{background:#28d17c;border-color:#28d17c}
+.mxlbar select{font:inherit;font-size:12px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 9px;cursor:pointer}
+.mxlbar .sep{width:1px;height:22px;background:#26314d;margin:0 4px}
+.mxlbar #mxlmsg{font-size:11px;color:#8b96b5;margin-left:auto;white-space:nowrap}
+.ctrl{background:#0a0e1a}
+.ctrl .hd{position:absolute;top:0;left:0;right:0;padding:7px 14px;font-size:11px;font-weight:700;letter-spacing:.6px;color:#8b96b5;background:linear-gradient(#0a0e14,rgba(10,14,20,0));pointer-events:none;z-index:3;text-transform:uppercase}
+@media(max-width:920px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.feed{border-right:0;border-bottom:1px solid #1a2338}}
+</style></head><body>
+<header>
+  <div>
+    <div class="brand">Office Hours <span>×</span> MXL &mdash; Live Cloud Production</div>
+    <div class="tag">This camera feed is flowing through an <b style="color:#cfd8ef">MXL shared-memory domain in Microsoft Azure</b> &mdash; graphics keyed in the cloud. Drive the real camera on the right. &rarr;</div>
+  </div>
+  <div class="live"><span class="dot"></span>LIVE &middot; camera in U.S. studio</div>
+</header>
+<main>
+  <div class="pane feed">
+    <div class="feedview">
+      <iframe src="https://YOUR-FEED-TUNNEL.trycloudflare.com/mxl2webrtc/" allow="autoplay" title="MXL program feed"></iframe>
+      <div class="badge">MXL program &mdash; your camera + graphics, rendered out of shared memory in Azure &middot; WebRTC to your screen</div>
+    </div>
+    <div class="mxlbar">
+      <span class="lbl">Program</span>
+      <button class="src" data-inp="0">&#128249; Live Camera</button>
+      <button class="src" data-inp="1">&#127902; Playout</button>
+      <button class="src" data-inp="2">&#127912; Pattern</button>
+      <span class="sep"></span>
+      <button id="keybtn">KEY</button>
+      <span class="sep"></span>
+      <span class="lbl">Pattern</span>
+      <select id="pat"><option value="" disabled selected>choose&hellip;</option></select>
+      <span id="mxlmsg"></span>
+    </div>
+  </div>
+  <div class="pane ctrl">
+    <div class="hd">&#9656; Drive the camera</div>
+    <iframe src="/ptz_op.html" allow="autoplay" title="PTZ operator control"></iframe>
+  </div>
+</main>
+<script>
+(function(){
+  var $=function(s){return document.querySelector(s)},$$=function(s){return document.querySelectorAll(s)};
+  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),busy=false,cur=null;
+  function setBusy(b,t){busy=b;$$('.mxlbar button,select').forEach(function(el){el.disabled=b});msg.textContent=t||''}
+  function paint(st){
+    cur=st.input;
+    $$('.src').forEach(function(b){b.classList.toggle('on',String(st.input)===b.dataset.inp)});
+    keybtn.classList.toggle('on',st.key);keybtn.textContent=st.key?'KEY ON':'KEY OFF';
+    if(pat.options.length<=1&&st.available){st.available.forEach(function(p){var o=document.createElement('option');o.value=o.textContent=p;pat.appendChild(o)})}
+    if(st.input===2&&st.patterns.tg1&&!busy)pat.value=st.patterns.tg1;
+  }
+  function refresh(){if(busy)return;fetch('/api/mxl/status').then(function(r){return r.json()}).then(function(st){if(!st.error)paint(st)}).catch(function(){})}
+  function post(url,body,note){
+    if(busy)return;setBusy(true,note||'working…');
+    fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json()})
+      .then(function(j){setBusy(false,j.error?('⚠ '+j.error):'');refresh()})
+      .catch(function(){setBusy(false,'⚠ request failed')});
+  }
+  $$('.src').forEach(function(b){b.addEventListener('click',function(){
+    post('/api/mxl/input',{input:Number(b.dataset.inp)},'cutting…');
+  })});
+  keybtn.addEventListener('click',function(){post('/api/mxl/key',{on:!keybtn.classList.contains('on')})});
+  pat.addEventListener('change',function(){if(pat.value)post('/api/mxl/pattern',{pattern:pat.value})});
+  refresh();setInterval(refresh,6000);
+})();
+</script>
+</body></html>
