@@ -26,6 +26,7 @@ SLOTS = {
     'cam2':    'ca222e00-aaaa-4bbb-8ccc-000000000001',
     'guest1':  '9e111e00-aaaa-4bbb-8ccc-000000000001',
     'guest2':  '9e222e00-aaaa-4bbb-8ccc-000000000001',
+    'layout':  '1a900700-aaaa-4bbb-8ccc-000000000001',
 }
 
 Gst.init(None)
