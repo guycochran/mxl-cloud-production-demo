@@ -30,7 +30,7 @@ const mxlKeyerBody = (inputUuid) => ({ mode: 'key', domain_path: '/mxl-domain',
   input_flow_uuid: inputUuid, html5_url: 'http://host.docker.internal:8085/lower-third.html',
   grouphint: 'HTML5-Keyer', description: 'cam + graphics', label: 'Keyer PGM' });
 const mxlEncoderBody = { domain_path: '/mxl-domain', video_flow_uuid: MXL_KEYER_OUT,
-  audio_flow_uuid: MXL_PGM_AUDIO, use_mediamtx: true,
+  use_mediamtx: true,
   encoder: { tune: 4, speed_preset: 2, bitrate: 6000, key_int_max: 30, intra_refresh: false } };
 const MXL_CAM2LIVE_FLOW = 'ca222e00-aaaa-4bbb-8ccc-000000000001'; // CAM 2 Live (Makito X4 static cam, cam2_ingest.py)
 const mxlSelectorBody = { domain_path: '/mxl-domain',

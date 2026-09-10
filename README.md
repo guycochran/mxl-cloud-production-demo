@@ -156,7 +156,8 @@ the MXL domain as its own v210 flow on selector slot 3 — the classic
 broadcast-contribution pattern, terminated in shared memory instead of a
 hardware decoder. Cuts to and from it are the same ~25 ms selector cuts.
 See FINDINGS §8 for the decoder-threading and multi-slice gotchas this
-surfaced.
+surfaced, and §9 for why the feed runs video-only and the cam is H.264 (both
+load-shedding decisions taken live while the demo was being shown).
 
 ## The hard-won lessons
 

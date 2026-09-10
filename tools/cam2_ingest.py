@@ -27,7 +27,7 @@ DST = 'ca222e00-aaaa-4bbb-8ccc-000000000001'   # CAM 2 Live (selector slot 3)
 Gst.init(None)
 pipe = Gst.parse_launch(
     f'rtspsrc location={URL} latency={JITTER_MS} name=src '
-    f'! rtph265depay ! h265parse ! avdec_h265 max-threads=4 thread-type=frame '
+    f'! rtph264depay ! h264parse ! avdec_h264 max-threads=4 thread-type=frame '
     f'! queue max-size-buffers=8 ! videorate name=vrate ! videoconvert n-threads=2 '
     f'! video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
     f'interlace-mode=progressive,colorimetry=bt709 '
@@ -77,7 +77,7 @@ bus.add_signal_watch()
 bus.connect('message::error', lambda b, m: (sys.stderr.write(f'ERR {m.parse_error()}\n'), loop.quit()))
 bus.connect('message::eos', lambda b, m: (sys.stderr.write('EOS\n'), loop.quit()))
 pipe.set_state(Gst.State.PLAYING)
-print(f'cam2_ingest running (explicit avdec_h265): {URL}', flush=True)
+print(f'cam2_ingest running (explicit avdec_h264): {URL}', flush=True)
 try:
     loop.run()
 finally:

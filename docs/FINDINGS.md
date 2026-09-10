@@ -121,7 +121,29 @@ Makito encodes it natively), but its software-decode cost (~1.3 cores) wasn't
 worth it on a saturated 8-core VM when the WebRTC leg is 4:2:0 8-bit anyway —
 Main10 4:2:0 at 20 Mbps is transparent for a locked shot.
 
-## 9. Assorted
+
+## 9. The real cost of software media on a shared VM (and how we shed it live)
+
+Running the whole chain — CEF keyer, x264 WebRTC encoder, two camera decodes,
+plus a fabric leg — on one 8-vCPU VM ran it at ~13/8 load. Under visitor load
+the CEF keyer (software SwiftShader render, no GPU) lost its cores and its
+output flow went stale, freezing the public program. Two things fixed it
+without a bigger box:
+
+- **HEVC → H.264 for the contribution camera.** Software HEVC decode of the
+  Makito's 1080p30 feed cost ~1.3 cores; the same stream as H.264 High costs
+  ~0.5. For a locked static shot at 12 Mbps the quality difference is invisible
+  in the 4:2:0-8-bit WebRTC output. When a software decoder is on the critical
+  path, codec choice is a scheduling decision, not just a bitrate one.
+- **Each `mxlsrc` SHM reader busy-spins a full core.** The audio-follow-video
+  writer held two of them (episode + tone) and alone accounted for ~2 cores of
+  the overload. Since the studio is silent, we dropped audio entirely and run
+  the encoder video-only. Lesson: a polling SHM reader is not free even when
+  the media it carries is silence — account for readers, not just writers.
+
+Result: load fell from ~13/8 to ~4/8; the freezes stopped.
+
+## 10. Assorted
 
 - **CEF/HTML5 keyer on CPU tops out ~50 fps at 1080p** (SwiftShader, no GPU on
   Azure D-series): keying 1080p60 drifts and eventually freezes. Run the chain
