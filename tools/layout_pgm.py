@@ -69,12 +69,44 @@ sink = pipe.get_by_name('sink')
 padA = comp.get_static_pad('sink_0')
 padB = comp.get_static_pad('sink_1')
 
-# NOTE: no output restamp. The input normalizers already put every buffer on
-# the pipeline clock with the writers' perfect cadence, and the output
-# videorate conforms them to an exact 30fps grid — the sink receives clean,
-# continuous, near-now timestamps. An extra free-running counter here (tried
-# first) drifted from the buffer timeline and scattered grains across wrong
-# ring indices: the program held a frame ~1.5s then leapt seconds ahead.
+# Output restamp, third iteration — the design cam_ingest proved:
+#  - a FREE-RUNNING counter (v1) ignored the buffer timeline and scattered
+#    grains across wrong ring indices (frozen picture, multi-second leaps);
+#  - NO restamp (v2) let the output videorate free-run on its own ideal grid,
+#    which drifted ~ahead of wall clock over ~25 min until readers hit
+#    "grain out of range - too early" (selector wedge on slot 6);
+#  - v3: FOLLOW the buffer timeline through ONE locked offset, and re-lock
+#    when sustained drift vs now+margin exceeds 150ms for ~45 buffers.
+#    Continuity of videorate's grid + bounded to wall clock = both bugs dead.
+out_state = {'off': None, 'drift_n': 0}
+RESYNC_NS = 150_000_000
+RESYNC_COUNT = 45
+
+
+def out_restamp(pad, info):
+    buf = info.get_buffer()
+    clock = pipe.get_clock()
+    if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
+        return Gst.PadProbeReturn.OK
+    now = clock.get_time() - pipe.get_base_time()
+    if out_state['off'] is None:
+        out_state['off'] = now + MARGIN_NS - buf.pts
+    mapped = buf.pts + out_state['off']
+    if abs(mapped - (now + MARGIN_NS)) > RESYNC_NS:
+        out_state['drift_n'] += 1
+        if out_state['drift_n'] >= RESYNC_COUNT:
+            out_state['off'] = now + MARGIN_NS - buf.pts
+            mapped = buf.pts + out_state['off']
+            out_state['drift_n'] = 0
+            print('output drift re-sync', flush=True)
+    else:
+        out_state['drift_n'] = 0
+    buf.pts = mapped
+    buf.duration = FRAME_NS
+    return Gst.PadProbeReturn.OK
+
+
+sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, out_restamp)
 
 
 # Input normalizer — cam_relay's latency-normalizer pattern: domain-grain
