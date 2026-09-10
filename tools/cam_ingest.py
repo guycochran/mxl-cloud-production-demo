@@ -13,7 +13,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-URL = sys.argv[1] if len(sys.argv) > 1 else 'rtsp://USER:PASS@172.17.0.1:8554/cam1'
+URL = sys.argv[1] if len(sys.argv) > 1 else 'rtsp://admin:Password@172.17.0.1:8554/cam1'
 JITTER_MS = int(sys.argv[2]) if len(sys.argv) > 2 else 200
 # Stamp grains slightly ahead of "now": readers at now always find the grain
 # written (prevents ring-slot stale reads = content flashes on missed indices).
@@ -32,6 +32,8 @@ src = Gst.ElementFactory.make('uridecodebin', 'src')
 src.set_property('uri', URL)
 q = Gst.ElementFactory.make('queue', 'q')
 conv = Gst.ElementFactory.make('videoconvert', 'conv')
+rate = Gst.ElementFactory.make('videorate', 'rate')  # camera-native fps (e.g. 60) -> exact 30
+rate.set_property('drop-only', False)
 caps = Gst.ElementFactory.make('capsfilter', 'caps')
 caps.set_property('caps', Gst.Caps.from_string(
     'video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
@@ -41,9 +43,9 @@ for k, v in dict(domain='/mxl-domain', **{'flow-id': DST}, label='CAM Live',
                  description='low-latency cam ingest', **{'group-hint': 'CameraLive:Video'}).items():
     sink.set_property(k, v)
 sink.set_property('sync', False)
-for e in (src, q, conv, caps, sink):
+for e in (src, q, conv, rate, caps, sink):
     pipe.add(e)
-q.link(conv); conv.link(caps); caps.link(sink)
+q.link(conv); conv.link(rate); rate.link(caps); caps.link(sink)
 
 def on_source_setup(_, source):
     if hasattr(source.props, 'latency'):
