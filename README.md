@@ -114,7 +114,9 @@ from 11½ minutes in the past whose in-picture cloud-keyed clock matched its
 TAMS timerange to the second. Capture timing preserved from camera → fabric →
 store → playback: live production into time-addressable storage, on the same
 ~$1/hr cluster. Bridge code: a ~90-line shipper (segment → presigned PUT →
-`POST /flows/{id}/segments`) plus one ffmpeg segmenter.
+`POST /flows/{id}/segments`) plus one ffmpeg segmenter. **Full replication
+recipe — architecture, grain→segment mapping, and eight earned gotchas — in
+[docs/TAMS.md](docs/TAMS.md).**
 
 **🔴 Scrub the show while it's being recorded: [prodbots.com/mxl-tams.html](https://prodbots.com/mxl-tams.html)**
 — the TAMS "time machine" side-by-side with the live program, **with live clipping**:
