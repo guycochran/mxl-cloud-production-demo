@@ -61,6 +61,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   </div>
   <div class="live"><span class="dot"></span>LIVE &middot; camera in U.S. studio</div>
   <a class="live" href="/mxl-tams.html" title="Everything here is being recorded into a time-addressable store — scrub it, clip it" style="margin-left:14px;color:#ff8f92;text-decoration:none"><span class="dot" style="background:#e5484d;box-shadow:0 0 8px #e5484d"></span>REC</a>
+  <button id="v60" title="Swap the big view: produced MXL program (30p + cloud graphics) vs the camera&#39;s native 1080p60 straight off SRT — zero transcode anywhere" style="margin-left:14px;font:inherit;font-size:11px;font-weight:700;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:4px 10px;cursor:pointer;white-space:nowrap">&#127902; 60p direct</button>
 </header>
 <main>
   <div class="pane feed">
@@ -226,6 +227,21 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       probe.src='/api/mxl/thumbs/'+n+'.jpg?t='+Date.now();
     });
   }
+  // 60p-direct toggle: the de-transcoded chain means the camera's NATIVE
+  // 1080p60 already sits in mediamtx — this view costs the server nothing.
+  var v60=$('#v60'),feedFrame=document.querySelector('.feedview iframe'),feedBadge=document.querySelector('.feedview .badge');
+  var v60on=false;
+  v60.addEventListener('click',function(){
+    v60on=!v60on;
+    feedFrame.src=v60on?'/mxlfeed/cam1/':'/mxlfeed/mxl2webrtc/';
+    feedBadge.textContent=v60on
+      ?'Camera DIRECT — native 1080p60 off the SRT contribution, zero transcode anywhere in the path'
+      :'MXL program — your camera + graphics, rendered out of shared memory in Azure · WebRTC to your screen';
+    v60.textContent=v60on?'\uD83C\uDF9B PROGRAM view':'\uD83C\uDF9E 60p direct';
+    v60.style.color=v60on?'#ffb400':'#8b96b5';
+    v60.style.borderColor=v60on?'#ffb400':'#26314d';
+  });
+
   refreshThumbs();setInterval(refreshThumbs,2500);
   refresh();setInterval(refresh,6000);
 })();
