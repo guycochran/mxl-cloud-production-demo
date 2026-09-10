@@ -18,17 +18,36 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 .feed{display:flex;flex-direction:column}
 .feedview{position:relative;flex:1 1 auto;min-height:0}
 .feedview iframe{width:100%;height:100%;border:0;display:block}
-.mxlbar{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:9px 14px;background:#0c1220;border-top:1px solid #1a2338;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;height:62px;scrollbar-width:none}
+.mxlbar{flex:0 0 auto;display:flex;align-items:stretch;gap:10px;padding:8px 14px;background:#0c1220;border-top:1px solid #1a2338;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
 .mxlbar::-webkit-scrollbar{display:none}
-.mxlbar .lbl{font-size:10px;font-weight:700;letter-spacing:.7px;color:#8b96b5;text-transform:uppercase;margin-right:2px}
-.mxlbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 13px;cursor:pointer;transition:all .15s}
+.mxlbar .lbl{font-size:10px;font-weight:700;letter-spacing:.7px;color:#8b96b5;text-transform:uppercase}
+.mxlbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:6px 12px;cursor:pointer;transition:all .12s}
 .mxlbar button:hover{border-color:#3c4a70;background:#182238}
-.mxlbar button.on{background:#ffb400;border-color:#ffb400;color:#141414}
-.mxlbar button:disabled{opacity:.45;cursor:wait}
-.mxlbar #keybtn.on{background:#28d17c;border-color:#28d17c}
-.mxlbar select{font:inherit;font-size:12px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:7px 9px;cursor:pointer}
-.mxlbar .sep{width:1px;height:22px;background:#26314d;margin:0 4px}
-.mxlbar #mxlmsg{font-size:11px;color:#8b96b5;margin-left:auto;white-space:nowrap;flex:0 0 auto;min-width:56px;text-align:right}
+.mxlbar button:disabled{opacity:.4;cursor:not-allowed}
+.mxlbar #keybtn.on{background:#28d17c;border-color:#28d17c;color:#08130c}
+.mxlbar select{font:inherit;font-size:12px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:6px 9px;cursor:pointer}
+.mxlbar #mxlmsg{font-size:11px;color:#8b96b5;white-space:nowrap;min-width:56px}
+/* ── ATEM-style buses: red = PROGRAM (on air), green = PREVIEW (armed next) ── */
+.buses{display:flex;flex-direction:column;gap:5px;justify-content:center}
+.bus{display:flex;gap:5px;align-items:center}
+.bus .blbl{flex:0 0 32px;font-size:9px;font-weight:800;letter-spacing:.6px;text-align:right}
+.bus.pgmrow .blbl{color:#e5484d}
+.bus.pvwrow .blbl{color:#28d17c}
+.bus .src{min-width:86px;white-space:nowrap;font-size:11px;padding:5px 9px}
+.bus.pgmrow .src.on{background:#e5484d;border-color:#e5484d;color:#fff;box-shadow:0 0 10px rgba(229,72,77,.55)}
+.bus.pvwrow .src.on{background:#28d17c;border-color:#28d17c;color:#08130c;box-shadow:0 0 10px rgba(40,209,124,.45)}
+.bus .src.nofeed{opacity:.35;cursor:not-allowed}
+#cutbtn{align-self:stretch;min-width:64px;font-size:14px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
+#cutbtn:hover{background:#e5484d;border-color:#e5484d}
+.sidecol{display:flex;flex-direction:column;gap:5px;justify-content:center}
+.sidecol .row{display:flex;gap:6px;align-items:center}
+/* contributor panel */
+#contrib{position:absolute;right:12px;bottom:76px;z-index:6;background:#0c1220;border:1px solid #26314d;border-radius:11px;padding:13px 15px;width:430px;max-width:92%;box-shadow:0 10px 32px rgba(0,0,0,.6);display:none}
+#contrib h3{font-size:13px;color:#ffb400;margin-bottom:6px}
+#contrib .u{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:#080b14;border:1px solid #26314d;border-radius:7px;padding:7px 9px;color:#cfd8ef;word-break:break-all;margin:5px 0}
+#contrib p{font-size:11px;color:#8b96b5;line-height:1.5}
+#contrib .st{font-size:11px;font-weight:700;margin-top:6px}
+#contrib button{font:inherit;font-size:11px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:4px 9px;cursor:pointer}
 .ctrl{background:#0a0e1a}
 .ctrl .hd{position:absolute;top:0;left:0;right:0;padding:7px 14px;font-size:11px;font-weight:700;letter-spacing:.6px;color:#8b96b5;background:linear-gradient(#0a0e14,rgba(10,14,20,0));pointer-events:none;z-index:3;text-transform:uppercase}
 @media(max-width:920px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.feed{border-right:0;border-bottom:1px solid #1a2338}}
@@ -47,19 +66,30 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       <iframe src="https://mxl-feed.cochran.cloud/mxl2webrtc/" allow="autoplay" title="MXL program feed"></iframe>
       <div class="badge">MXL program &mdash; your camera + graphics, rendered out of shared memory in Azure &middot; WebRTC to your screen</div>
     </div>
+    <div id="contrib">
+      <h3>&#128752; Send us your feed &mdash; become an input on this switcher</h3>
+      <p>Push an <b style="color:#cfd8ef">SRT</b> stream (H.264, any resolution/framerate &mdash; we conform it to 1080p30) and it appears on the <b style="color:#cfd8ef">Guest</b> buttons within ~15 seconds, cuttable into the live MXL program like any camera:</p>
+      <div class="u" id="srturl">srt://20.64.205.144:8890?streamid=publish:guest1&amp;latency=200</div>
+      <p>ffmpeg example:&nbsp; <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">ffmpeg -re -i YOURSOURCE -c:v libx264 -tune zerolatency -b:v 4000k -f mpegts "srt://20.64.205.144:8890?streamid=publish:guest1&amp;latency=200"</span></p>
+      <p>Second slot: swap <b>guest1</b> &rarr; <b>guest2</b> in the streamid.</p>
+      <div class="st" id="conststat">Guest 1: &mdash; &middot; Guest 2: &mdash;</div>
+      <div style="display:flex;gap:8px;margin-top:8px"><button id="copysrt">&#128203; Copy URL</button><button id="contribclose">Close</button></div>
+    </div>
     <div class="mxlbar">
-      <span class="lbl">1 &middot; Switch</span>
-      <button class="src" data-inp="0">&#128249; Live Camera</button>
-      <button class="src" data-inp="3">&#127916; Studio Cam 2</button>
-      <button class="src" data-inp="1">&#127902; Playout</button>
-      <button class="src" data-inp="2">&#127912; Pattern</button>
-      <span class="sep"></span>
-      <button id="keybtn">KEY</button>
-      <span class="sep"></span>
-      <span class="lbl">Pattern</span>
-      <select id="pat"><option value="" disabled selected>choose&hellip;</option></select>
-      <span id="mxlmsg"></span>
-      <a href="/mxl-tams.html" style="margin-left:auto;font-size:11px;font-weight:600;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:6px 11px;text-decoration:none;white-space:nowrap;transition:all .15s" onmouseover="this.style.color='#ffb400';this.style.borderColor='#ffb400'" onmouseout="this.style.color='#8b96b5';this.style.borderColor='#26314d'">3 &middot; clip what you made &#9986; &rarr;</a>
+      <div class="buses">
+        <div class="bus pgmrow"><span class="blbl">PGM</span>
+          <button class="src" data-inp="0">&#128249; Cam 1</button><button class="src" data-inp="3">&#127916; Cam 2</button><button class="src" data-inp="1">&#127902; Playout</button><button class="src" data-inp="2">&#127912; Pattern</button><button class="src g" data-inp="4">&#128752; Guest 1</button><button class="src g" data-inp="5">&#128752; Guest 2</button>
+        </div>
+        <div class="bus pvwrow"><span class="blbl">PVW</span>
+          <button class="src" data-inp="0">&#128249; Cam 1</button><button class="src" data-inp="3">&#127916; Cam 2</button><button class="src" data-inp="1">&#127902; Playout</button><button class="src" data-inp="2">&#127912; Pattern</button><button class="src g" data-inp="4">&#128752; Guest 1</button><button class="src g" data-inp="5">&#128752; Guest 2</button>
+        </div>
+      </div>
+      <button id="cutbtn" title="cut preview to program">CUT</button>
+      <div class="sidecol">
+        <div class="row"><button id="keybtn">KEY</button><select id="pat"><option value="" disabled selected>pattern&hellip;</option></select><span id="mxlmsg"></span></div>
+        <div class="row"><button id="contribbtn">&#128752; Send us your feed</button>
+        <a href="/mxl-tams.html" style="font-size:11px;font-weight:600;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:5px 10px;text-decoration:none;white-space:nowrap;transition:all .15s" onmouseover="this.style.color='#ffb400';this.style.borderColor='#ffb400'" onmouseout="this.style.color='#8b96b5';this.style.borderColor='#26314d'">clip it &#9986; &rarr;</a></div>
+      </div>
     </div>
   </div>
   <div class="pane ctrl">
@@ -70,28 +100,65 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 <script>
 (function(){
   var $=function(s){return document.querySelector(s)},$$=function(s){return document.querySelectorAll(s)};
-  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),busy=false,cur=null;
+  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),cutbtn=$('#cutbtn'),busy=false;
+  // ATEM semantics: PGM row = on air (red, clicking = hot cut), PVW row = armed
+  // next (green, client-side), CUT = take preview to program then flip-flop.
+  var pgm=null, pvw=1, liveMap={};
   function setBusy(b,t){busy=b;$$('.mxlbar button,select').forEach(function(el){el.disabled=b});msg.textContent=t||''}
+  function paintBuses(){
+    $$('.bus.pgmrow .src').forEach(function(b){
+      var i=Number(b.dataset.inp);
+      b.classList.toggle('on',pgm===i);
+      b.classList.toggle('nofeed',liveMap[i]===false);
+    });
+    $$('.bus.pvwrow .src').forEach(function(b){
+      var i=Number(b.dataset.inp);
+      b.classList.toggle('on',pvw===i);
+      b.classList.toggle('nofeed',liveMap[i]===false);
+    });
+  }
   function paint(st){
-    cur=st.input;
-    $$('.src').forEach(function(b){b.classList.toggle('on',String(st.input)===b.dataset.inp)});
+    pgm=st.input;
+    if(st.slots){
+      st.slots.forEach(function(s){liveMap[s.slot]=s.live});
+      var g1=st.slots[4],g2=st.slots[5];
+      $('#conststat').innerHTML='Guest 1: '+(g1&&g1.live?'<span style="color:#28d17c">&#9679; receiving</span>':'<span style="color:#8b96b5">&#9675; awaiting feed</span>')
+        +' &middot; Guest 2: '+(g2&&g2.live?'<span style="color:#28d17c">&#9679; receiving</span>':'<span style="color:#8b96b5">&#9675; awaiting feed</span>');
+    }
+    if(pvw===pgm){var alt=[0,1,2,3,4,5].filter(function(i){return i!==pgm&&liveMap[i]!==false});pvw=alt.length?alt[0]:pvw}
+    paintBuses();
     keybtn.classList.toggle('on',st.key);keybtn.textContent=st.key?'KEY ON':'KEY OFF';
     if(pat.options.length<=1&&st.available){st.available.forEach(function(p){var o=document.createElement('option');o.value=o.textContent=p;pat.appendChild(o)})}
     if(st.input===2&&st.patterns.tg1&&!busy)pat.value=st.patterns.tg1;
   }
   function refresh(){if(busy)return;fetch('/api/mxl/status').then(function(r){return r.json()}).then(function(st){if(!st.error)paint(st)}).catch(function(){})}
-  function post(url,body,note){
+  function post(url,body,note,done){
     if(busy)return;setBusy(true,note||'working…');
     fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json()})
-      .then(function(j){setBusy(false,j.error?('⚠ '+j.error):'');refresh()})
+      .then(function(j){setBusy(false,j.error?('⚠ '+j.error):'');if(!j.error&&done)done(j);refresh()})
       .catch(function(){setBusy(false,'⚠ request failed')});
   }
-  $$('.src').forEach(function(b){b.addEventListener('click',function(){
-    post('/api/mxl/input',{input:Number(b.dataset.inp)},'cutting…');
+  function cutTo(i){
+    var was=pgm;
+    post('/api/mxl/input',{input:i},'cutting…',function(){pgm=i;if(was!=null&&was!==i)pvw=was;paintBuses()});
+  }
+  $$('.bus.pgmrow .src').forEach(function(b){b.addEventListener('click',function(){
+    var i=Number(b.dataset.inp);if(liveMap[i]===false)return;cutTo(i);
   })});
+  $$('.bus.pvwrow .src').forEach(function(b){b.addEventListener('click',function(){
+    var i=Number(b.dataset.inp);if(liveMap[i]===false)return;pvw=i;paintBuses();
+  })});
+  cutbtn.addEventListener('click',function(){if(pvw!=null&&pvw!==pgm)cutTo(pvw)});
   keybtn.addEventListener('click',function(){post('/api/mxl/key',{on:!keybtn.classList.contains('on')})});
   pat.addEventListener('change',function(){if(pat.value)post('/api/mxl/pattern',{pattern:pat.value})});
+  // contributor panel
+  $('#contribbtn').addEventListener('click',function(){var c=$('#contrib');c.style.display=c.style.display==='block'?'none':'block'});
+  $('#contribclose').addEventListener('click',function(){$('#contrib').style.display='none'});
+  $('#copysrt').addEventListener('click',function(){
+    navigator.clipboard.writeText('srt://20.64.205.144:8890?streamid=publish:guest1&latency=200')
+      .then(function(){$('#copysrt').textContent='✓ Copied';setTimeout(function(){$('#copysrt').textContent='📋 Copy URL'},1500)});
+  });
   refresh();setInterval(refresh,6000);
 })();
 </script>
