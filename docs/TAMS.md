@@ -83,7 +83,11 @@ Per segment the shipper does exactly what the TAMS spec intends:
 `POST /flows/{id}/storage` → gateway allocates an object id →
 `PUT` the bytes to object storage → `POST /flows/{id}/segments` with
 `{object_id, timerange}`. It also cuts one ~5 KB jpeg per second into
-`thumbs/<epoch>.jpg` — that's the scrub bar's filmstrip.
+`thumbs/<epoch>.jpg`, and batches each completed minute into a **storyboard
+sprite** (`sprites/<minute-epoch>.jpg`, a 10×6 sheet of 192×108 tiles, ~100 KB)
+— the scrub bar fetches one sprite per minute of timeline instead of one jpg
+per hovered second, with the per-second thumbs as the live-edge fallback. This
+is the storyboard/VTT-thumbnails convention players like JW and Video.js use.
 
 **Playback** is the store's own HLS endpoint: ask for a timerange, get a
 playlist. The scrub page is just hls.js pointed at timerange queries, with
@@ -105,9 +109,10 @@ exports to MP4 in ~1.5 s — segment concat, no re-encode, because the clip
    timerange-keyed, so the shipper ships 4-wide in parallel to hold 1 s
    cadence. Skip files younger than ~2.5 s (still being written) and runt
    segments (<10 KB, startup artifacts).
-4. **Prune both halves.** We retain 2 h: one `DELETE /flows/{id}/segments
-   ?timerange=[0:0_cutoff:0)` plus an S3 sweep of expired `thumbs/`. Forgetting
-   the second half leaks thumbnails forever.
+4. **Prune all three halves.** We retain 12 h (~33 GB at 6 Mb/s): one `DELETE /flows/{id}/segments
+   ?timerange=[0:0_cutoff:0)` plus S3 sweeps of expired `thumbs/` and `sprites/`, plus deleting clip
+   flows whose timerange aged out — otherwise the shared clip bin fills with
+   clips whose media no longer exists.
 5. **Bound the archive playlist you hand the player.** A full 2 h window is a
    ~3 MB m3u8 with ~7,200 entries — hls.js manages every fragment on every
    seek and turns to molasses. Default the UI to a 30 min window, full archive
@@ -117,7 +122,13 @@ exports to MP4 in ~1.5 s — segment concat, no re-encode, because the clip
    live edge. Walk outward ±1..±4 s to the nearest existing frame.
 7. **Cloudflare bans Python's default urllib User-Agent** (error 1010) —
    set any custom UA on gateway requests through a tunnel.
-8. **Keep the spool bounded.** If the store is unreachable, drop oldest beyond
+8. **Bodyless DELETEs must not declare `Content-Type: application/json`** —
+   the gateway 400s them ("Body cannot be empty"). Also: timeranges in query
+   strings must be raw (percent-encoding → 400) and epoch bounds must fit
+   int32 seconds. Flow/segment DELETEs return **202 and apply async**.
+9. **A new public object prefix needs the bucket policy extended** — MinIO
+   anonymous read is per-prefix; `sprites/*` 403'd until added.
+10. **Keep the spool bounded.** If the store is unreachable, drop oldest beyond
    ~600 segments; the show must not fill the disk.
 
 ## Honest limits
