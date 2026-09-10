@@ -46,16 +46,16 @@ Gst.init(None)
 branches = ''
 for i, name in enumerate(SLOTS):
     branches += (
-        f'mxlsrc domain=/mxl-domain video-flow-id={FLOWS[name]} ! queue max-size-buffers=2 leaky=downstream ! tee name=t{i} '
+        f'mxlsrc name=src{i} domain=/mxl-domain video-flow-id={FLOWS[name]} ! queue max-size-buffers=2 leaky=downstream ! tee name=t{i} '
         f't{i}. ! queue max-size-buffers=2 leaky=downstream ! selA.sink_{i} '
         f't{i}. ! queue max-size-buffers=2 leaky=downstream ! selB.sink_{i} '
     )
 
 pipe = Gst.parse_launch(
     branches +
-    f'input-selector name=selA sync-mode=1 ! videoconvert ! queue max-size-buffers=2 ! comp.sink_0 '
-    f'input-selector name=selB sync-mode=1 ! videoconvert ! queue max-size-buffers=2 ! comp.sink_1 '
-    f'compositor name=comp background=black ! video/x-raw,width=1920,height=1080 ! '
+    f'input-selector name=selA sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert ! queue max-size-buffers=2 ! comp.sink_0 '
+    f'input-selector name=selB sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert ! queue max-size-buffers=2 ! comp.sink_1 '
+    f'compositor name=comp background=black latency=100000000 ! video/x-raw,width=1920,height=1080 ! '
     f'videorate drop-only=false ! video/x-raw,framerate=30/1 ! videoconvert ! '
     f'video/x-raw,format=v210 ! queue max-size-buffers=2 ! '
     f'mxlsink name=sink domain=/mxl-domain flow-id={DST} label="Layout PGM" '
@@ -69,24 +69,39 @@ sink = pipe.get_by_name('sink')
 padA = comp.get_static_pad('sink_0')
 padB = comp.get_static_pad('sink_1')
 
-state = {'next_pts': None}
+# NOTE: no output restamp. The input normalizers already put every buffer on
+# the pipeline clock with the writers' perfect cadence, and the output
+# videorate conforms them to an exact 30fps grid — the sink receives clean,
+# continuous, near-now timestamps. An extra free-running counter here (tried
+# first) drifted from the buffer timeline and scattered grains across wrong
+# ring indices: the program held a frame ~1.5s then leapt seconds ahead.
 
 
-def restamp(pad, info):
-    buf = info.get_buffer()
-    clock = pipe.get_clock()
-    if not clock:
+# Input normalizer — cam_relay's latency-normalizer pattern: domain-grain
+# PTS mean nothing to this pipeline's clock, but their CADENCE is perfect
+# (every writer restamps continuously). So shift each source by ONE locked
+# offset (re-locked on >500ms drift) instead of stamping "now" per buffer:
+# now-based stamps jitter with arrival and make the per-branch videorate
+# drop real frames and fill with duplicates (the frozen-pan bug).
+def make_normalizer():
+    st = {'off': None}
+
+    def probe(pad, info):
+        buf = info.get_buffer()
+        clock = pipe.get_clock()
+        if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
+            return Gst.PadProbeReturn.OK
+        now = clock.get_time() - pipe.get_base_time()
+        if st['off'] is None or abs((buf.pts + st['off']) - (now + MARGIN_NS)) > 500_000_000:
+            st['off'] = now + MARGIN_NS - buf.pts
+        buf.pts += st['off']
         return Gst.PadProbeReturn.OK
-    now = clock.get_time() - pipe.get_base_time()
-    if state['next_pts'] is None or abs(now + MARGIN_NS - state['next_pts']) > 500_000_000:
-        state['next_pts'] = now + MARGIN_NS
-    buf.pts = state['next_pts']
-    buf.duration = FRAME_NS
-    state['next_pts'] += FRAME_NS
-    return Gst.PadProbeReturn.OK
+    return probe
 
 
-sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, restamp)
+for _i in range(len(SLOTS)):
+    pipe.get_by_name(f'src{_i}').get_static_pad('src') \
+        .add_probe(Gst.PadProbeType.BUFFER, make_normalizer())
 
 
 def apply_geometry(style):
