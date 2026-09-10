@@ -118,11 +118,15 @@ sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, out_restamp)
 # offset (re-locked on >500ms drift) instead of stamping "now" per buffer:
 # now-based stamps jitter with arrival and make the per-branch videorate
 # drop real frames and fill with duplicates (the frozen-pan bug).
-def make_normalizer():
+last_buf = {i: 0.0 for i in range(len(SLOTS))}  # monotonic ts of last buffer per source
+
+
+def make_normalizer(idx):
     st = {'off': None}
 
     def probe(pad, info):
         buf = info.get_buffer()
+        last_buf[idx] = time.monotonic()
         clock = pipe.get_clock()
         if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
             return Gst.PadProbeReturn.OK
@@ -136,7 +140,7 @@ def make_normalizer():
 
 for _i in range(len(SLOTS)):
     pipe.get_by_name(f'src{_i}').get_static_pad('src') \
-        .add_probe(Gst.PadProbeType.BUFFER, make_normalizer())
+        .add_probe(Gst.PadProbeType.BUFFER, make_normalizer(_i))
 
 
 def apply_geometry(style):
@@ -175,18 +179,56 @@ def control():
                 ib = SLOTS.index(b) if b in SLOTS else 3
                 selA.set_property('active-pad', selA.get_static_pad(f'sink_{ia}'))
                 selB.set_property('active-pad', selB.get_static_pad(f'sink_{ib}'))
+                active['a'] = ia
+                active['b'] = ib
                 apply_geometry(style)
                 cur = key
                 print(f'layout -> {style} A={a} B={b}', flush=True)
         except Exception:
             pass  # backend briefly unreachable — keep last layout
-        time.sleep(2)  # 0.5s HTTPS polling contended the GIL against ~210 probe calls/s
+        time.sleep(1)
 
 
 apply_geometry('2up')
 selA.set_property('active-pad', selA.get_static_pad('sink_0'))
 selB.set_property('active-pad', selB.get_static_pad('sink_3'))
+active = {'a': 0, 'b': 3}  # kept current by control()
+
+
+def wedge_watch():
+    """An MXL reader wedges silently when its source flow is recreated
+    (writer restart) after we attached — the branch stops delivering while
+    everything else flows. Repairing the selector doesn't help US; only a
+    fresh attach does. If a SELECTED branch goes silent >8s while at least
+    one other branch still flows, exit: the supervisor respawns us with
+    fresh readers, and the pre-exit repair announce re-attaches slot 6."""
+    import urllib.request as _rq
+    time.sleep(15)  # let startup settle
+    while True:
+        time.sleep(2)
+        now = time.monotonic()
+        flowing = [i for i, t in last_buf.items() if now - t < 4]
+        if not flowing:
+            continue  # global stall = different problem, not a per-branch wedge
+        for key in ('a', 'b'):
+            i = active[key]
+            if last_buf[i] > 0 and now - last_buf[i] > 8:
+                print(f'input wedge: selected source {SLOTS[i]} silent '
+                      f'{now - last_buf[i]:.0f}s while others flow — exiting for fresh attach', flush=True)
+                try:
+                    req = _rq.Request('https://prodbots.com/api/mxl/repair',
+                                      data=b'{"auto":1}',
+                                      headers={'Content-Type': 'application/json',
+                                               'User-Agent': 'mxl-layout/1.0'})
+                    _rq.urlopen(req, timeout=8)
+                except Exception:
+                    pass
+                import os
+                os._exit(1)
+
+
 threading.Thread(target=control, daemon=True).start()
+threading.Thread(target=wedge_watch, daemon=True).start()
 
 pipe.set_state(Gst.State.PLAYING)
 print('layout_pgm running', flush=True)

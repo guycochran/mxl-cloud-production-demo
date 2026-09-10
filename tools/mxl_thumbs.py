@@ -54,6 +54,7 @@ def worker(name, uuid):
             sink = pipe.get_by_name('s')
             pipe.set_state(Gst.State.PLAYING)
             last = time.time()
+            last_sig, last_change = None, time.time()
             while True:
                 sample = sink.emit('try-pull-sample', 3 * Gst.SECOND)
                 if sample is None:
@@ -63,11 +64,21 @@ def worker(name, uuid):
                 buf = sample.get_buffer()
                 ok, mi = buf.map(Gst.MapFlags.READ)
                 if ok:
-                    with open(tmp, 'wb') as f:
-                        f.write(mi.data)
+                    data = bytes(mi.data)
                     buf.unmap(mi)
+                    with open(tmp, 'wb') as f:
+                        f.write(data)
                     os.replace(tmp, path)
                     last = time.time()
+                    # a WEDGED reader repeats the same grain forever — buffers
+                    # keep flowing so the stall check never fires. Every real
+                    # source here has noise/timecode/motion, so byte-identical
+                    # jpegs for 30s = wedged; rebuild for a fresh attach.
+                    sig = data[-64:]
+                    if sig != last_sig:
+                        last_sig, last_change = sig, time.time()
+                    elif time.time() - last_change > 30:
+                        raise RuntimeError('content frozen 30s (repeat-wedged reader)')
         except Exception as e:
             print(f'{name}: {e}', flush=True)
         finally:
