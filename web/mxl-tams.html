@@ -58,7 +58,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     </div>
     <div class="tmbar">
       <button id="mlive" class="on">&#9210; Recent</button>
-      <button id="march">&#128252; Full archive</button>
+      <button id="march" title="Last 30 min (Shift-click for full 2 hours)">&#128252; Archive (30m)</button>
       <button id="marefresh" style="display:none">&#8635;</button>
       <button id="back1">-1 min</button>
       <button id="back5">-5 min</button>
@@ -84,7 +84,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   </div>
   <div class="pane">
     <div class="hd">&#9654; Live program (for comparison) <span class="chip">via MXL fabric</span></div>
-    <iframe src="https://fabric-feed.YOUR-DOMAIN/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
+    <iframe src="https://fabric-feed.cochran.cloud/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
   </div>
 </main>
 <div id="qrmodal" style="display:none;position:fixed;inset:0;background:rgba(4,6,12,.85);backdrop-filter:blur(4px);z-index:50;align-items:center;justify-content:center">
@@ -103,7 +103,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 <script>
 (function(){
   var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
-  var BASE='https://tams.YOUR-DOMAIN/flows/'+FLOW+'/output.m3u8';
+  var BASE='https://tams.cochran.cloud/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
   var hls=null,mode='live';  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
   var winStart=null,winDur=0,winMedia0=0,fragList=[];  // playlist window + fragment index (for gap-accurate time mapping)
@@ -141,13 +141,19 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     newHls().loadSource(BASE+'?type=live&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
   }
-  function goArchive(){
+  // Full-archive window. The store keeps 2h, but a 7200-segment VOD playlist
+  // (~3MB m3u8) makes hls.js parse+manage 7000+ fragments on every seek = very
+  // sluggish scrub. Default to the last ARCH_WIN seconds (snappy); the buttons
+  // below can widen it on demand.
+  var ARCH_WIN=1800; // 30 min ≈ 1800 fragments — smooth
+  function goArchive(win){
+    if(win)ARCH_WIN=win;
     mode='archive';paintMode();
     // plain VOD only returns the contiguous run since the last gap — ask for the
-    // whole retention window explicitly (gaps are skipped in playback)
+    // window explicitly (gaps are skipped in playback)
     var now=Math.floor(Date.now()/1000);
-    var tr=encodeURIComponent('['+(now-7200)+':0_'+now+':0)');
-    newHls().loadSource(BASE+'?timerange='+tr+'&limit=7200&t='+Date.now());
+    var tr=encodeURIComponent('['+(now-ARCH_WIN)+':0_'+now+':0)');
+    newHls().loadSource(BASE+'?timerange='+tr+'&limit='+ARCH_WIN+'&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.currentTime=0;v.play().catch(function(){})});
   }
   var ml=document.getElementById('mlive'),ma=document.getElementById('march'),mr=document.getElementById('marefresh'),fs=document.getElementById('fullshow');
@@ -155,7 +161,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     ml.classList.toggle('on',mode==='live');ma.classList.toggle('on',mode==='archive');
     mr.style.display=mode==='archive'?'':'none';fs.style.display=mode==='clip'?'':'none';
   }
-  ml.onclick=goLive; ma.onclick=goArchive; mr.onclick=goArchive;
+  // wrap so the click Event isn't passed as the window arg
+  ml.onclick=goLive; ma.onclick=function(){goArchive(1800)}; mr.onclick=function(){goArchive()};
+  // optional: hold Shift when clicking Full archive to load the entire 2h window
+  ma.addEventListener('click',function(e){if(e.shiftKey)goArchive(7200)});
   document.getElementById('back1').onclick=function(){v.currentTime=Math.max(0,v.currentTime-60)};
   document.getElementById('back5').onclick=function(){v.currentTime=Math.max(0,v.currentTime-300)};
   v.addEventListener('timeupdate',function(){at.textContent=fmtD(playingDate())});
@@ -185,7 +194,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     tip.style.display='block';tip.style.left=x+'px';
     var ep=fracToEpoch(fr);
     hovt.textContent=ep?fmtE(ep):'--:--:--';
-    if(ep){var u='https://tams-obj.YOUR-DOMAIN/tams-media/thumbs/'+ep+'.jpg';
+    if(ep){var u='https://tams-obj.cochran.cloud/tams-media/thumbs/'+ep+'.jpg';
       if(hovimg.dataset.ep!==String(ep)){hovimg.dataset.ep=ep;hovimg.src=u}}
   }
   hovimg.onerror=function(){hovimg.removeAttribute('src')};
