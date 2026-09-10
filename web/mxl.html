@@ -82,12 +82,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       <details style="margin:5px 0"><summary style="font-size:11px;font-weight:700;color:#cfd8ef;cursor:pointer">ffmpeg</summary>
         <p style="margin-top:4px;font-family:ui-monospace,Menlo,monospace;color:#cfd8ef;word-break:break-all">ffmpeg -re -i YOURSOURCE -c:v libx264 -tune zerolatency -b:v 4000k -f mpegts "srt://20.230.168.32:8890?streamid=publish:guest1&amp;latency=200"</p>
       </details>
-      <div style="display:flex;gap:12px;margin:9px 0 2px;align-items:center">
-        <div style="text-align:center;flex:0 0 auto"><img src="/qr-larix-guest1.png" width="112" height="112" alt="Larix QR Guest 1" style="border-radius:6px;display:block;image-rendering:pixelated"><span style="font-size:10px;font-weight:700;color:#8b96b5">GUEST 1</span></div>
-        <div style="text-align:center;flex:0 0 auto"><img src="/qr-larix-guest2.png" width="112" height="112" alt="Larix QR Guest 2" style="border-radius:6px;display:block;image-rendering:pixelated"><span style="font-size:10px;font-weight:700;color:#8b96b5">GUEST 2</span></div>
-        <p style="margin:0">&#128241; <b style="color:#cfd8ef">On a phone?</b> Install the free <b style="color:#cfd8ef">Larix Broadcaster</b> app, then point your camera at a code &mdash; Larix opens with our SRT pre-configured. Tap the big red button and you&#39;re an input on this switcher.</p>
+      <p style="margin-top:9px">&#128241; <b style="color:#cfd8ef">On a phone?</b> Install the free <b style="color:#cfd8ef">Larix Broadcaster</b> app, then scan <b>ONE</b> code below with your camera &mdash; Larix opens pre-configured; tap the red button and you&#39;re an input on this switcher. <b style="color:#cfd8ef">Pick a slot that shows &#9675; awaiting feed.</b></p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0 2px">
+        <div style="display:flex;gap:12px;align-items:center;border:1px solid #28d17c44;border-radius:9px;padding:8px 12px">
+          <img src="/qr-larix-guest1.png" width="104" height="104" alt="Larix QR Guest 1" style="border-radius:6px;display:block;image-rendering:pixelated;flex:0 0 auto">
+          <div><div style="font-size:13px;font-weight:800;color:#28d17c">JOIN AS GUEST&nbsp;1</div><div style="font-size:10px;color:#8b96b5;margin-top:3px">streamid <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">publish:guest1</span></div><div id="qst1" style="font-size:11px;font-weight:700;margin-top:4px">&mdash;</div></div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;border:1px solid #4a9df244;border-radius:9px;padding:8px 12px">
+          <img src="/qr-larix-guest2.png" width="104" height="104" alt="Larix QR Guest 2" style="border-radius:6px;display:block;image-rendering:pixelated;flex:0 0 auto">
+          <div><div style="font-size:13px;font-weight:800;color:#4a9df2">JOIN AS GUEST&nbsp;2</div><div style="font-size:10px;color:#8b96b5;margin-top:3px">streamid <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">publish:guest2</span></div><div id="qst2" style="font-size:11px;font-weight:700;margin-top:4px">&mdash;</div></div>
+        </div>
       </div>
-      <p>Second slot: swap <b>guest1</b> &rarr; <b>guest2</b> in the streamid.</p>
+
       <div class="st" id="conststat">Guest 1: &mdash; &middot; Guest 2: &mdash;</div>
       <div style="display:flex;gap:8px;margin-top:8px"><button id="copysrt">&#128203; Copy URL</button><button id="contribclose">Close</button></div>
     </div>
@@ -143,8 +149,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     if(st.slots){
       st.slots.forEach(function(s){liveMap[s.slot]=s.live});
       var g1=st.slots[4],g2=st.slots[5];
+      var rx='<span style="color:#28d17c">&#9679; receiving &mdash; slot busy</span>', aw='<span style="color:#8b96b5">&#9675; awaiting feed &mdash; free, scan me</span>';
       $('#conststat').innerHTML='Guest 1: '+(g1&&g1.live?'<span style="color:#28d17c">&#9679; receiving</span>':'<span style="color:#8b96b5">&#9675; awaiting feed</span>')
         +' &middot; Guest 2: '+(g2&&g2.live?'<span style="color:#28d17c">&#9679; receiving</span>':'<span style="color:#8b96b5">&#9675; awaiting feed</span>');
+      if($('#qst1'))$('#qst1').innerHTML=(g1&&g1.live)?rx:aw;
+      if($('#qst2'))$('#qst2').innerHTML=(g2&&g2.live)?rx:aw;
     }
     if(pvw===pgm){var alt=[0,1,2,3,4,5].filter(function(i){return i!==pgm&&liveMap[i]!==false});pvw=alt.length?alt[0]:pvw}
     paintBuses();
