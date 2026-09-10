@@ -58,6 +58,7 @@ def follow():
         try:
             with urllib.request.urlopen(SEL_STATUS, timeout=2) as r:
                 slot = json.load(r).get('active_input')
+            slot = 0 if slot == 3 else slot  # slot 3 (Studio Cam 2) -> silence like camera
             if slot in (0, 1, 2) and slot != cur:
                 pad = sel.get_static_pad(f'sink_{slot}')
                 if pad:

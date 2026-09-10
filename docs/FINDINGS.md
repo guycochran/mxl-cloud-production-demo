@@ -93,7 +93,35 @@ as a three-node cluster (production VM → fabric peer VM → isolated "island" 
 - Upstream suggestion: a supported "advertised address" field in TargetInfo
   would make NAT traversal first-class instead of a byte-patch.
 
-## 8. Assorted
+## 8. A broadcast contribution encoder as an MXL source (Makito X4)
+
+A second, static camera joins the selector without any studio-side re-encode
+hop: SDI camera → Haivision Makito X4 (deinterlacing 1080i29.97 → 1080p30 in
+the encoder, HEVC Main10, 20 Mbps) → SRT caller straight to the cloud VM's
+MediaMTX (`streamid=publish:cam2`) → GStreamer ingest → v210 flow → selector
+slot 3. Three lessons:
+
+- **gst-libav defaults to slice threading in live pipelines.** With a
+  single-slice stream that means one core, and HEVC 1080p30 10-bit missed
+  realtime by ~30% on our loaded box — stream PTS fell behind wall clock and
+  the cadence lock re-synced (~1 s grain jump) every few seconds. The fix is
+  `avdec_h265 thread-type=frame max-threads=4` (a few frames of added latency,
+  irrelevant for a static shot). Measured after: 30.00 fps, mapping error
+  under 60 ms over 10+ minutes.
+- **Don't "fix" decoder threading encoder-side with multi-slice.** Setting the
+  Makito to 4 slices broke MediaMTX's H.265-in-TS framing ("PTS is missing"
+  decode errors, only the first slice of each AU survived → top quarter of the
+  picture over solid green). Keep `slices=1` when MediaMTX is the SRT server.
+- **29.97 vs the domain's exact 30/1 grain rate** is real: a `videorate`
+  element re-times the stream (one duplicated frame every ~33 s) or caps
+  negotiation fails outright against a 30/1 flow.
+
+Also considered: HEVC 4:2:2 10-bit is a bit-perfect match for v210 (the
+Makito encodes it natively), but its software-decode cost (~1.3 cores) wasn't
+worth it on a saturated 8-core VM when the WebRTC leg is 4:2:0 8-bit anyway —
+Main10 4:2:0 at 20 Mbps is transparent for a locked shot.
+
+## 9. Assorted
 
 - **CEF/HTML5 keyer on CPU tops out ~50 fps at 1080p** (SwiftShader, no GPU on
   Azure D-series): keying 1080p60 drifts and eventually freezes. Run the chain

@@ -147,6 +147,17 @@ This repo adds the glue that made it a *usable remote production*:
 | [`web/lower-third.html`](web/lower-third.html) | Transparent OGraf-style lower-third + live clock + bug, rendered by the CBC HTML5 keyer's CEF. |
 | [`scripts/bring-up-mxl.sh`](scripts/bring-up-mxl.sh) | One command from cold VM to running demo: containers → writers → ingest → selector → keyer → encoder → tunnel → page. |
 
+## Update 3: a second camera, contribution-encoder style
+
+The kiosk switcher now has a **Studio Cam 2** button: a static SDI camera
+feeding a Haivision Makito X4, which calls into the cloud VM directly over
+SRT (HEVC Main10 1080p30, 20 Mbps, deinterlaced on the encoder) and lands in
+the MXL domain as its own v210 flow on selector slot 3 — the classic
+broadcast-contribution pattern, terminated in shared memory instead of a
+hardware decoder. Cuts to and from it are the same ~25 ms selector cuts.
+See FINDINGS §8 for the decoder-threading and multi-slice gotchas this
+surfaced.
+
 ## The hard-won lessons
 
 The interesting engineering is in **[docs/FINDINGS.md](docs/FINDINGS.md)** — including:

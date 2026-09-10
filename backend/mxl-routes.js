@@ -32,8 +32,9 @@ const mxlKeyerBody = (inputUuid) => ({ mode: 'key', domain_path: '/mxl-domain',
 const mxlEncoderBody = { domain_path: '/mxl-domain', video_flow_uuid: MXL_KEYER_OUT,
   audio_flow_uuid: MXL_PGM_AUDIO, use_mediamtx: true,
   encoder: { tune: 4, speed_preset: 2, bitrate: 6000, key_int_max: 30, intra_refresh: false } };
+const MXL_CAM2LIVE_FLOW = 'ca222e00-aaaa-4bbb-8ccc-000000000001'; // CAM 2 Live (Makito X4 static cam, cam2_ingest.py)
 const mxlSelectorBody = { domain_path: '/mxl-domain',
-  input_flow_uuids: [MXL_CAMLIVE_FLOW, '2f34c189-64bf-5971-993a-332a28a7a6ee', '6b5d8d68-64ce-56f8-bea2-e79b6c282a86'],
+  input_flow_uuids: [MXL_CAMLIVE_FLOW, '2f34c189-64bf-5971-993a-332a28a7a6ee', '6b5d8d68-64ce-56f8-bea2-e79b6c282a86', MXL_CAM2LIVE_FLOW],
   grouphint: 'Input-Selector', description: 'program out', label: 'Selector PGM' };
 
 module.exports = function registerMxlRoutes(app) {
@@ -63,8 +64,8 @@ module.exports = function registerMxlRoutes(app) {
   // key staying up, because cam_ingest.py aligns the camera flow's grain index
   // with the locally-generated flows.
   async function mxlSetInput(input) {
-    const slot = input === 'cam' ? 0 : Number(input);
-    if (![0, 1, 2].includes(slot)) throw Object.assign(new Error('input must be "cam", 0, 1 or 2'), { status: 400 });
+    const slot = input === 'cam' ? 0 : input === 'cam2' ? 3 : Number(input);
+    if (![0, 1, 2, 3].includes(slot)) throw Object.assign(new Error('input must be "cam", "cam2", 0, 1, 2 or 3'), { status: 400 });
     if (mxlBusy) throw Object.assign(new Error('switch in progress'), { status: 409 });
     mxlBusy = true;
     try {
@@ -119,7 +120,7 @@ module.exports = function registerMxlRoutes(app) {
     if (mxlBusy) return res.status(409).json({ error: 'busy' });
     mxlBusy = true;
     try {
-      const slot = [0, 1, 2].includes(req.body.slot) ? req.body.slot : 0;
+      const slot = [0, 1, 2, 3].includes(req.body.slot) ? req.body.slot : 0;
       await mxlApi(9604, '/pipeline/stop', {}).catch(() => {});
       await mxlApi(9604, '/pipeline/start', mxlSelectorBody);
       await new Promise(r => setTimeout(r, 1000));
