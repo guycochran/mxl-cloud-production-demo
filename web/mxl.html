@@ -43,6 +43,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 #cutbtn:hover{background:#e5484d;border-color:#e5484d}
 .sidecol{display:flex;flex-direction:column;gap:5px;justify-content:center}
 .sidecol .row{display:flex;gap:6px;align-items:center}
+.mixlbl{font-size:9px;font-weight:800;color:#8b96b5}
+.af{width:56px;accent-color:#0e6ad9}
+.am{font-size:10px;font-weight:800;padding:3px 7px !important;border-radius:5px !important}
+.am.on{background:#e5484d !important;border-color:#e5484d !important;color:#fff !important}
 /* contributor panel */
 #contrib{position:absolute;right:12px;bottom:76px;z-index:6;background:#0c1220;border:1px solid #26314d;border-radius:11px;padding:13px 15px;width:430px;max-width:92%;box-shadow:0 10px 32px rgba(0,0,0,.6);display:none}
 #contrib h3{font-size:13px;color:#ffb400;margin-bottom:6px}
@@ -116,6 +120,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
         <div class="row"><button id="contribbtn">&#128752; Send us your feed</button>
         <a href="/mxl-tams.html" style="font-size:11px;font-weight:600;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:5px 10px;text-decoration:none;white-space:nowrap;transition:all .15s" onmouseover="this.style.color='#ffb400';this.style.borderColor='#ffb400'" onmouseout="this.style.color='#8b96b5';this.style.borderColor='#26314d'">clip it &#9986; &rarr;</a></div>
         <div class="row" title="composite two inputs on the Layout button"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#129513;</span><select id="lstyle" style="font-size:11px"><option value="2up">2-up</option><option value="pip">PiP</option></select><select id="lsrcA" style="font-size:11px"></select><select id="lsrcB" style="font-size:11px"></select></div>
+        <div class="row" title="program audio mixer &mdash; level + mute per input" style="gap:7px"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#127911;</span><span class="mixlbl">PLY</span><input type="range" class="af" data-a="playout" min="0" max="150" value="80"><button class="am" data-a="playout">M</button><span class="mixlbl">G1</span><input type="range" class="af" data-a="guest1" min="0" max="150" value="100"><button class="am" data-a="guest1">M</button><span class="mixlbl">G2</span><input type="range" class="af" data-a="guest2" min="0" max="150" value="100"><button class="am" data-a="guest2">M</button></div>
       </div>
     </div>
   </div>
@@ -224,6 +229,27 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   [lstyle,lsrcA,lsrcB].forEach(function(el){
     el.addEventListener('change',pushLayout);
     el.addEventListener('focus',showLayoutPreview);
+  });
+
+  // audio mixer strip -> /api/mxl/audio (audio_pgm polls and applies)
+  fetch('/api/mxl/audio-state').then(function(r){return r.json()}).then(function(st){
+    document.querySelectorAll('.af').forEach(function(f){var c=st[f.dataset.a];if(c)f.value=c.vol;});
+    document.querySelectorAll('.am').forEach(function(b){var c=st[b.dataset.a];if(c&&c.mute)b.classList.add('on');});
+  }).catch(function(){});
+  function pushAudio(input,body){
+    body.input=input;
+    fetch('/api/mxl/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(function(){});
+  }
+  document.querySelectorAll('.af').forEach(function(f){
+    var t=null;
+    f.addEventListener('input',function(){clearTimeout(t);t=setTimeout(function(){pushAudio(f.dataset.a,{vol:Number(f.value)})},150)});
+  });
+  document.querySelectorAll('.am').forEach(function(b){
+    b.addEventListener('click',function(){
+      var on=!b.classList.contains('on');
+      b.classList.toggle('on',on);
+      pushAudio(b.dataset.a,{mute:on});
+    });
   });
 
   // multiview thumbnails on the PVW row — see what you're about to cut to.
