@@ -2,7 +2,7 @@
 
 **A complete live broadcast production — real PTZ camera, file playout, test patterns,
 graphics keyer, program audio — running through an [EBU MXL](https://github.com/dmf-mxl/dmf-mxl)
-shared-memory domain on a single ~$0.38/hr cloud VM, controllable by anyone with a browser.**
+shared-memory domain on a small Azure cluster (production VM ~$0.77/hr), controllable by anyone with a browser.**
 
 Built by [Office Hours Global](https://officehours.global) ahead of IBC 2026 to show that
 the Dynamic Media Facility vision isn't just for broadcasters with NVIDIA partnerships —
@@ -142,7 +142,14 @@ This repo adds the glue that made it a *usable remote production*:
 | Piece | What it does |
 |---|---|
 | [`tools/cam_ingest.py`](tools/cam_ingest.py) | Low-latency RTSP→MXL ingest. 150 ms jitterbuffer, decode to v210, cadence-preserving PTS re-stamp so the remote camera's grain index aligns with local flows. **This is what makes cross-flow cutting of a remote source work.** |
-| [`tools/audio_pgm.py`](tools/audio_pgm.py) | Audio-follow-video: GStreamer `input-selector` over silence / clip audio / tone, following the video selector's status API. Writes a "PGM Audio" flow the encoder reads. |
+| [`tools/audio_pgm.py`](tools/audio_pgm.py) | **Program audio mixer** (v2): GStreamer `audiomixer` over a live silence anchor + episode audio + per-guest audio, with per-input volume/mute driven from the kiosk's fader strip. Auto-adopts guest audio flows as contributors join. |
+| [`tools/layout_pgm.py`](tools/layout_pgm.py) | **2-up / PiP compositor as a switcher input**: all six sources behind two selectors feeding a compositor; every layout change is a live pad-property flip, so the output flow is never recreated (wedge-proof). Five timestamp iterations documented in-file. |
+| [`tools/guest_ingest.py`](tools/guest_ingest.py) | Open contribution: anyone's SRT (phone/OBS/vMix, any res/fps) conformed to 1080p30 v210, self-announcing so the slot goes live hands-off. |
+| [`tools/guest_audio.py`](tools/guest_audio.py) | Contributor audio companion — pulls the guest's audio across the VNet into its own MXL flow for the mixer. |
+| [`tools/mxl_thumbs.py`](tools/mxl_thumbs.py) | Multiview: per-input JPEG thumbnails rendered from raw grains (no decode), with content-hash detection of repeat-wedged readers. |
+| [`tools/pgm_lite.py`](tools/pgm_lite.py) | 960×540 program copy (~0.33 Gbps) for fabric receivers behind GigE. |
+| [`tools/patch-target-ip.py`](tools/patch-target-ip.py) | The dmf-mxl#714 NAT workaround as a tool: rewrites the sockaddr inside a fabric TargetInfo to a public IP. |
+| [`tools/guest-leg-doctor.sh`](tools/guest-leg-doctor.sh) | 15s two-end healer for the guest fabric legs (initiator wedges *and* the target frozen-slices state). |
 | [`tools/cam_relay.py`](tools/cam_relay.py) | The first-generation fixed-offset latency normalizer (superseded by `cam_ingest.py`, kept for the record — see FINDINGS). |
 | [`backend/mxl-routes.js`](backend/mxl-routes.js) | Express routes proxying browser clicks to the pipeline APIs (cut / key / pattern / one-call cascade repair). |
 | [`web/mxl.html`](web/mxl.html) | The kiosk page: WebRTC program feed + camera-control console + switcher bar. |
@@ -161,6 +168,75 @@ See FINDINGS §8 for the decoder-threading and multi-slice gotchas this
 surfaced, and §9 for why the feed runs video-only and the cam is H.264 (both
 load-shedding decisions taken live while the demo was being shown).
 
+## Update 4: the full facility (IBC week)
+
+Everything above still runs — and grew into this. A day of live debugging with
+real phone contributors, real visitors, and one full machine crash produced a
+production facility that self-heals around contributor churn:
+
+```
+        CONTRIBUTION (anyone)                    PRODUCTION (VM1, D16s_v5, 16 cores)
+┌────────────────────────────────┐      ┌───────────────────────────────────────────────┐
+│ Studio PTZ cam  1080p60 H.264 ─┼─SRT──┼─► cam_ingest (frame-threaded decode, 60→30)   │
+│  (camera-native, ZERO local    │ copy │                                               │
+│   transcode, 20 ms latency)    │      │   MXL domain (/dev/shm) — one memory, 14 flows│
+│ SDI cam2 → Makito X4 ──────────┼─SRT──┼─► cam2_ingest                                 │
+└────────────────────────────────┘      │                                               │
+┌────────────────────────────────┐      │   7-input selector ◄─ CAM·CAM2·Clip·TG·       │
+│ Your phone: scan the Larix QR  │      │        │              Guest1·Guest2·Layout    │
+│ on the kiosk page → app opens  │      │        ▼                                      │
+│ pre-configured → tap = on air ─┼─SRT─┐│   layout_pgm: 2-up / PiP compositor           │
+│ (OBS / vMix / ffmpeg too)      │     ││   audiomixer: episode + guest audio,          │
+└────────────────────────────────┘     ││     per-input faders/mute on the kiosk        │
+       VM2 "contribution host" (D8s_v5)││        │                                      │
+      ┌────────────────────────────────┘│        ▼                                      │
+      │ mediamtx :8890 (world-open SRT) │   HTML5 keyer (lower-third + clock)           │
+      │  └► guest_ingest ×2 → v210 flows│        │                                      │
+      │      │     ↑ guest-leg-doctor   │        ▼                                      │
+      │      ▼     │ (15 s, heals both  │   encoder → mediamtx ─┬► WebRTC viewers       │
+      │  MXL FABRIC legs (tcp) ─────────┼─►(forced IDR per cut) └► SRT egress:          │
+      │      + audio pulled over VNet   │        │            `streamid=read:mxl2webrtc`│
+      └─────────────────────────────────┘        ▼ PGM fabric leg (1.3 Gbps v210)       │
+                                        └────────┼──────────────────────────────────────┘
+       VM3 "island" (D4s_v5)                     ▼
+      ┌──────────────────────────┐      VM2: segmenter+shipper ─► TAMS store on VM3
+      │ TAMS: gateway+MinIO+     │      (12 h scrub/clip archive, storyboard sprites,
+      │ CouchDB — 12 h archive   │       instant zero-copy clips + MP4 export)
+      └──────────────────────────┘
+```
+
+What changed since the diagrams above:
+
+- **The camera path lost its last transcode.** The PTZ's native 1080p60 H.264
+  is copy-remuxed to SRT (20 ms latency; measured 6 ms site→Azure RTT) and
+  decoded once, in the domain — pans are now butter, and the "relay box"
+  re-encode that quantized network jitter into judder is gone.
+- **Open contribution with scan-to-join.** The kiosk's "Send us your feed"
+  panel carries per-slot Larix QR codes: a phone scans, the app opens with our
+  SRT pre-configured, and the slot self-attaches — contributor audio joins the
+  program mixer automatically. Contributions land on a *separate* VM and cross
+  to production **over the MXL Fabrics API**, so the switcher host never
+  decodes a stranger's stream.
+- **Layouts as an input.** A 2-up/PiP compositor writes a "Layout" flow that
+  the selector cuts like any camera, with a live preview panel while adjusting.
+- **PVW/PGM buses with a live multiview** (grain-rendered thumbnails on every
+  preview button) and **clean cuts** (a `/pipeline/keyframe` endpoint patched
+  into mxl2webrtc forces an IDR at every cut — no mid-GOP smear).
+- **Crowd-proof delivery.** One encode fans out to any audience; polling
+  endpoints micro-cache (60 simultaneous thumbnail requests → 1 origin fetch);
+  the whole kiosk — page, WHEP, thumbnails, TAMS playlists, presigned segments
+  — is served **same-origin**, because venue networks that block unfamiliar
+  domains are real.
+- **Self-healing everywhere**, earned the hard way: watchdogs for wedged
+  fabric readers (both failure species — silent *and* repeat-last-grain),
+  frozen-slice targets, zombie relays, stale thumbnails, contributor churn.
+  A full production-VM resize (8→16 cores) was recovered to on-air in ~7
+  minutes, mostly by systemd.
+- **Take our program with you:** any receiver can pull the finished program
+  *today* via `srt://<vm>:8890?streamid=read:mxl2webrtc` — or go MXL-native
+  and receive raw grains over the fabric:
+  **[docs/JONAS-FABRIC-HANDOFF.md](docs/JONAS-FABRIC-HANDOFF.md)**.
+
 ## The hard-won lessons
 
 The interesting engineering is in **[docs/FINDINGS.md](docs/FINDINGS.md)** — including:
@@ -175,6 +251,15 @@ The interesting engineering is in **[docs/FINDINGS.md](docs/FINDINGS.md)** — i
 4. `mxlsink` requires an explicit `flow-id`; an empty one fails as a misleading
    `not-negotiated (-4)`.
 5. Reader wedge on flow recreation, and the cascade-repair pattern that recovers.
+6. Grain timestamps are **ring addresses**, not metadata: every writer needs an
+   offset-locked, drift-bounded restamp — free-running counters and raw
+   passthrough each fail in a distinct, delayed way.
+7. The compositor's pad scaling runs in its single aggregation thread and caps a
+   1080p30 chain below realtime — scale per-branch instead.
+8. Wedged readers have TWO species: silent, and *repeating the last grain at
+   full rate* — the second passes every liveness check except content hashing.
+9. SRT latency is per-path physics: 20 ms is right for a 6 ms wired RTT and
+   catastrophically wrong for cellular contributors (use ~1000 ms).
 
 ## Credits
 
