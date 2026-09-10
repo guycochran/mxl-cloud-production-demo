@@ -62,6 +62,9 @@ def ship(path):
         if th:
             S3.put_object(Bucket=bucket, Key=f'thumbs/{epoch}.jpg', Body=th,
                           ContentType='image/jpeg', CacheControl='public, max-age=86400')
+            # local copy feeds the per-minute sprite builder below
+            with open(f'{SPOOL}/thumbs/{epoch}.jpg', 'wb') as tf:
+                tf.write(th)
     except Exception:
         pass
     seg = {'object_id': obj['object_id'],
@@ -70,7 +73,7 @@ def ship(path):
     os.remove(path)
     return f'shipped {os.path.basename(path)} {len(payload)//1024}KB {seg["timerange"]}'
 
-RETAIN_SECS = int(os.environ.get('RETAIN_SECS', 7200))   # keep 2h of history
+RETAIN_SECS = int(os.environ.get('RETAIN_SECS', 43200))  # 12h archive (~33GB media)
 _last_prune = 0
 
 def prune():
@@ -84,22 +87,80 @@ def prune():
         print(f'pruned store before {cutoff}', flush=True)
     except Exception as e:
         print(f'prune err: {e}', flush=True)
-    try:  # expire old thumbnails too
-        pages = S3.get_paginator('list_objects_v2').paginate(Bucket='tams-media', Prefix='thumbs/')
-        old = [{'Key': o['Key']} for pg in pages for o in pg.get('Contents', [])
-               if int(o['Key'].split('/')[1].split('.')[0]) < cutoff]
-        for i in range(0, len(old), 1000):
-            S3.delete_objects(Bucket='tams-media', Delete={'Objects': old[i:i+1000]})
-        if old:
-            print(f'pruned {len(old)} thumbs', flush=True)
+    try:  # expire old thumbnails + sprites too
+        for prefix in ('thumbs/', 'sprites/'):
+            pages = S3.get_paginator('list_objects_v2').paginate(Bucket='tams-media', Prefix=prefix)
+            old = [{'Key': o['Key']} for pg in pages for o in pg.get('Contents', [])
+                   if int(o['Key'].split('/')[1].split('.')[0]) < cutoff]
+            for i in range(0, len(old), 1000):
+                S3.delete_objects(Bucket='tams-media', Delete={'Objects': old[i:i+1000]})
+            if old:
+                print(f'pruned {len(old)} {prefix}', flush=True)
     except Exception as e:
         print(f'thumb prune err: {e}', flush=True)
+    try:  # expire clip flows whose media aged out of retention — the shared bin
+        # otherwise fills with clips whose segments no longer exist
+        _, body = req('GET', f'{TAMS}/flows')
+        for f in json.loads(body):
+            tags = f.get('tags') or {}
+            if f.get('id') == FLOW or tags.get('clip') != 'true':
+                continue
+            if int(tags.get('clip_out', 0)) < cutoff:
+                fid = f['id']
+                req('DELETE', f'{TAMS}/flows/{fid}/segments?timerange=[0:0_2000000000:0)')
+                req('DELETE', f'{TAMS}/flows/{fid}')
+                print(f'expired clip flow {fid} ({f.get("label", "")})', flush=True)
+    except Exception as e:
+        print(f'clip expiry err: {e}', flush=True)
 
 POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+# ── storyboard sprites: one 10×6 sheet (192×108 tiles) per completed minute,
+# keyed by the minute's start epoch (sprites/<m>.jpg). The scrub page fetches
+# ONE image per minute of timeline instead of one per hovered second — no 404
+# walking, no request storms. This is the "storyboard/VTT thumbnails"
+# convention players like JW/Video.js use, minus the VTT (our page is custom).
+os.makedirs(f'{SPOOL}/thumbs', exist_ok=True)
+
+def sprite_pass():
+    try:
+        eps = sorted(int(f.split('.')[0]) for f in os.listdir(f'{SPOOL}/thumbs')
+                     if f.endswith('.jpg') and f[0].isdigit())
+    except Exception:
+        return
+    now = int(time.time())
+    # minutes fully in the past (+10s grace for straggler thumbs)
+    for m in sorted({e - e % 60 for e in eps if e - e % 60 + 70 <= now}):
+        have = [e for e in eps if m <= e < m + 60]
+        if not have:
+            continue
+        # one entry per second; holes filled with the nearest real frame
+        lst = f'{SPOOL}/thumbs/list-{m}.txt'
+        with open(lst, 'w') as lf:
+            for s in range(m, m + 60):
+                near = min(have, key=lambda e: abs(e - s))
+                lf.write(f"file '{SPOOL}/thumbs/{near}.jpg'\n")
+        out = f'{SPOOL}/thumbs/sprite-{m}.jpg'
+        try:
+            subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0',
+                            '-i', lst, '-vf', 'scale=192:108,tile=10x6', '-q:v', '7', out],
+                           timeout=30, check=True)
+            with open(out, 'rb') as sf:
+                S3.put_object(Bucket='tams-media', Key=f'sprites/{m}.jpg', Body=sf.read(),
+                              ContentType='image/jpeg', CacheControl='public, max-age=86400')
+            print(f'sprite {m} ({len(have)}/60 real frames)', flush=True)
+        except Exception as e:
+            # don't retry a bad minute forever — the page falls back to the
+            # per-second thumbs (still in MinIO) for any minute with no sprite
+            print(f'sprite {m} err: {e} (minute skipped)', flush=True)
+        for p in [lst, out] + [f'{SPOOL}/thumbs/{e}.jpg' for e in have]:
+            try: os.remove(p)                  # consumed either way
+            except OSError: pass
 
 print('tams shipper up (parallel x4)', flush=True)
 while True:
     prune()
+    sprite_pass()
     now = time.time()
     files = [p for p in sorted(glob.glob(f'{SPOOL}/seg-*.ts'))
              if now - os.path.getmtime(p) >= 2.5]           # skip in-progress file

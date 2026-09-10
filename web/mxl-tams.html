@@ -58,13 +58,13 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
         <!-- big hover preview: nearest-available thumbnail, never broken -->
         <div id="hovertip" style="display:none;position:absolute;bottom:34px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:9px;padding:5px;text-align:center;pointer-events:none;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.5)">
           <div style="position:relative;width:200px;height:112px;border-radius:6px;overflow:hidden;background:#000">
-            <img id="hovimg" style="display:block;width:200px;height:112px;object-fit:cover" alt="">
+            <div id="hovimg" style="width:200px;height:112px;background:#000 no-repeat"></div>
             <div id="hovspin" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5b6885;font-size:11px">loading…</div>
           </div>
           <div id="hovt" style="font-size:12px;font-weight:600;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:4px">--:--:--</div>
         </div>
       </div>
-      <div style="font-size:10px;color:#5b6885;margin-top:3px">drag to scrub the live frame &middot; <b style="color:#8b96b5">I</b>/<b style="color:#8b96b5">O</b> mark in/out &middot; the shaded band is your clip</div>
+      <div style="font-size:10px;color:#5b6885;margin-top:3px">drag to scrub the live frame &middot; <b style="color:#8b96b5">I</b>/<b style="color:#8b96b5">O</b> mark in/out &middot; <b style="color:#8b96b5">X</b> clears &middot; the shaded band is your clip</div>
     </div>
     <div class="tmbar">
       <button id="mlive" class="on">&#9210; Recent</button>
@@ -79,6 +79,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5">CLIP</span>
       <button id="setin" title="shortcut: I">&#10218; IN <kbd style="font-size:9px;opacity:.6">I</kbd></button>
       <button id="setout" title="shortcut: O">OUT <kbd style="font-size:9px;opacity:.6">O</kbd> &#10219;</button>
+      <button id="cleario" title="clear IN/OUT marks (shortcut: X)">&#10005; Clear <kbd style="font-size:9px;opacity:.6">X</kbd></button>
       <button id="saveclip" disabled style="border-color:#28d17c;color:#7de8ad">&#128190; Save <kbd style="font-size:9px;opacity:.6">S</kbd></button>
       <button id="prevclip" disabled>&#9654; Preview</button>
       <button id="fullshow" style="display:none">&#8634; Back</button>
@@ -228,18 +229,42 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   }
   function evFrac(e){var r=scr.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))}
 
-  // Thumbnail cache + nearest-available loader (NEVER shows a broken image).
-  // If the exact-second thumb 404s (edge lag / a hole), walk outward to the
-  // nearest second that exists, so the hover preview is always a real frame.
-  var thumbOK={}, thumbBad={}, thumbReq=0;
+  // ── Thumbnails: storyboard SPRITES first (one 10×6 sheet per minute — the
+  // JW/Video.js "storyboard" convention), per-second jpgs only as the live-edge
+  // fallback. One image request covers 60s of hovering: no 404 walks, no
+  // request storms, buttery scrubbing. Sprite tiles are 192×108, shown at
+  // 200×112 (scale 200/192 → sheet renders 2000×672).
+  var SPRITE='https://tams-obj.cochran.cloud/tams-media/sprites/';
+  var sprOK={}, sprBad={}, thumbOK={}, thumbBad={}, thumbReq=0;
+  function showSprite(ep){
+    var m=ep-ep%60, i=ep-m;
+    hovimg.style.backgroundImage='url('+SPRITE+m+'.jpg)';
+    hovimg.style.backgroundSize='2000px 672px';
+    hovimg.style.backgroundPosition=(-(i%10)*200)+'px '+(-Math.floor(i/10)*112)+'px';
+    hovspin.textContent='';
+  }
+  function showSingle(url){
+    hovimg.style.backgroundImage='url('+url+')';
+    hovimg.style.backgroundSize='cover';
+    hovimg.style.backgroundPosition='center';
+    hovspin.textContent='';
+  }
+  function preloadSprite(m){
+    if(m<=0||sprOK[m]||sprBad[m])return;
+    var p=new Image();
+    p.onload=function(){sprOK[m]=1};
+    p.onerror=function(){sprBad[m]=1};
+    p.src=SPRITE+m+'.jpg';
+  }
+  // live-edge fallback: exact-second jpg, walking outward on 404s (±4s)
   function tryThumb(ep, token, depth){
-    if(depth>4){hovspin.textContent='';return;}         // give up gracefully after ±4s
+    if(depth>4){hovspin.textContent='';return;}
     if(thumbBad[ep]){ return tryThumb(nextEp(ep,depth), token, depth+1); }
     var probe=new Image();
     probe.onload=function(){
       thumbOK[ep]=1;
       if(token!==thumbReq)return;                        // a newer hover superseded us
-      hovimg.src=probe.src; hovspin.textContent='';
+      showSingle(probe.src);
     };
     probe.onerror=function(){
       thumbBad[ep]=1;
@@ -250,6 +275,19 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   }
   // alternate outward: ep-1, ep+1, ep-2, ep+2 … (prefer slightly-earlier frame)
   function nextEp(ep,depth){var step=Math.ceil((depth+1)/2);return depth%2===0?ep-step:ep+step;}
+  function loadFrame(ep, token){
+    var m=ep-ep%60;
+    preloadSprite(m-60); preloadSprite(m+60);           // neighbors warm while you hover
+    if(sprOK[m]){showSprite(ep);return;}
+    if(sprBad[m]){                                       // newest partial minute — no sprite yet
+      if(thumbOK[ep]){showSingle(THUMB+ep+'.jpg');} else tryThumb(ep,token,0);
+      return;
+    }
+    var probe=new Image();
+    probe.onload=function(){sprOK[m]=1;if(token===thumbReq)showSprite(ep);};
+    probe.onerror=function(){sprBad[m]=1;if(token===thumbReq){if(thumbOK[ep])showSingle(THUMB+ep+'.jpg');else tryThumb(ep,token,0);}};
+    probe.src=SPRITE+m+'.jpg';
+  }
   function showTip(fr){
     var x=fr*scr.getBoundingClientRect().width;
     ghost.style.display='block';ghost.style.left=x+'px';
@@ -259,9 +297,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     if(ep){
       if(hovimg.dataset.ep!==String(ep)){
         hovimg.dataset.ep=ep;
-        var token=++thumbReq;
-        if(thumbOK[ep]){hovimg.src=THUMB+ep+'.jpg';hovspin.textContent='';}
-        else{hovspin.textContent='';tryThumb(ep,token,0);}   // no "loading" flash — keep last frame
+        hovspin.textContent='';                          // no "loading" flash — keep last frame
+        loadFrame(ep,++thumbReq);
       }
     }
   }
@@ -343,6 +380,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
   si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip()};
   so.onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip()};
+  var cx=document.getElementById('cleario');
+  cx.onclick=function(){inE=null;outE=null;paintClip()};
   pv.onclick=function(){
     mode='clip';paintMode();
     newHls().loadSource(clipUrl());
@@ -419,6 +458,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     else if(k==='k'){v.pause()}
     else if(k==='l'){v.paused?v.play():v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)}
     else if(k==='s'){if(!sv.disabled)sv.onclick()}
+    else if(k==='x'){cx.onclick();flash(cx)}
   });
   function flash(b){b.style.background='#ffb400';b.style.color='#141414';setTimeout(function(){b.style.background='';b.style.color=''},180)}
 
