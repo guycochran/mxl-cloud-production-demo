@@ -54,7 +54,10 @@ def announce():
     Keeps the current program slot; the backend rate-limits auto cascades
     (429 on cooldown) so we retry a few times rather than strand the feed."""
     import time as _t
-    for attempt in range(4):
+    attempt = 0
+    while True:  # retry until attached: cellular blips EOS the stream, the
+        attempt += 1  # respawned flow needs a re-attach, and the backend 429s
+        # inside its 120s anti-flap cooldown — 4 tries stranded a live guest
         try:
             r = urllib.request.Request(REPAIR_URL, data=json.dumps({'auto': 1}).encode(),
                                        headers={'Content-Type': 'application/json',
@@ -68,7 +71,7 @@ def announce():
                 return
         except Exception as e:
             print(f'announce err: {e} (attempt {attempt+1})', flush=True)
-        _t.sleep(75)
+        _t.sleep(30)
 
 def restamp(pad, info):
     buf = info.get_buffer()
