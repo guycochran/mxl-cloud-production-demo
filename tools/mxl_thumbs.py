@@ -29,6 +29,11 @@ SLOTS = {
     'layout':  '1a900700-aaaa-4bbb-8ccc-000000000001',
 }
 
+# per-slot overrides: the layout slot doubles as the live PREVIEW for the
+# 2-up/PiP controls on mxl.html, so it renders faster and larger
+FPS = {'layout': '2/1'}        # default 1/2 (one frame per 2s)
+SIZE = {'layout': (480, 270)}  # default 320x180
+
 Gst.init(None)
 os.makedirs(OUT, exist_ok=True)
 
@@ -39,10 +44,12 @@ def worker(name, uuid):
     while True:
         pipe = None
         try:
+            fps = FPS.get(name, '1/2')
+            w, h = SIZE.get(name, (320, 180))
             pipe = Gst.parse_launch(
                 f'mxlsrc domain=/mxl-domain video-flow-id={uuid} ! queue ! '
-                f'videorate drop-only=true ! video/x-raw,framerate=1/2 ! '
-                f'videoconvert ! videoscale ! video/x-raw,width=320,height=180 ! '
+                f'videorate drop-only=true ! video/x-raw,framerate={fps} ! '
+                f'videoconvert ! videoscale ! video/x-raw,width={w},height={h} ! '
                 f'jpegenc quality=70 ! appsink name=s max-buffers=1 drop=true sync=false')
             sink = pipe.get_by_name('s')
             pipe.set_state(Gst.State.PLAYING)

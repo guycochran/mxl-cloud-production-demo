@@ -85,6 +85,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       <div class="st" id="conststat">Guest 1: &mdash; &middot; Guest 2: &mdash;</div>
       <div style="display:flex;gap:8px;margin-top:8px"><button id="copysrt">&#128203; Copy URL</button><button id="contribclose">Close</button></div>
     </div>
+    <div id="lprevbox" style="display:none;position:absolute;right:12px;bottom:76px;z-index:7;background:#0c1220;border:1px solid #26314d;border-radius:11px;padding:10px 10px 8px;box-shadow:0 10px 32px rgba(0,0,0,.6)">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5;margin-bottom:6px">&#129513; LAYOUT PREVIEW &mdash; live composite &middot; arm &amp; CUT when ready</div>
+      <img id="lprev" style="width:384px;height:216px;object-fit:cover;border-radius:6px;background:#05070d;display:block" alt="">
+    </div>
     <div class="mxlbar">
       <div class="buses">
         <div class="bus pgmrow"><span class="blbl">PGM</span>
@@ -179,8 +183,33 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   function pushLayout(){
     fetch('/api/mxl/layout',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({style:lstyle.value,a:lsrcA.value,b:lsrcB.value})}).catch(function(){});
+    showLayoutPreview();
   }
-  [lstyle,lsrcA,lsrcB].forEach(function(el){el.addEventListener('change',pushLayout)});
+  // live preview of the composite while adjusting (layout thumb renders 2fps
+  // server-side; ~1.5s from control change to updated picture)
+  var lprevTimer=null,lprevHide=null;
+  function showLayoutPreview(){
+    $('#lprevbox').style.display='block';
+    if(!lprevTimer){
+      var tick=function(){
+        var probe=new Image();
+        probe.onload=function(){$('#lprev').src=probe.src};
+        probe.src='/api/mxl/thumbs/layout.jpg?t='+Date.now();
+      };
+      tick();lprevTimer=setInterval(tick,700);
+    }
+    clearTimeout(lprevHide);
+    lprevHide=setTimeout(hideLayoutPreview,15000);
+  }
+  function hideLayoutPreview(){
+    $('#lprevbox').style.display='none';
+    clearInterval(lprevTimer);lprevTimer=null;
+  }
+  $('#lprevbox').addEventListener('click',hideLayoutPreview);
+  [lstyle,lsrcA,lsrcB].forEach(function(el){
+    el.addEventListener('change',pushLayout);
+    el.addEventListener('focus',showLayoutPreview);
+  });
 
   // multiview thumbnails on the PVW row — see what you're about to cut to.
   // Preload probe avoids broken-image flicker; a slot with no feed (idle

@@ -46,18 +46,18 @@ Gst.init(None)
 branches = ''
 for i, name in enumerate(SLOTS):
     branches += (
-        f'mxlsrc name=src{i} domain=/mxl-domain video-flow-id={FLOWS[name]} ! queue max-size-buffers=2 leaky=downstream ! tee name=t{i} '
-        f't{i}. ! queue max-size-buffers=2 leaky=downstream ! selA.sink_{i} '
-        f't{i}. ! queue max-size-buffers=2 leaky=downstream ! selB.sink_{i} '
+        f'mxlsrc name=src{i} domain=/mxl-domain video-flow-id={FLOWS[name]} ! queue max-size-buffers=8 leaky=downstream ! tee name=t{i} '
+        f't{i}. ! queue max-size-buffers=8 leaky=downstream ! selA.sink_{i} '
+        f't{i}. ! queue max-size-buffers=8 leaky=downstream ! selB.sink_{i} '
     )
 
 pipe = Gst.parse_launch(
     branches +
-    f'input-selector name=selA sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert ! queue max-size-buffers=2 ! comp.sink_0 '
-    f'input-selector name=selB sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert ! queue max-size-buffers=2 ! comp.sink_1 '
-    f'compositor name=comp background=black latency=100000000 ! video/x-raw,width=1920,height=1080 ! '
+    f'input-selector name=selA sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsA ! queue max-size-buffers=8 ! comp.sink_0 '
+    f'input-selector name=selB sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsB ! queue max-size-buffers=8 ! comp.sink_1 '
+    f'compositor name=comp background=black latency=200000000 ! video/x-raw,width=1920,height=1080 ! '
     f'videorate drop-only=false ! video/x-raw,framerate=30/1 ! videoconvert ! '
-    f'video/x-raw,format=v210 ! queue max-size-buffers=2 ! '
+    f'video/x-raw,format=v210 ! queue max-size-buffers=8 ! '
     f'mxlsink name=sink domain=/mxl-domain flow-id={DST} label="Layout PGM" '
     f'description="2-up / PiP composite of two switcher inputs" '
     f'group-hint="Layout:Video" sync=false')
@@ -68,19 +68,21 @@ comp = pipe.get_by_name('comp')
 sink = pipe.get_by_name('sink')
 padA = comp.get_static_pad('sink_0')
 padB = comp.get_static_pad('sink_1')
+fcapsA = pipe.get_by_name('fcapsA')
+fcapsB = pipe.get_by_name('fcapsB')
 
-# Output restamp, third iteration — the design cam_ingest proved:
-#  - a FREE-RUNNING counter (v1) ignored the buffer timeline and scattered
-#    grains across wrong ring indices (frozen picture, multi-second leaps);
-#  - NO restamp (v2) let the output videorate free-run on its own ideal grid,
-#    which drifted ~ahead of wall clock over ~25 min until readers hit
-#    "grain out of range - too early" (selector wedge on slot 6);
-#  - v3: FOLLOW the buffer timeline through ONE locked offset, and re-lock
-#    when sustained drift vs now+margin exceeds 150ms for ~45 buffers.
-#    Continuity of videorate's grid + bounded to wall clock = both bugs dead.
-out_state = {'off': None, 'drift_n': 0}
-RESYNC_NS = 150_000_000
-RESYNC_COUNT = 45
+# Output restamp v4 — a slow SERVO, not a threshold. History: a free-running
+# counter scattered ring indices (frozen picture); no restamp let the grid
+# drift unbounded (~25 min -> "grain too early" wedge); a 150ms-threshold
+# re-lock (v3) fired constantly because bursty delivery has ±300ms PHASE
+# WOBBLE without net drift — each re-lock was a visible jump. v4 follows the
+# buffer timeline through one offset and slews that offset toward
+# (now + margin) by at most 80µs per frame: true clock drift (~1ms/s scale)
+# is absorbed invisibly, wobble barely moves it, and there are no jumps.
+# (mxlsink PTS = ring ADDRESS in pipeline running time — the 1-grain-stall
+# diag proved raw domain timestamps block the sink forever.)
+out_state = {'off': None}
+SLEW_MAX_NS = 80_000  # per frame; 2.4ms/s of correction capacity
 
 
 def out_restamp(pad, info):
@@ -92,15 +94,16 @@ def out_restamp(pad, info):
     if out_state['off'] is None:
         out_state['off'] = now + MARGIN_NS - buf.pts
     mapped = buf.pts + out_state['off']
-    if abs(mapped - (now + MARGIN_NS)) > RESYNC_NS:
-        out_state['drift_n'] += 1
-        if out_state['drift_n'] >= RESYNC_COUNT:
-            out_state['off'] = now + MARGIN_NS - buf.pts
-            mapped = buf.pts + out_state['off']
-            out_state['drift_n'] = 0
-            print('output drift re-sync', flush=True)
+    err = mapped - (now + MARGIN_NS)
+    if abs(err) > Gst.SECOND:
+        # catastrophic (startup transient / stall recovery): hard re-lock —
+        # one visible discontinuity beats minutes of stale ring writes
+        out_state['off'] = now + MARGIN_NS - buf.pts
+        mapped = now + MARGIN_NS
+        print(f'output hard re-lock ({err/1e9:+.2f}s)', flush=True)
     else:
-        out_state['drift_n'] = 0
+        corr = max(-SLEW_MAX_NS, min(SLEW_MAX_NS, int(err * 0.02)))
+        out_state['off'] -= corr
     buf.pts = mapped
     buf.duration = FRAME_NS
     return Gst.PadProbeReturn.OK
@@ -137,18 +140,22 @@ for _i in range(len(SLOTS)):
 
 
 def apply_geometry(style):
+    # scaling happens in the per-branch videoscale elements (parallel threads,
+    # set via the fcaps filters) — the compositor's own pad width/height
+    # scaling ran inside its single aggregation thread and capped the whole
+    # pipeline at ~28.5fps (the diag graphs skipped geometry, which is why
+    # they always measured a perfect 30). Pads here do POSITION ONLY.
     if style == 'pip':
-        # A fullscreen, B lower-right inset with a small margin
+        fcapsA.set_property('caps', Gst.Caps.from_string('video/x-raw,width=1920,height=1080'))
+        fcapsB.set_property('caps', Gst.Caps.from_string('video/x-raw,width=560,height=316'))
         padA.set_property('xpos', 0);    padA.set_property('ypos', 0)
-        padA.set_property('width', 1920); padA.set_property('height', 1080)
-        padB.set_property('width', 560);  padB.set_property('height', 315)
-        padB.set_property('xpos', 1320);  padB.set_property('ypos', 725)
-        padB.set_property('zorder', 2);   padA.set_property('zorder', 1)
+        padB.set_property('xpos', 1320); padB.set_property('ypos', 724)
+        padA.set_property('zorder', 1);  padB.set_property('zorder', 2)
     else:  # 2up side-by-side, vertically centred
+        fcapsA.set_property('caps', Gst.Caps.from_string('video/x-raw,width=960,height=540'))
+        fcapsB.set_property('caps', Gst.Caps.from_string('video/x-raw,width=960,height=540'))
         padA.set_property('xpos', 0);    padA.set_property('ypos', 270)
-        padA.set_property('width', 960); padA.set_property('height', 540)
         padB.set_property('xpos', 960);  padB.set_property('ypos', 270)
-        padB.set_property('width', 960); padB.set_property('height', 540)
         padA.set_property('zorder', 1);  padB.set_property('zorder', 2)
 
 
@@ -173,7 +180,7 @@ def control():
                 print(f'layout -> {style} A={a} B={b}', flush=True)
         except Exception:
             pass  # backend briefly unreachable — keep last layout
-        time.sleep(0.5)
+        time.sleep(2)  # 0.5s HTTPS polling contended the GIL against ~210 probe calls/s
 
 
 apply_geometry('2up')
