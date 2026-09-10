@@ -113,11 +113,17 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     if(hls&&hls.playingDate)return hls.playingDate;
     return null;
   }
-  function newHls(){
+  function newHls(live){
     if(hls)hls.destroy();
-    hls=new Hls({
-      // never force a jump back to the live edge while someone is scrubbing;
-      // small buffers = snappy seeks (each fragment is a 1s fetch anyway)
+    // LIVE mode ("Recent"): follow the edge and RESYNC if we fall behind, or the
+    //   playhead drifts back over time and stalls on a short buffer (looked "frozen").
+    // SCRUB modes (archive/clip): never auto-jump so the user keeps their position.
+    hls=new Hls(live ? {
+      lowLatencyMode:false,
+      liveSyncDurationCount:4,        // target ~4s behind edge
+      liveMaxLatencyDurationCount:12, // if >12s behind, resync to edge (no permanent stall)
+      maxBufferLength:20,backBufferLength:10
+    } : {
       liveSyncDurationCount:3,liveMaxLatencyDurationCount:99999,lowLatencyMode:false,
       maxBufferLength:8,backBufferLength:20
     });
@@ -138,9 +144,27 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   }
   function goLive(){
     mode='live';paintMode();
-    newHls().loadSource(BASE+'?type=live&t='+Date.now());
+    newHls(true).loadSource(BASE+'?type=live&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
   }
+  // Stall watchdog for LIVE mode: if the playhead hasn't advanced for ~4s while
+  // more buffer exists ahead, jump to near the live edge. Fixes the "open for a
+  // while then frozen" case without affecting scrub modes.
+  (function(){
+    var lastT=-1,stuck=0;
+    setInterval(function(){
+      if(mode!=='live'||v.paused){lastT=v.currentTime;stuck=0;return;}
+      if(Math.abs(v.currentTime-lastT)<0.05){
+        stuck++;
+        if(stuck>=4 && v.buffered.length){
+          var edge=v.buffered.end(v.buffered.length-1);
+          if(edge-v.currentTime>1.5){v.currentTime=edge-1.0;v.play().catch(function(){});}
+          stuck=0;
+        }
+      } else stuck=0;
+      lastT=v.currentTime;
+    },1000);
+  })();
   // Full-archive window. The store keeps 2h, but a 7200-segment VOD playlist
   // (~3MB m3u8) makes hls.js parse+manage 7000+ fragments on every seek = very
   // sluggish scrub. Default to the last ARCH_WIN seconds (snappy); the buttons
