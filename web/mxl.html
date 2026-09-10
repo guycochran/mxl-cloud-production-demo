@@ -70,7 +70,15 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       <h3>&#128752; Send us your feed &mdash; become an input on this switcher</h3>
       <p>Push an <b style="color:#cfd8ef">SRT</b> stream (H.264, any resolution/framerate &mdash; we conform it to 1080p30) and it appears on the <b style="color:#cfd8ef">Guest</b> buttons within ~15 seconds, cuttable into the live MXL program like any camera:</p>
       <div class="u" id="srturl">srt://20.64.205.144:8890?streamid=publish:guest1&amp;latency=200</div>
-      <p>ffmpeg example:&nbsp; <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">ffmpeg -re -i YOURSOURCE -c:v libx264 -tune zerolatency -b:v 4000k -f mpegts "srt://20.64.205.144:8890?streamid=publish:guest1&amp;latency=200"</span></p>
+      <details style="margin:5px 0"><summary style="font-size:11px;font-weight:700;color:#cfd8ef;cursor:pointer">vMix</summary>
+        <p style="margin-top:4px">Settings &rarr; <b>Outputs / NDI / SRT</b> &rarr; enable <b>SRT</b> on an output &rarr; Type <b>Caller</b> &middot; Hostname <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">20.64.205.144</span> &middot; Port <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">8890</span> &middot; Latency <b>200</b> &middot; Stream ID <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">publish:guest1</span> &middot; Quality: any <b>H.264</b> preset (not HEVC).</p>
+      </details>
+      <details style="margin:5px 0"><summary style="font-size:11px;font-weight:700;color:#cfd8ef;cursor:pointer">OBS</summary>
+        <p style="margin-top:4px">Settings &rarr; <b>Stream</b> &rarr; Service <b>Custom&hellip;</b> &rarr; Server = the full <span style="font-family:ui-monospace,Menlo,monospace;color:#cfd8ef">srt://&hellip;</span> URL above &middot; Stream Key <b>empty</b> &rarr; Start Streaming. Encoder: <b>x264</b> or NVENC <b>H.264</b> (not HEVC/AV1), keyframe interval 1&ndash;2s.</p>
+      </details>
+      <details style="margin:5px 0"><summary style="font-size:11px;font-weight:700;color:#cfd8ef;cursor:pointer">ffmpeg</summary>
+        <p style="margin-top:4px;font-family:ui-monospace,Menlo,monospace;color:#cfd8ef;word-break:break-all">ffmpeg -re -i YOURSOURCE -c:v libx264 -tune zerolatency -b:v 4000k -f mpegts "srt://20.64.205.144:8890?streamid=publish:guest1&amp;latency=200"</p>
+      </details>
       <p>Second slot: swap <b>guest1</b> &rarr; <b>guest2</b> in the streamid.</p>
       <div class="st" id="conststat">Guest 1: &mdash; &middot; Guest 2: &mdash;</div>
       <div style="display:flex;gap:8px;margin-top:8px"><button id="copysrt">&#128203; Copy URL</button><button id="contribclose">Close</button></div>
