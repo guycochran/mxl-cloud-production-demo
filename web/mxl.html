@@ -43,7 +43,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 <main>
   <div class="pane feed">
     <div class="feedview">
-      <iframe src="https://mxl-feed.YOUR-DOMAIN/mxl2webrtc/" allow="autoplay" title="MXL program feed"></iframe>
+      <iframe src="https://mxl-feed.cochran.cloud/mxl2webrtc/" allow="autoplay" title="MXL program feed"></iframe>
       <div class="badge">MXL program &mdash; your camera + graphics, rendered out of shared memory in Azure &middot; WebRTC to your screen</div>
     </div>
     <div class="mxlbar">
@@ -63,7 +63,17 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   </div>
   <div class="pane ctrl">
     <div class="hd">2 &middot; Drive the camera</div>
-    <iframe src="/ptz_op.html" allow="autoplay" title="PTZ operator control"></iframe>
+    <!-- PTZ console is lazy: its own WebRTC monitor is a 2nd live stream that
+         competes with the program feed for decode budget and makes the program
+         feed stutter on some machines. Load it only when the visitor wants to
+         drive the camera. -->
+    <div id="ptzslot" style="width:100%;height:100%;position:relative">
+      <button id="ptzstart" style="position:absolute;inset:0;width:100%;height:100%;border:0;cursor:pointer;background:radial-gradient(circle at 50% 42%,#141d33,#0a0e1a);color:#cfd8ef;font:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+        <span style="font-size:44px">&#127916;</span>
+        <span style="font-size:15px;font-weight:700;letter-spacing:.3px">Drive the real camera &rarr;</span>
+        <span style="font-size:12px;color:#8b96b5;max-width:280px;text-align:center;line-height:1.5">Click to open the live PTZ operator console. Kept off by default so the program feed stays smooth.</span>
+      </button>
+    </div>
   </div>
 </main>
 <script>
@@ -92,6 +102,12 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   keybtn.addEventListener('click',function(){post('/api/mxl/key',{on:!keybtn.classList.contains('on')})});
   pat.addEventListener('change',function(){if(pat.value)post('/api/mxl/pattern',{pattern:pat.value})});
   refresh();setInterval(refresh,6000);
+  // Lazy PTZ console: only start its WebRTC monitor (a 2nd live stream) on demand.
+  var ptzStart=$('#ptzstart');
+  if(ptzStart)ptzStart.addEventListener('click',function(){
+    var slot=$('#ptzslot');
+    slot.innerHTML='<iframe src="/ptz_op.html" allow="autoplay" title="PTZ operator control" style="width:100%;height:100%;border:0;display:block"></iframe>';
+  });
 })();
 </script>
 </body></html>
