@@ -95,7 +95,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   </div>
   <div class="pane">
     <div class="hd">&#9654; Live program (for comparison) <span class="chip">via MXL fabric</span></div>
-    <iframe src="https://fabric-feed.cochran.cloud/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
+    <iframe src="/fabricfeed/mxl2webrtc/" allow="autoplay" title="Live MXL program"></iframe>
   </div>
 </main>
 <div id="qrmodal" style="display:none;position:fixed;inset:0;background:rgba(4,6,12,.85);backdrop-filter:blur(4px);z-index:50;align-items:center;justify-content:center">
@@ -114,7 +114,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 <script>
 (function(){
   var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
-  var BASE='https://tams.cochran.cloud/flows/'+FLOW+'/output.m3u8';
+  var BASE='/tamsapi/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
   var hls=null,mode='live';  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
   var winStart=null,winDur=0,winMedia0=0,fragList=[];  // playlist window + fragment index (for gap-accurate time mapping)
@@ -213,7 +213,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       hovspin=document.getElementById('hovspin'),phead=document.getElementById('playhead'),
       clipsel=document.getElementById('clipsel'),
       mkin=document.getElementById('mkin'),mkout=document.getElementById('mkout');
-  var THUMB='https://tams-obj.cochran.cloud/tams-media/thumbs/';
+  var THUMB='/tamsobj/tams-media/thumbs/';
   var dragging=false, wasPlaying=false;
   function fracToMedia(fr){return winMedia0+fr*winDur}
   function fracToEpoch(fr){
@@ -234,7 +234,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // fallback. One image request covers 60s of hovering: no 404 walks, no
   // request storms, buttery scrubbing. Sprite tiles are 192×108, shown at
   // 200×112 (scale 200/192 → sheet renders 2000×672).
-  var SPRITE='https://tams-obj.cochran.cloud/tams-media/sprites/';
+  var SPRITE='/tamsobj/tams-media/sprites/';
   var sprOK={}, sprBad={}, thumbOK={}, thumbBad={}, thumbReq=0;
   function showSprite(ep){
     var m=ep-ep%60, i=ep-m;
