@@ -43,18 +43,28 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     <div class="hd">&#9202; Time machine <span class="chip rec">&#9679; REC</span> <span class="chip" id="segcount">&hellip;</span></div>
     <video id="tmv" controls muted playsinline></video>
     <div style="flex:0 0 auto;padding:10px 14px 4px;background:#0c1220;border-top:1px solid #1a2338">
-      <div id="scrub" style="position:relative;height:18px;cursor:pointer;touch-action:none">
-        <div style="position:absolute;left:0;right:0;top:7px;height:5px;background:#1a2338;border-radius:3px"></div>
-        <div id="played" style="position:absolute;left:0;top:7px;height:5px;width:0;background:#ffb400;border-radius:3px"></div>
-        <div id="mkin" style="display:none;position:absolute;top:0;width:2px;height:18px;background:#28d17c"></div>
-        <div id="mkout" style="display:none;position:absolute;top:0;width:2px;height:18px;background:#e5484d"></div>
-        <div id="ghost" style="display:none;position:absolute;top:2px;width:2px;height:14px;background:#eef2ff"></div>
-        <div id="hovertip" style="display:none;position:absolute;bottom:24px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:8px;padding:5px;text-align:center;pointer-events:none;z-index:5">
-          <img id="hovimg" style="display:block;width:160px;height:90px;object-fit:cover;border-radius:5px;background:#000" alt="">
-          <div id="hovt" style="font-size:11px;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:3px">--:--:--</div>
+      <div id="scrub" style="position:relative;height:30px;cursor:pointer;touch-action:none;user-select:none">
+        <div style="position:absolute;left:0;right:0;top:12px;height:6px;background:#1a2338;border-radius:3px"></div>
+        <!-- shaded IN→OUT clip selection -->
+        <div id="clipsel" style="display:none;position:absolute;top:12px;height:6px;background:rgba(255,180,0,.28);border-left:1px solid #28d17c;border-right:1px solid #e5484d"></div>
+        <div id="played" style="position:absolute;left:0;top:12px;height:6px;width:0;background:#ffb400;border-radius:3px"></div>
+        <!-- IN / OUT flag markers -->
+        <div id="mkin" style="display:none;position:absolute;top:4px;width:2px;height:22px;background:#28d17c"><div style="position:absolute;top:-1px;left:0;width:9px;height:8px;background:#28d17c;border-radius:0 2px 2px 0"></div></div>
+        <div id="mkout" style="display:none;position:absolute;top:4px;width:2px;height:22px;background:#e5484d"><div style="position:absolute;top:-1px;right:0;width:9px;height:8px;background:#e5484d;border-radius:2px 0 0 2px"></div></div>
+        <!-- current playhead knob -->
+        <div id="playhead" style="position:absolute;top:9px;left:0;width:3px;height:12px;background:#fff;border-radius:2px;box-shadow:0 0 4px rgba(0,0,0,.6);pointer-events:none"></div>
+        <!-- hover ghost line -->
+        <div id="ghost" style="display:none;position:absolute;top:6px;width:1px;height:18px;background:rgba(238,242,255,.6);pointer-events:none"></div>
+        <!-- big hover preview: nearest-available thumbnail, never broken -->
+        <div id="hovertip" style="display:none;position:absolute;bottom:34px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:9px;padding:5px;text-align:center;pointer-events:none;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.5)">
+          <div style="position:relative;width:200px;height:112px;border-radius:6px;overflow:hidden;background:#000">
+            <img id="hovimg" style="display:block;width:200px;height:112px;object-fit:cover" alt="">
+            <div id="hovspin" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5b6885;font-size:11px">loading…</div>
+          </div>
+          <div id="hovt" style="font-size:12px;font-weight:600;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:4px">--:--:--</div>
         </div>
       </div>
-      <div style="font-size:10px;color:#5b6885;margin-top:2px">drag to preview &middot; release to jump &mdash; thumbnails come straight from the store</div>
+      <div style="font-size:10px;color:#5b6885;margin-top:3px">drag to scrub the live frame &middot; <b style="color:#8b96b5">I</b>/<b style="color:#8b96b5">O</b> mark in/out &middot; the shaded band is your clip</div>
     </div>
     <div class="tmbar">
       <button id="mlive" class="on">&#9210; Recent</button>
@@ -124,8 +134,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       liveMaxLatencyDurationCount:12, // if >12s behind, resync to edge (no permanent stall)
       maxBufferLength:20,backBufferLength:10
     } : {
-      liveSyncDurationCount:3,liveMaxLatencyDurationCount:99999,lowLatencyMode:false,
-      maxBufferLength:8,backBufferLength:20
+      // SCRUB (archive/clip): a long VOD; give hls.js room to seek anywhere
+      // (tight buffers made far seeks clamp back to the start).
+      lowLatencyMode:false,
+      maxBufferLength:30, backBufferLength:90, maxBufferHole:1.0
     });
     hls.on(Hls.Events.ERROR,function(e,d){if(d.fatal)console.log('hls fatal',d.details)});
     hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
@@ -193,12 +205,15 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   document.getElementById('back5').onclick=function(){v.currentTime=Math.max(0,v.currentTime-300)};
   v.addEventListener('timeupdate',function(){at.textContent=fmtD(playingDate())});
 
-  // ── custom timeline: hover thumbnails, seek ONLY on release ──
+  // ── editor timeline: LIVE frame scrub on drag, nearest-available thumbnails ──
   var scr=document.getElementById('scrub'),played=document.getElementById('played'),
       ghost=document.getElementById('ghost'),tip=document.getElementById('hovertip'),
       hovimg=document.getElementById('hovimg'),hovt=document.getElementById('hovt'),
+      hovspin=document.getElementById('hovspin'),phead=document.getElementById('playhead'),
+      clipsel=document.getElementById('clipsel'),
       mkin=document.getElementById('mkin'),mkout=document.getElementById('mkout');
-  var dragging=false;
+  var THUMB='https://tams-obj.cochran.cloud/tams-media/thumbs/';
+  var dragging=false, wasPlaying=false;
   function fracToMedia(fr){return winMedia0+fr*winDur}
   function fracToEpoch(fr){
     // gap-accurate: map media time to the owning fragment's program-date-time
@@ -212,35 +227,102 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     return winStart?Math.floor(winStart.getTime()/1000+fr*winDur):null;
   }
   function evFrac(e){var r=scr.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))}
+
+  // Thumbnail cache + nearest-available loader (NEVER shows a broken image).
+  // If the exact-second thumb 404s (edge lag / a hole), walk outward to the
+  // nearest second that exists, so the hover preview is always a real frame.
+  var thumbOK={}, thumbBad={}, thumbReq=0;
+  function tryThumb(ep, token, depth){
+    if(depth>4){hovspin.textContent='';return;}         // give up gracefully after ±4s
+    if(thumbBad[ep]){ return tryThumb(nextEp(ep,depth), token, depth+1); }
+    var probe=new Image();
+    probe.onload=function(){
+      thumbOK[ep]=1;
+      if(token!==thumbReq)return;                        // a newer hover superseded us
+      hovimg.src=probe.src; hovspin.textContent='';
+    };
+    probe.onerror=function(){
+      thumbBad[ep]=1;
+      if(token!==thumbReq)return;
+      tryThumb(nextEp(ep,depth), token, depth+1);
+    };
+    probe.src=THUMB+ep+'.jpg';
+  }
+  // alternate outward: ep-1, ep+1, ep-2, ep+2 … (prefer slightly-earlier frame)
+  function nextEp(ep,depth){var step=Math.ceil((depth+1)/2);return depth%2===0?ep-step:ep+step;}
   function showTip(fr){
     var x=fr*scr.getBoundingClientRect().width;
     ghost.style.display='block';ghost.style.left=x+'px';
     tip.style.display='block';tip.style.left=x+'px';
     var ep=fracToEpoch(fr);
     hovt.textContent=ep?fmtE(ep):'--:--:--';
-    if(ep){var u='https://tams-obj.cochran.cloud/tams-media/thumbs/'+ep+'.jpg';
-      if(hovimg.dataset.ep!==String(ep)){hovimg.dataset.ep=ep;hovimg.src=u}}
+    if(ep){
+      if(hovimg.dataset.ep!==String(ep)){
+        hovimg.dataset.ep=ep;
+        var token=++thumbReq;
+        if(thumbOK[ep]){hovimg.src=THUMB+ep+'.jpg';hovspin.textContent='';}
+        else{hovspin.textContent='';tryThumb(ep,token,0);}   // no "loading" flash — keep last frame
+      }
+    }
   }
-  hovimg.onerror=function(){hovimg.removeAttribute('src')};
-  scr.addEventListener('pointermove',function(e){showTip(evFrac(e))});
-  scr.addEventListener('pointerdown',function(e){dragging=true;scr.setPointerCapture(e.pointerId);showTip(evFrac(e))});
+  // LIVE scrub: seek the actual video as you drag so the main viewer shows the
+  // frame under your cursor like a real editor. The big hover thumbnail is the
+  // guaranteed feedback; this video-seek is the enhancement on top.
+  var seekPending=false, seekTarget=null;
+  function liveScrub(fr){
+    seekTarget=fracToMedia(fr);
+    if(seekPending)return;                               // coalesce — one seek in flight
+    seekPending=true;
+    var doSeek=function(){
+      var t=seekTarget, cleared=false;
+      var finish=function(){if(cleared)return;cleared=true;v.removeEventListener('seeked',done);clearTimeout(to);
+        if(Math.abs(seekTarget-t)>0.2 && dragging){seekPending=true;doSeek();} else {seekPending=false;}};
+      var done=function(){finish();};
+      var to=setTimeout(finish,600);                     // safety: never wedge if 'seeked' misfires
+      v.addEventListener('seeked',done);
+      try{v.currentTime=t;}catch(e){finish();}
+    };
+    doSeek();
+  }
+  scr.addEventListener('pointermove',function(e){
+    var fr=evFrac(e); showTip(fr);
+    if(dragging)liveScrub(fr);
+  });
+  scr.addEventListener('pointerdown',function(e){
+    dragging=true; scr.setPointerCapture(e.pointerId);
+    wasPlaying=!v.paused; v.pause();                     // freeze while scrubbing
+    var fr=evFrac(e); showTip(fr); liveScrub(fr);
+  });
   scr.addEventListener('pointerup',function(e){
-    if(!dragging)return;dragging=false;
-    v.currentTime=fracToMedia(evFrac(e));   // the ONLY seek — on release
+    if(!dragging)return; dragging=false;
+    v.currentTime=fracToMedia(evFrac(e));                // final precise position
     tip.style.display='none';ghost.style.display='none';
+    if(wasPlaying)v.play().catch(function(){});          // resume if it was playing
   });
   scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
-  setInterval(function(){ // played-position fill (cheap, no layout thrash)
-    if(winDur>0&&!dragging){var fr=(v.currentTime-winMedia0)/winDur;played.style.width=Math.min(100,Math.max(0,fr*100))+'%'}
-  },250);
+  // playhead knob + played fill track the real position (rAF = smooth, no thrash)
+  (function tick(){
+    if(winDur>0){
+      var fr=Math.min(1,Math.max(0,(v.currentTime-winMedia0)/winDur));
+      played.style.width=(fr*100)+'%';
+      phead.style.left='calc('+(fr*100)+'% - 1px)';
+    }
+    requestAnimationFrame(tick);
+  })();
   function paintMarkers(){
-    if(!winStart||!winDur){mkin.style.display=mkout.style.display='none';return}
-    var w0=winStart.getTime()/1000;
+    var w0=winStart?winStart.getTime()/1000:0;
+    function frac(ep){return (ep-w0)/winDur;}
+    if(!winStart||!winDur){mkin.style.display=mkout.style.display=clipsel.style.display='none';return}
     function place(mk,ep){
       if(ep==null||ep<w0||ep>w0+winDur){mk.style.display='none';return}
-      mk.style.display='block';mk.style.left=((ep-w0)/winDur*100)+'%';
+      mk.style.display='block';mk.style.left=(frac(ep)*100)+'%';
     }
     place(mkin,inE);place(mkout,outE);
+    // shaded selection band between IN and OUT
+    if(inE!=null&&outE!=null&&outE>inE){
+      var a=Math.max(0,Math.min(1,frac(inE))), b=Math.max(0,Math.min(1,frac(outE)));
+      clipsel.style.display='block';clipsel.style.left=(a*100)+'%';clipsel.style.width=((b-a)*100)+'%';
+    } else clipsel.style.display='none';
   }
 
   // ── clipping ──
