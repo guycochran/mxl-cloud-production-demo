@@ -34,8 +34,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 .bus.pgmrow .blbl{color:#e5484d}
 .bus.pvwrow .blbl{color:#28d17c}
 .bus .src{min-width:86px;white-space:nowrap;font-size:11px;padding:5px 9px}
-.bus.pvwrow .src{display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px}
-.bus.pvwrow .src .th{width:104px;height:58px;object-fit:cover;border-radius:4px;background:#05070d;display:block;pointer-events:none}
+.bus.pgmrow .src{display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px}
+.bus.pvwrow.txtrow .src{display:inline-block}
+.bus.pgmrow .src .th{width:104px;height:58px;object-fit:cover;border-radius:4px;background:#05070d;display:block;pointer-events:none}
 .bus.pgmrow .src.on{background:#e5484d;border-color:#e5484d;color:#fff;box-shadow:0 0 10px rgba(229,72,77,.55)}
 .bus.pvwrow .src.on{background:#28d17c;border-color:#28d17c;color:#08130c;box-shadow:0 0 10px rgba(40,209,124,.45)}
 .bus .src.nofeed{opacity:.35;cursor:not-allowed}
@@ -107,10 +108,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     </div>
     <div class="mxlbar">
       <div class="buses">
-        <div class="bus pgmrow"><span class="blbl">PGM</span>
+        <div class="bus pvwrow txtrow"><span class="blbl">PVW</span>
           <button class="src" data-inp="0">&#128249; Cam 1</button><button class="src" data-inp="3">&#127916; Cam 2</button><button class="src" data-inp="1">&#127902; Playout</button><button class="src g" data-inp="4">&#128752; Guest 1</button><button class="src g" data-inp="5">&#128752; Guest 2</button><button class="src" data-inp="2">&#127912; Pattern</button><button class="src" data-inp="6">&#129513; Layout</button>
         </div>
-        <div class="bus pvwrow"><span class="blbl">PVW</span>
+        <div class="bus pgmrow"><span class="blbl">PGM</span>
           <button class="src" data-inp="0"><img class="th" alt=""><span>&#128249; Cam 1</span></button><button class="src" data-inp="3"><img class="th" alt=""><span>&#127916; Cam 2</span></button><button class="src" data-inp="1"><img class="th" alt=""><span>&#127902; Playout</span></button><button class="src g" data-inp="4"><img class="th" alt=""><span>&#128752; Guest 1</span></button><button class="src g" data-inp="5"><img class="th" alt=""><span>&#128752; Guest 2</span></button><button class="src" data-inp="2"><img class="th" alt=""><span>&#127912; Pattern</span></button><button class="src" data-inp="6"><img class="th" alt=""><span>&#129513; Layout</span></button>
         </div>
       </div>
@@ -258,7 +259,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   var THN={0:'cam',1:'playout',2:'pattern',3:'cam2',4:'guest1',5:'guest2',6:'layout'};
   var NOSIG='data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="104" height="58"><rect width="100%" height="100%" fill="#0a0e1a"/><text x="50%" y="56%" fill="#3c4a70" font-size="10" font-family="sans-serif" text-anchor="middle">no signal</text></svg>');
   function refreshThumbs(){
-    document.querySelectorAll('.pvwrow .src').forEach(function(b){
+    document.querySelectorAll('.pgmrow .src').forEach(function(b){
       var img=b.querySelector('.th');if(!img)return;
       var n=THN[Number(b.dataset.inp)];if(!n)return;
       var probe=new Image();
