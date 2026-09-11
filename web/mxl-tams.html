@@ -68,7 +68,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     </div>
     <div class="tmbar">
       <button id="mlive" class="on">&#9210; Recent</button>
-      <button id="march" title="Last 30 min (Shift-click for full 2 hours)">&#128252; Archive (30m)</button>
+      <button id="march" title="Last hour (Shift-click for the full 12h archive)">&#128252; Archive (1h)</button>
       <button id="marefresh" style="display:none">&#8635;</button>
       <button id="back1">-1 min</button>
       <button id="back5">-5 min</button>
@@ -201,7 +201,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // (~3MB m3u8) makes hls.js parse+manage 7000+ fragments on every seek = very
   // sluggish scrub. Default to the last ARCH_WIN seconds (snappy); the buttons
   // below can widen it on demand.
-  var ARCH_WIN=1800; // 30 min ≈ 1800 fragments — smooth
+  var ARCH_WIN=3600; // an hour to peruse (Guy) — still snappy; Shift-click Full for 12h
   function goArchive(win){
     pinned=false;editHold=false;if(win)ARCH_WIN=win;
     mode='archive';paintMode();
@@ -258,8 +258,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   function showSprite(ep){
     var m=ep-ep%60, i=ep-m;
     hovimg.style.backgroundImage='url('+SPRITE+m+'.jpg)';
-    hovimg.style.backgroundSize='2000px 672px';
-    hovimg.style.backgroundPosition=(-(i%10)*200)+'px '+(-Math.floor(i/10)*112)+'px';
+    hovimg.style.backgroundSize=(tileW()*10)+'px '+(tileH()*6)+'px';
+    hovimg.style.backgroundPosition=(-(i%10)*tileW())+'px '+(-Math.floor(i/10)*tileH())+'px';
     hovspin.textContent='';
   }
   function showSingle(url){
@@ -307,10 +307,21 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     probe.onerror=function(){sprBad[m]=1;if(token===thumbReq){if(thumbOK[ep])showSingle(THUMB+ep+'.jpg');else tryThumb(ep,token,0);}};
     probe.src=SPRITE+m+'.jpg';
   }
+  // While DRAGGING the preview becomes a big 480x270 filmstrip frame —
+  // sprites are instant per-second images, which is what fluid skimming
+  // actually needs (video seeks are ~300ms each; they land the final frame).
+  function tileW(){return dragging?480:200}
+  function tileH(){return dragging?270:112}
+  function applyTipSize(){
+    hovimg.style.width=tileW()+'px';hovimg.style.height=tileH()+'px';
+    hovimg.dataset.ep='';                                 // force re-render at new scale
+  }
   function showTip(fr){
-    var x=fr*scr.getBoundingClientRect().width;
+    var bw=scr.getBoundingClientRect().width;
+    var x=fr*bw;
     ghost.style.display='block';ghost.style.left=x+'px';
-    tip.style.display='block';tip.style.left=x+'px';
+    tip.style.display='block';
+    tip.style.left=Math.min(bw-tileW()/2-8,Math.max(tileW()/2+8,x))+'px';
     var ep=fracToEpoch(fr);
     hovt.textContent=ep?fmtE(ep):'--:--:--';
     if(ep){
@@ -350,6 +361,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     dragging=true; scr.setPointerCapture(e.pointerId);
     wasPlaying=!v.paused; v.pause();                     // paused = hls live-sync can't yank
     editHold=true;                                       // ...and the ruler math freezes
+    applyTipSize();                                      // big skim preview
     var fr=evFrac(e);
     // pin starts NOW so drag-scrubbing runs against the fast VOD; seeks are
     // suppressed while the source swaps (see swapping) — that suppression is
@@ -362,6 +374,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var fr=evFrac(e);
     if(swapping){pendingReleaseFr=fr;}                   // swap will land this seek
     else v.currentTime=fracToMedia(fr);                  // final precise position
+    applyTipSize();                                      // back to small hover size
     tip.style.display='none';ghost.style.display='none';
     // EDITOR RULE (Guy): touching the bar PAUSES — no auto-resume, so the
     // gold played-line and playhead hold still while you compose IN/OUT.
@@ -432,10 +445,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     if(ep==null||ep>winEnd-12)return;
     var startE=Math.floor(winStart.getTime()/1000);
     var now=Math.floor(Date.now()/1000);
-    ARCH_WIN=Math.max(60,now-startE);
+    ARCH_WIN=Math.max(3600,now-startE);              // pinned edit window: at least an hour back
+    startE=now-ARCH_WIN;
     pinned=true;swapping=true;mode='archive';paintMode();
     var tr=encodeURIComponent('['+startE+':0_'+now+':0)');
-    newHls().loadSource(BASE+'?timerange='+tr+'&limit='+(now-startE+10)+'&t='+Date.now());
+    newHls().loadSource(BASE+'?timerange='+tr+'&limit='+(ARCH_WIN+10)+'&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){
       setTimeout(function(){
         if(dragging)return;                              // the drag owns the playhead
