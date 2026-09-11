@@ -65,6 +65,16 @@ h1 span{color:#ffb400}
   <div id="ctip" style="display:none;position:fixed;z-index:9;background:#111a2e;border:1px solid #26314d;border-radius:7px;padding:5px 9px;font-size:11px;pointer-events:none;white-space:nowrap"></div>
 </div>
 
+<div class="card"><h2>Traffic <span class="mut" style="text-transform:none;font-weight:400">(last 24h &middot; WebRTC sessions from mediamtx &middot; UTC hours)</span></h2>
+  <div class="vmrow" style="gap:34px;margin-bottom:12px">
+    <div><div class="big" id="t24">&mdash;</div><div class="lbl">sessions / 24h</div></div>
+    <div><div class="big" id="tip">&mdash;</div><div class="lbl">unique viewers</div></div>
+    <div><div class="big" id="tpk">&mdash;</div><div class="lbl">busiest hour</div></div>
+  </div>
+  <canvas id="ctraf" style="width:100%;height:130px;display:block"></canvas>
+  <div id="ttip" style="display:none;position:fixed;z-index:9;background:#111a2e;border:1px solid #26314d;border-radius:7px;padding:5px 9px;font-size:11px;pointer-events:none;white-space:nowrap"></div>
+</div>
+
 <div class="card"><h2>Pipeline writers <span class="mut" style="text-transform:none;font-weight:400">(in the hls2mxl container &middot; count &gt;1 on a singleton = duplicate-writer hazard)</span></h2>
   <div class="chips" id="procs"><span class="chip mut">loading&hellip;</span></div>
 </div>
@@ -105,6 +115,7 @@ function tick(){
     el('swap').textContent=h.swap_used_mb;
     el('swap').style.color=h.swap_used_mb>500?'#ff5d5d':'#cfd8ef';
     el('age').textContent=Math.max(0,Math.round(Date.now()/1000-h.ts));
+    window.__lastHealth=h; drawTraffic();
     var vw=h.viewers;
     el('viewers').textContent=vw?String(vw.open):'?';
     el('viewers').title=vw?('sessions open '+vw.open+' \u00b7 opened last 10 min '+vw.opened_10m+' \u00b7 last hour '+vw.opened_60m):'counter offline';
@@ -241,6 +252,50 @@ window.addEventListener('resize',redraw);
   });
   cv.addEventListener('mouseleave',function(){el('ctip').style.display='none'});
 });
+
+// ---- 24h traffic bar chart (single hue) ----
+function drawTraffic(){
+  var vw=(window.__lastHealth||{}).viewers;
+  if(!vw||!vw.hourly){return}
+  el('t24').textContent=vw.sessions_24h;
+  el('tip').textContent=vw.ips_24h;
+  var peak=vw.hourly.reduce(function(a,b){return b.n>a.n?b:a},{n:0,t:0});
+  el('tpk').textContent=peak.n?(new Date(peak.t*1000).getUTCHours()+':00'):'—';
+  var a=dpr(el('ctraf')),x=a[0],w=a[1],h=a[2];
+  x.clearRect(0,0,w,h);
+  var hrs=vw.hourly,ymax=Math.max(5,peak.n*1.15),t0=hrs[0].t,t1=hrs[hrs.length-1].t;
+  x.strokeStyle=GRID;x.fillStyle=MUT;x.font='9px system-ui';
+  [0,.5,1].forEach(function(f){var y=6+(h-24)*(1-f);
+    x.beginPath();x.moveTo(30,y);x.lineTo(w-6,y);x.stroke();x.fillText(Math.round(ymax*f),4,y+3)});
+  var span=Math.max(1,(t1-t0)),bw=Math.max(3,(w-40)/((span/3600)+1)-2);
+  window.__trafBars=[];
+  hrs.forEach(function(b){
+    var px=30+(w-40)*(b.t-t0)/span;
+    var bh=(h-24)*b.n/ymax, py=6+(h-24)-bh;
+    x.fillStyle=LINE;
+    // 4px rounded top anchored to baseline
+    var r=Math.min(4,bw/2,bh);
+    x.beginPath();x.moveTo(px,py+bh);x.lineTo(px,py+r);
+    x.quadraticCurveTo(px,py,px+r,py);x.lineTo(px+bw-r,py);
+    x.quadraticCurveTo(px+bw,py,px+bw,py+r);x.lineTo(px+bw,py+bh);x.closePath();x.fill();
+    window.__trafBars.push({x:px,w:bw,b:b});
+  });
+  for(var t=Math.ceil(t0/10800)*10800;t<=t1;t+=10800){
+    var px=30+(w-40)*(t-t0)/span;
+    x.fillStyle=MUT;x.fillText(new Date(t*1000).getUTCHours()+'h',px-6,h-2)}
+}
+el('ctraf').addEventListener('mousemove',function(ev){
+  var bars=window.__trafBars;if(!bars)return;
+  var r=el('ctraf').getBoundingClientRect(),mx=ev.clientX-r.left,hit=null;
+  bars.forEach(function(bb){if(mx>=bb.x-1&&mx<=bb.x+bb.w+1)hit=bb});
+  var tip=el('ttip');
+  if(hit){var d=new Date(hit.b.t*1000);
+    tip.innerHTML='<b>'+('0'+d.getUTCHours()).slice(-2)+':00 UTC</b> · '+hit.b.n+' sessions · '+hit.b.ips+' viewers';
+    tip.style.display='block';tip.style.left=Math.min(ev.clientX+14,window.innerWidth-210)+'px';tip.style.top=(ev.clientY+14)+'px';}
+  else tip.style.display='none';
+});
+el('ctraf').addEventListener('mouseleave',function(){el('ttip').style.display='none'});
+
 </script>
 </body>
 </html>
