@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>MXL — VM1 Health</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e1a;color:#cfd8ef;font:13px/1.5 system-ui,-apple-system,sans-serif;padding:18px 22px}
+a{color:#ffb400;text-decoration:none}
+h1{font-size:17px;font-weight:750;margin-bottom:2px}
+h1 span{color:#ffb400}
+.sub{font-size:11px;color:#8b96b5;margin-bottom:16px}
+.card{background:#0c1220;border:1px solid #26314d;border-radius:11px;padding:14px 16px;margin-bottom:14px}
+.card h2{font-size:11px;font-weight:800;letter-spacing:.8px;color:#8b96b5;margin-bottom:10px;text-transform:uppercase}
+.vmrow{display:flex;gap:26px;flex-wrap:wrap;align-items:center}
+.big{font-size:26px;font-weight:750}
+.lbl{font-size:10px;color:#8b96b5;letter-spacing:.5px;text-transform:uppercase}
+.bar{width:220px;height:10px;background:#1a2338;border-radius:5px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:5px;transition:width .6s,background .6s}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{border:1px solid #26314d;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:600}
+.ok{color:#28d17c;border-color:#1c4a35}
+.warn{color:#ffb400;border-color:#5c4a12}
+.bad{color:#ff5d5d;border-color:#5c1f1f}
+.mut{color:#586179}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.slot{border:1px solid #26314d;border-radius:9px;overflow:hidden;background:#05070d}
+.slot img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#05070d}
+.slot .m{padding:6px 9px}
+.slot .n{font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.slot .d{font-size:10px;color:#8b96b5;margin-top:1px}
+.pgm{outline:2px solid #ff5d5d}
+.pvw{outline:2px solid #28d17c}
+.foot{font-size:10px;color:#586179;margin-top:6px}
+</style>
+</head>
+<body>
+<h1>MXL <span>VM1 Health</span></h1>
+<div class="sub">the entire control room is one cloud VM — this is its pulse &middot; <a href="/mxl.html">&larr; back to the switcher</a></div>
+
+<div class="card"><h2>System</h2>
+  <div class="vmrow">
+    <div><div class="big" id="load">&mdash;</div><div class="lbl">load / cores</div></div>
+    <div><div class="bar"><i id="loadbar" style="width:0"></i></div>
+      <div class="d lbl" id="load515" style="margin-top:5px">5m &mdash; &middot; 15m &mdash;</div></div>
+    <div><div class="big" id="mem">&mdash;</div><div class="lbl">GB RAM free</div></div>
+    <div><div class="big" id="swap">0</div><div class="lbl">MB swap used</div></div>
+    <div><div class="big" id="age">&mdash;</div><div class="lbl">data age (s)</div></div>
+  </div>
+</div>
+
+<div class="card"><h2>Pipeline writers <span class="mut" style="text-transform:none;font-weight:400">(in the hls2mxl container &middot; count &gt;1 on a singleton = duplicate-writer hazard)</span></h2>
+  <div class="chips" id="procs"><span class="chip mut">loading&hellip;</span></div>
+</div>
+
+<div class="card"><h2>Inputs <span class="mut" style="text-transform:none;font-weight:400">(red ring = on program &middot; green ring = preview &middot; "frozen" = content unchanged: the wedge the demo self-heals)</span></h2>
+  <div class="grid" id="slots"></div>
+  <div class="foot" id="lstate"></div>
+</div>
+
+<script>
+var NAMES=['cam','playout','pattern','cam2','guest1','guest2','layout'];
+var LABELS={cam:'Studio Cam 1',playout:'Playout',pattern:'Pattern',cam2:'Studio Cam 2',guest1:'Guest 1',guest2:'Guest 2',layout:'Layout'};
+// expected instance counts: [min, max]
+var PROCS={layout_pgm:[1,1],audio_pgm:[1,1],cam_ingest:[1,1],cam2_ingest:[1,1],guest_ingest:[0,2],guest_audio:[0,2]};
+var $=function(s){return document.querySelector(s)};
+
+function el(id){return document.getElementById(id)}
+function tick(){
+  Promise.all([
+    fetch('/api/mxl/health').then(function(r){return r.json()}),
+    fetch('/api/mxl/status').then(function(r){return r.json()}).catch(function(){return null}),
+    fetch('/api/mxl/layout-state').then(function(r){return r.json()}).catch(function(){return null})
+  ]).then(function(res){
+    var h=res[0],st=res[1],ls=res[2];
+    if(!h||!h.cores)return;
+    var pct=Math.min(100,Math.round(100*h.load1/h.cores));
+    var col=h.load1<h.cores*0.75?'#28d17c':(h.load1<h.cores*1.1?'#ffb400':'#ff5d5d');
+    el('load').textContent=h.load1.toFixed(1)+'/'+h.cores;
+    el('load').style.color=col;
+    el('loadbar').style.width=pct+'%';el('loadbar').style.background=col;
+    el('load515').textContent='5m '+h.load5.toFixed(1)+' · 15m '+h.load15.toFixed(1);
+    el('mem').textContent=Math.round(h.mem_avail_mb/1024);
+    el('swap').textContent=h.swap_used_mb;
+    el('swap').style.color=h.swap_used_mb>500?'#ff5d5d':'#cfd8ef';
+    el('age').textContent=Math.max(0,Math.round(Date.now()/1000-h.ts));
+
+    if(h.procs){
+      var out='';
+      Object.keys(PROCS).forEach(function(p){
+        var n=h.procs[p]||0,lo=PROCS[p][0],hi=PROCS[p][1];
+        var cls=n<lo?'bad':(n>hi?'bad':(n===0?'mut':'ok'));
+        out+='<span class="chip '+cls+'">'+p+' ×'+n+(n>hi?' ⚠ dup!':'')+(n<lo?' ⚠ down':'')+'</span>';
+      });
+      el('procs').innerHTML=out;
+    }
+
+    var live={},input=-1;
+    if(st&&st.slots){st.slots.forEach(function(s){live[s.name]=s.live});input=st.input}
+    var out='';
+    NAMES.forEach(function(n,i){
+      var s=h.slots?h.slots[n]:null;
+      var isLive=live[n];
+      var cls=(i===input)?' pgm':'';
+      var dot=s? (s.frozen>10?'#ff5d5d':(s.age>5?'#ffb400':'#28d17c')) : '#586179';
+      var d=s? ('frame '+s.age+'s · '+(s.frozen>3?'<b style="color:'+(s.frozen>10?'#ff5d5d':'#ffb400')+'">frozen '+s.frozen+'s</b>':'moving'))
+             : (isLive===false?'no signal':'no reader');
+      out+='<div class="slot'+cls+'"><img src="/api/mxl/thumbs/'+n+'.jpg?t='+Date.now()+'" onerror="this.style.opacity=.15">'+
+        '<div class="m"><div class="n"><span class="dot" style="background:'+dot+'"></span>'+LABELS[n]+(i===input?' · PGM':'')+'</div>'+
+        '<div class="d">'+d+'</div></div></div>';
+    });
+    el('slots').innerHTML=out;
+    if(ls)el('lstate').textContent='layout: '+ls.style+' · A='+ls.a+' B='+ls.b+' C='+ls.c+' D='+ls.d+(ls.fade?' · FADE RUNNING':'');
+  }).catch(function(){});
+}
+tick();setInterval(tick,5000);
+</script>
+</body>
+</html>

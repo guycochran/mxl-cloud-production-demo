@@ -38,6 +38,11 @@ SIZE = {'layout': (480, 270)}  # default 320x180
 Gst.init(None)
 os.makedirs(OUT, exist_ok=True)
 
+# per-slot delivery state for health.json: 'last' = a frame arrived,
+# 'changed' = the frame CONTENT changed (repeat-wedged readers keep 'last'
+# fresh while 'changed' ages — the invisible wedge species, now visible)
+STATE = {}
+
 
 def worker(name, uuid):
     path = f'{OUT}/{name}.jpg'
@@ -80,6 +85,7 @@ def worker(name, uuid):
                         last_sig, last_change = sig, time.time()
                     elif time.time() - last_change > 30:
                         raise RuntimeError('content frozen 30s (repeat-wedged reader)')
+                    STATE[name] = {'last': last, 'changed': last_change}
         except Exception as e:
             print(f'{name}: {e}', flush=True)
         finally:
@@ -89,6 +95,7 @@ def worker(name, uuid):
             os.remove(path)
         except FileNotFoundError:
             pass
+        STATE.pop(name, None)  # health.json shows the slot as no-signal
         time.sleep(5)
 
 
@@ -106,12 +113,37 @@ def health():
                 for line in f:
                     k, v = line.split(':', 1)
                     mem[k] = int(v.strip().split()[0])
+            now = time.time()
+            slots = {}
+            for name in SLOTS:
+                st = STATE.get(name)
+                if st:
+                    slots[name] = {'age': round(now - st['last'], 1),
+                                   'frozen': round(now - st['changed'], 1)}
+                else:
+                    slots[name] = None  # no flow / worker rebuilding
+            # which pipeline writers are alive in this container (pid ns =
+            # container's, so this is exactly the demo's process set)
+            procs = {}
+            want = ('layout_pgm', 'audio_pgm', 'cam_ingest', 'cam2_ingest',
+                    'guest_ingest', 'guest_audio')
+            for pid in filter(str.isdigit, os.listdir('/proc')):
+                try:
+                    with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                        cmd = f.read().decode(errors='replace')
+                except OSError:
+                    continue
+                for w in want:
+                    if w in cmd:
+                        procs[w] = procs.get(w, 0) + 1
             data = {
-                'ts': int(time.time()),
+                'ts': int(now),
                 'load1': float(l1), 'load5': float(l5), 'load15': float(l15),
                 'cores': os.cpu_count(),
                 'mem_avail_mb': mem.get('MemAvailable', 0) // 1024,
                 'swap_used_mb': (mem.get('SwapTotal', 0) - mem.get('SwapFree', 0)) // 1024,
+                'slots': slots,
+                'procs': {w: procs.get(w, 0) for w in want},
             }
             tmp = path + '.tmp'
             with open(tmp, 'w') as f:
