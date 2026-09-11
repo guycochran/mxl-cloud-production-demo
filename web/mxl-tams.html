@@ -328,7 +328,13 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   scr.addEventListener('pointerdown',function(e){
     dragging=true; scr.setPointerCapture(e.pointerId);
     wasPlaying=!v.paused; v.pause();                     // freeze while scrubbing
-    var fr=evFrac(e); showTip(fr); liveScrub(fr);
+    var fr=evFrac(e);
+    // Leave live mode THE MOMENT the bar is touched: hls live-sync yanks the
+    // playhead back to the edge whenever it falls >12s behind — fatal while
+    // hunting an IN point. Pin first (window span ≈ unchanged, so the drag's
+    // fractions stay valid); the guard keeps edge-clicks live for watching.
+    if(mode==='live')pinWindowForEdit(fracToEpoch(fr));
+    showTip(fr); liveScrub(fr);
   });
   scr.addEventListener('pointerup',function(e){
     if(!dragging)return; dragging=false;
@@ -339,8 +345,6 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     // gold played-line and playhead hold still while you compose IN/OUT.
     // Space / L resumes playback when you're ready.
     v.pause();
-    // ...and in live mode the window PINS at the landing point (▶ live resumes)
-    pinWindowForEdit(fracToEpoch(fr));
   });
   scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
   // playhead knob + played fill track the real position (rAF = smooth, no thrash)
@@ -487,9 +491,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     if(k==='i'){si.onclick();flash(si)}
     else if(k==='o'){so.onclick();flash(so)}
     else if(k===' '){e.preventDefault();v.paused?v.play():v.pause()}
-    else if(k==='arrowleft'){e.preventDefault();v.currentTime=Math.max(0,v.currentTime-step)}
+    else if(k==='arrowleft'){e.preventDefault();if(mode==='live')pinWindowForEdit(curEpoch());v.currentTime=Math.max(0,v.currentTime-step)}
     else if(k==='arrowright'){e.preventDefault();v.currentTime=Math.min(v.duration||1e9,v.currentTime+step)}
-    else if(k==='j'){v.currentTime=Math.max(0,v.currentTime-10)}
+    else if(k==='j'){if(mode==='live')pinWindowForEdit(curEpoch());v.currentTime=Math.max(0,v.currentTime-10)}
     else if(k==='k'){v.pause()}
     else if(k==='l'){v.paused?v.play():v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)}
     else if(k==='s'){if(!sv.disabled)sv.onclick()}
