@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
-"""Program layout compositor for the MXL demo switcher (Tier 3: 2-up / PiP).
+"""Program layout compositor for the MXL demo switcher (Tier 3: 2-up / PiP / 4-up).
 
-Writes a "Layout PGM" flow that composites TWO of the six switcher inputs.
-It is a normal selector input (slot 6) — going to a layout is just a cut,
-so PVW/CUT and the keyer work unchanged.
+Writes a "Layout PGM" flow that composites up to FOUR of the six switcher
+inputs. It is a normal selector input (slot 6) — going to a layout is just a
+cut, so PVW/CUT and the keyer work unchanged.
 
-The pipeline holds ALL SIX sources behind two input-selectors feeding a
+The pipeline holds ALL SIX sources behind four input-selectors feeding a
 compositor, so every layout operation is a live property flip:
-  - change source A/B  -> input-selector active-pad swap (instant)
-  - 2up <-> pip        -> compositor pad geometry props   (instant)
+  - change source A/B/C/D -> input-selector active-pad swap (instant)
+  - 2up <-> pip <-> 4up   -> compositor pad geometry props  (instant)
 Nothing is rebuilt, the output flow is never recreated, and therefore the
 video selector's reader on slot 6 can never wedge from a layout change.
 
+CPU note: the expensive part of a branch is its post-selector 1080p
+videoconvert (~1 core each), so branches C and D sit behind `valve
+drop=true` — they cost nothing until the style is actually 4up. videorate
+max-duplication-time keeps a reopening valve from back-filling the gap
+with thousands of duplicate frames.
+
 Control: polls the demo backend (GET /api/mxl/layout-state, outbound HTTPS —
 same pattern as guest_ingest's self-announce) every 500ms:
-{"style":"2up"|"pip","a":"cam","b":"guest1"}
+{"style":"2up"|"pip"|"4up","a":"cam","b":"guest1","c":"playout","d":"pattern"}
 
 Output cadence: continuous 30fps PTS locked to now+2 grains (same restamp
 pattern as cam_ingest/audio_pgm) so the layout is instantly cuttable.
@@ -51,12 +57,16 @@ for i, name in enumerate(SLOTS):
         f'mxlsrc name=src{i} domain=/mxl-domain video-flow-id={FLOWS[name]} ! queue max-size-buffers=8 leaky=downstream ! tee name=t{i} '
         f't{i}. ! queue max-size-buffers=8 leaky=downstream ! selA.sink_{i} '
         f't{i}. ! queue max-size-buffers=8 leaky=downstream ! selB.sink_{i} '
+        f't{i}. ! queue max-size-buffers=8 leaky=downstream ! selC.sink_{i} '
+        f't{i}. ! queue max-size-buffers=8 leaky=downstream ! selD.sink_{i} '
     )
 
 pipe = Gst.parse_launch(
     branches +
     f'input-selector name=selA sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsA ! queue max-size-buffers=8 ! comp.sink_0 '
     f'input-selector name=selB sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsB ! queue max-size-buffers=8 ! comp.sink_1 '
+    f'input-selector name=selC sync-mode=1 ! valve name=valveC drop=true ! videorate max-duplication-time=500000000 ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsC ! queue max-size-buffers=8 ! comp.sink_2 '
+    f'input-selector name=selD sync-mode=1 ! valve name=valveD drop=true ! videorate max-duplication-time=500000000 ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsD ! queue max-size-buffers=8 ! comp.sink_3 '
     f'compositor name=comp background=black latency=200000000 ! video/x-raw,width=1920,height=1080 ! '
     f'videorate drop-only=false ! video/x-raw,framerate=30/1 ! videoconvert ! '
     f'video/x-raw,format=v210 ! queue max-size-buffers=8 ! '
@@ -66,12 +76,20 @@ pipe = Gst.parse_launch(
 
 selA = pipe.get_by_name('selA')
 selB = pipe.get_by_name('selB')
+selC = pipe.get_by_name('selC')
+selD = pipe.get_by_name('selD')
 comp = pipe.get_by_name('comp')
 sink = pipe.get_by_name('sink')
 padA = comp.get_static_pad('sink_0')
 padB = comp.get_static_pad('sink_1')
+padC = comp.get_static_pad('sink_2')
+padD = comp.get_static_pad('sink_3')
 fcapsA = pipe.get_by_name('fcapsA')
 fcapsB = pipe.get_by_name('fcapsB')
+fcapsC = pipe.get_by_name('fcapsC')
+fcapsD = pipe.get_by_name('fcapsD')
+valveC = pipe.get_by_name('valveC')
+valveD = pipe.get_by_name('valveD')
 
 # Output restamp v4 — a slow SERVO, not a threshold. History: a free-running
 # counter scattered ring indices (frozen picture); no restamp let the grid
@@ -145,12 +163,36 @@ for _i in range(len(SLOTS)):
         .add_probe(Gst.PadProbeType.BUFFER, make_normalizer(_i))
 
 
+cur_style = {'v': '2up'}  # wedge_watch needs to know whether C/D are on-screen
+
+
 def apply_geometry(style):
     # scaling happens in the per-branch videoscale elements (parallel threads,
     # set via the fcaps filters) — the compositor's own pad width/height
     # scaling ran inside its single aggregation thread and capped the whole
     # pipeline at ~28.5fps (the diag graphs skipped geometry, which is why
     # they always measured a perfect 30). Pads here do POSITION ONLY.
+    # C/D branches only run in 4up — their valves gate the per-branch 1080p
+    # videoconvert, so 2up/pip cost exactly what they did before 4up existed.
+    quad = Gst.Caps.from_string('video/x-raw,width=960,height=540')
+    if style == '4up':
+        valveC.set_property('drop', False)
+        valveD.set_property('drop', False)
+        for f in (fcapsA, fcapsB, fcapsC, fcapsD):
+            f.set_property('caps', quad)
+        padA.set_property('xpos', 0);    padA.set_property('ypos', 0)
+        padB.set_property('xpos', 960);  padB.set_property('ypos', 0)
+        padC.set_property('xpos', 0);    padC.set_property('ypos', 540)
+        padD.set_property('xpos', 960);  padD.set_property('ypos', 540)
+        for z, p in enumerate((padA, padB, padC, padD), start=1):
+            p.set_property('zorder', z)
+            p.set_property('alpha', 1.0)
+        cur_style['v'] = style
+        return
+    valveC.set_property('drop', True)
+    valveD.set_property('drop', True)
+    padC.set_property('alpha', 0.0)
+    padD.set_property('alpha', 0.0)
     if style == 'pip':
         fcapsA.set_property('caps', Gst.Caps.from_string('video/x-raw,width=1920,height=1080'))
         fcapsB.set_property('caps', Gst.Caps.from_string('video/x-raw,width=560,height=316'))
@@ -158,11 +200,12 @@ def apply_geometry(style):
         padB.set_property('xpos', 1320); padB.set_property('ypos', 724)
         padA.set_property('zorder', 1);  padB.set_property('zorder', 2)
     else:  # 2up side-by-side, vertically centred
-        fcapsA.set_property('caps', Gst.Caps.from_string('video/x-raw,width=960,height=540'))
-        fcapsB.set_property('caps', Gst.Caps.from_string('video/x-raw,width=960,height=540'))
+        fcapsA.set_property('caps', quad)
+        fcapsB.set_property('caps', quad)
         padA.set_property('xpos', 0);    padA.set_property('ypos', 270)
         padB.set_property('xpos', 960);  padB.set_property('ypos', 270)
         padA.set_property('zorder', 1);  padB.set_property('zorder', 2)
+    cur_style['v'] = style
 
 
 def _post(url, obj):
@@ -190,6 +233,14 @@ def run_fade(f, ctl):
     ia, ib, n = int(f['from']), int(f['to']), max(2, min(150, int(f.get('frames', 20))))
     try:
         full = Gst.Caps.from_string('video/x-raw,width=1920,height=1080')
+        # the fade M/E owns the canvas: C/D go dark (and their valves shut) so
+        # a 4up in progress can't leave quadrants stacked on top of the mix —
+        # zorder 3/4 would beat both fade pads. control() restores the user
+        # layout afterwards via ctl['cur'] = None.
+        valveC.set_property('drop', True)
+        valveD.set_property('drop', True)
+        padC.set_property('alpha', 0.0)
+        padD.set_property('alpha', 0.0)
         selA.set_property('active-pad', selA.get_static_pad(f'sink_{ia}'))
         selB.set_property('active-pad', selB.get_static_pad(f'sink_{ib}'))
         active['a'] = ia
@@ -250,18 +301,25 @@ def control():
             if fade_st['busy']:
                 time.sleep(0.3)   # pads belong to the fade; poll fast, apply nothing
                 continue
-            key = (cmd.get('style', '2up'), cmd.get('a', 'cam'), cmd.get('b', 'cam2'))
+            key = (cmd.get('style', '2up'), cmd.get('a', 'cam'), cmd.get('b', 'cam2'),
+                   cmd.get('c', 'playout'), cmd.get('d', 'pattern'))
             if key != ctl['cur']:
-                style, a, b = key
+                style, a, b, c, d = key
                 ia = SLOTS.index(a) if a in SLOTS else 0
                 ib = SLOTS.index(b) if b in SLOTS else 3
+                ic = SLOTS.index(c) if c in SLOTS else 1
+                id_ = SLOTS.index(d) if d in SLOTS else 2
                 selA.set_property('active-pad', selA.get_static_pad(f'sink_{ia}'))
                 selB.set_property('active-pad', selB.get_static_pad(f'sink_{ib}'))
+                selC.set_property('active-pad', selC.get_static_pad(f'sink_{ic}'))
+                selD.set_property('active-pad', selD.get_static_pad(f'sink_{id_}'))
                 active['a'] = ia
                 active['b'] = ib
+                active['c'] = ic
+                active['d'] = id_
                 apply_geometry(style)
                 ctl['cur'] = key
-                print(f'layout -> {style} A={a} B={b}', flush=True)
+                print(f'layout -> {style} A={a} B={b} C={c} D={d}', flush=True)
         except Exception:
             pass  # backend briefly unreachable — keep last layout
         time.sleep(0.5)  # also the AUTO trigger latency — keep snappy
@@ -270,7 +328,9 @@ def control():
 apply_geometry('2up')
 selA.set_property('active-pad', selA.get_static_pad('sink_0'))
 selB.set_property('active-pad', selB.get_static_pad('sink_3'))
-active = {'a': 0, 'b': 3}  # kept current by control()
+selC.set_property('active-pad', selC.get_static_pad('sink_1'))
+selD.set_property('active-pad', selD.get_static_pad('sink_2'))
+active = {'a': 0, 'b': 3, 'c': 1, 'd': 2}  # kept current by control()
 
 
 def wedge_watch():
@@ -288,7 +348,8 @@ def wedge_watch():
         flowing = [i for i, t in last_buf.items() if now - t < 4]
         if not flowing:
             continue  # global stall = different problem, not a per-branch wedge
-        for key in ('a', 'b'):
+        sel_keys = ('a', 'b', 'c', 'd') if cur_style['v'] == '4up' else ('a', 'b')
+        for key in sel_keys:
             i = active[key]
             if last_buf[i] > 0 and now - last_buf[i] > 8:
                 print(f'input wedge: selected source {SLOTS[i]} silent '
@@ -308,8 +369,9 @@ def wedge_watch():
         # NON-selected branches wedge invisibly but sabotage the next AUTO fade
         # that needs them. When the layout is OFF air a respawn costs nothing
         # visible, so heal proactively; on air, leave it to the selected checks.
+        onscreen = {active[k] for k in sel_keys}
         for i, t in last_buf.items():
-            if t > 0 and now - t > 15 and i not in (active['a'], active['b']):
+            if t > 0 and now - t > 15 and i not in onscreen:
                 try:
                     req = _rq.Request('https://prodbots.com/api/mxl/status',
                                       headers={'User-Agent': 'mxl-layout/1.0'})

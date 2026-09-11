@@ -120,7 +120,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
         <div class="row"><button id="keybtn">KEY</button><select id="pat"><option value="" disabled selected>pattern&hellip;</option></select><span id="mxlmsg"></span></div>
         <div class="row"><button id="contribbtn">&#128752; Send us your feed</button>
         <a href="/mxl-tams.html" style="font-size:11px;font-weight:600;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:5px 10px;text-decoration:none;white-space:nowrap;transition:all .15s" onmouseover="this.style.color='#ffb400';this.style.borderColor='#ffb400'" onmouseout="this.style.color='#8b96b5';this.style.borderColor='#26314d'">clip it &#9986; &rarr;</a></div>
-        <div class="row" title="composite two inputs on the Layout button"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#129513;</span><select id="lstyle" style="font-size:11px"><option value="2up">2-up</option><option value="pip">PiP</option></select><select id="lsrcA" style="font-size:11px"></select><select id="lsrcB" style="font-size:11px"></select></div>
+        <div class="row" title="composite inputs on the Layout button (2-up / PiP / 4-up)"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#129513;</span><select id="lstyle" style="font-size:11px"><option value="2up">2-up</option><option value="pip">PiP</option><option value="4up">4-up</option></select><select id="lsrcA" style="font-size:11px"></select><select id="lsrcB" style="font-size:11px"></select><select id="lsrcC" style="font-size:11px;display:none"></select><select id="lsrcD" style="font-size:11px;display:none"></select></div>
         <div class="row" title="program audio mixer &mdash; level + mute per input" style="gap:7px"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#127911;</span><span class="mixlbl">PLY</span><input type="range" class="af" data-a="playout" min="0" max="150" value="80"><button class="am" data-a="playout">M</button><span class="mixlbl">G1</span><input type="range" class="af" data-a="guest1" min="0" max="150" value="100"><button class="am" data-a="guest1">M</button><span class="mixlbl">G2</span><input type="range" class="af" data-a="guest2" min="0" max="150" value="100"><button class="am" data-a="guest2">M</button></div>
       </div>
     </div>
@@ -203,13 +203,17 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   });
   // layout (2-up / PiP) controls -> /api/mxl/layout; layout_pgm applies live
   var LSRC=[['cam','Cam 1'],['cam2','Cam 2'],['playout','Playout'],['pattern','Pattern'],['guest1','Guest 1'],['guest2','Guest 2']];
-  var lstyle=$('#lstyle'),lsrcA=$('#lsrcA'),lsrcB=$('#lsrcB');
-  LSRC.forEach(function(o){lsrcA.add(new Option(o[1],o[0]));lsrcB.add(new Option(o[1],o[0]))});
+  var lstyle=$('#lstyle'),lsrcA=$('#lsrcA'),lsrcB=$('#lsrcB'),lsrcC=$('#lsrcC'),lsrcD=$('#lsrcD');
+  LSRC.forEach(function(o){lsrcA.add(new Option(o[1],o[0]));lsrcB.add(new Option(o[1],o[0]));lsrcC.add(new Option(o[1],o[0]));lsrcD.add(new Option(o[1],o[0]))});
+  lsrcC.value='playout';lsrcD.value='pattern';
+  function lcd(){var v=lstyle.value==='4up'?'':'none';lsrcC.style.display=v;lsrcD.style.display=v}
   fetch('/api/mxl/layout-state').then(function(r){return r.json()}).then(function(st){
-    lstyle.value=st.style;lsrcA.value=st.a;lsrcB.value=st.b;}).catch(function(){});
+    lstyle.value=st.style;lsrcA.value=st.a;lsrcB.value=st.b;
+    if(st.c)lsrcC.value=st.c;if(st.d)lsrcD.value=st.d;lcd();}).catch(function(){});
   function pushLayout(){
+    lcd();
     fetch('/api/mxl/layout',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({style:lstyle.value,a:lsrcA.value,b:lsrcB.value})}).catch(function(){});
+      body:JSON.stringify({style:lstyle.value,a:lsrcA.value,b:lsrcB.value,c:lsrcC.value,d:lsrcD.value})}).catch(function(){});
     showLayoutPreview();
   }
   // live preview of the composite while adjusting (layout thumb renders 2fps
@@ -233,7 +237,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     clearInterval(lprevTimer);lprevTimer=null;
   }
   $('#lprevbox').addEventListener('click',hideLayoutPreview);
-  [lstyle,lsrcA,lsrcB].forEach(function(el){
+  [lstyle,lsrcA,lsrcB,lsrcC,lsrcD].forEach(function(el){
     el.addEventListener('change',pushLayout);
     el.addEventListener('focus',showLayoutPreview);
   });
