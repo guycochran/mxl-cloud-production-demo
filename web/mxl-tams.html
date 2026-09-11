@@ -345,6 +345,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     // gold played-line and playhead hold still while you compose IN/OUT.
     // Space / L resumes playback when you're ready.
     v.pause();
+    // fallback pin: touched AT the edge (guard kept live) but dragged back
+    if(mode==='live')pinWindowForEdit(fracToEpoch(fr));
   });
   scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
   // playhead knob + played fill track the real position (rAF = smooth, no thrash)
