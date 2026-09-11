@@ -1,0 +1,13 @@
+[Unit]
+Description=MXL selector-doctor — auto-restart input-selector when its control API wedges
+After=docker.service
+
+[Service]
+ExecStart=/srv/mxl-tools/selector-doctor.sh
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/mxl-selector-doctor.log
+StandardError=append:/var/log/mxl-selector-doctor.log
+
+[Install]
+WantedBy=multi-user.target
