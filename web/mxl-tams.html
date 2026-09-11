@@ -116,7 +116,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
   var BASE='/tamsapi/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
-  var hls=null,mode='live';  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
+  var hls=null,mode='live',pinned=false;  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
   var winStart=null,winDur=0,winMedia0=0,fragList=[];  // playlist window + fragment index (for gap-accurate time mapping)
 
   function fmtD(d){return d?d.toISOString().substr(11,8)+'Z':'--:--:--'}
@@ -147,7 +147,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
         var s=f[0].programDateTime?new Date(f[0].programDateTime):null;
         winStart=s;winDur=d.totalduration;winMedia0=f[0].start;fragList=f;
         var en=s?new Date(s.getTime()+d.totalduration*1000):null;
-        rng.textContent=(mode==='clip'?'clip: ':mode==='archive'?'archive: ':'recent: ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
+        rng.textContent=(pinned?'\u2744 pinned for editing (\u25b6 live resumes): ':mode==='clip'?'clip: ':mode==='archive'?'archive: ':'recent: ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
         sc.textContent=f.length+' segments';
         paintMarkers();
       }
@@ -155,7 +155,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     hls.attachMedia(v);
     return hls;
   }
-  function goLive(){
+  function goLive(){pinned=false;
     mode='live';paintMode();
     newHls(true).loadSource(BASE+'?type=live&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
@@ -184,7 +184,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // below can widen it on demand.
   var ARCH_WIN=1800; // 30 min ≈ 1800 fragments — smooth
   function goArchive(win){
-    if(win)ARCH_WIN=win;
+    pinned=false;if(win)ARCH_WIN=win;
     mode='archive';paintMode();
     // plain VOD only returns the contiguous run since the last gap — ask for the
     // window explicitly (gaps are skipped in playback)
@@ -378,8 +378,37 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     paintMarkers();
   }
   function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
-  si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip()};
-  so.onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip()};
+  // In LIVE mode the DVR window grows every second, so the timeline keeps
+  // rescaling under the cursor — miserable for marking. First I/O press PINS
+  // the current window as a static archive load (playhead preserved); the
+  // "live" button resumes growth. Marks are absolute epochs, so they survive.
+  function pinWindowForEdit(){
+    if(mode!=='live'||!winStart||!winDur)return;
+    var ep=curEpoch();
+    // Marking AT the live edge means bracketing forward — a pinned window
+    // would stall at its end and OUT could never advance past IN. Only pin
+    // when the playhead is in history (scrubbed back); at the edge we stay
+    // live and the bar keeps growing (which is what forward-marking needs).
+    // "edge" judged against the PLAYLIST's end, not wall clock — the TAMS
+    // pipeline lags real time by ~10s and wall-clock math misclassified it
+    var winEnd=winStart.getTime()/1000+winDur;
+    if(ep==null||ep>winEnd-12)return;
+    var startE=Math.floor(winStart.getTime()/1000);
+    var now=Math.floor(Date.now()/1000);
+    ARCH_WIN=Math.max(60,now-startE);
+    pinned=true;mode='archive';paintMode();
+    var tr=encodeURIComponent('['+startE+':0_'+now+':0)');
+    newHls().loadSource(BASE+'?timerange='+tr+'&limit='+(now-startE+10)+'&t='+Date.now());
+    hls.on(Hls.Events.MANIFEST_PARSED,function(){
+      setTimeout(function(){
+        if(ep!=null&&winStart)v.currentTime=(ep-winStart.getTime()/1000)+winMedia0;
+        v.play().catch(function(){});
+      },350);
+    });
+    rng.textContent='\u2744 window pinned for editing \u2014 press \u25b6 live to resume growth';
+  }
+  si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip();pinWindowForEdit()};
+  so.onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip();pinWindowForEdit()};
   var cx=document.getElementById('cleario');
   cx.onclick=function(){inE=null;outE=null;paintClip()};
   pv.onclick=function(){
