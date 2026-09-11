@@ -335,10 +335,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var fr=evFrac(e);
     v.currentTime=fracToMedia(fr);                       // final precise position
     tip.style.display='none';ghost.style.display='none';
-    if(wasPlaying)v.play().catch(function(){});          // resume if it was playing
-    // first touch of the bar in live mode PINS the window (Guy's rule): the
-    // whole scrub-and-mark session then happens on a stable timeline; the
-    // ▶ live button resumes growth. (Landing at the live edge stays live.)
+    // EDITOR RULE (Guy): touching the bar PAUSES — no auto-resume, so the
+    // gold played-line and playhead hold still while you compose IN/OUT.
+    // Space / L resumes playback when you're ready.
+    v.pause();
+    // ...and in live mode the window PINS at the landing point (▶ live resumes)
     pinWindowForEdit(fracToEpoch(fr));
   });
   scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
