@@ -42,14 +42,6 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 .bus .src.nofeed{opacity:.35;cursor:not-allowed}
 #cutbtn{align-self:stretch;min-width:64px;font-size:14px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
 #cutbtn:hover{background:#e5484d;border-color:#e5484d}
-.transcol{display:flex;flex-direction:column;align-self:stretch;gap:4px}
-#autobtn{flex:1;min-width:64px;font-size:13px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
-#autobtn:hover{background:#ffb400;border-color:#ffb400;color:#101623}
-#autobtn.fading{background:#ffb400;border-color:#ffb400;color:#101623;animation:fadepulse .5s ease-in-out infinite alternate}
-@keyframes fadepulse{from{opacity:1}to{opacity:.55}}
-.transcol .fr{display:flex;align-items:center;gap:3px;justify-content:center}
-#afr{width:40px;font-size:11px;text-align:center;background:#0c1220;border:1px solid #26314d;border-radius:6px;color:#eef2ff;padding:2px}
-.frlbl{font-size:8px;font-weight:700;letter-spacing:.5px;color:#8b96b5}
 .sidecol{display:flex;flex-direction:column;gap:5px;justify-content:center}
 .sidecol .row{display:flex;gap:6px;align-items:center}
 .mixlbl{font-size:9px;font-weight:800;color:#8b96b5}
@@ -124,7 +116,6 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
         </div>
       </div>
       <button id="cutbtn" title="cut preview to program">CUT</button>
-      <div class="transcol"><button id="autobtn" title="fade preview to program">AUTO</button><span class="fr"><input id="afr" type="number" min="2" max="150" value="20" title="fade length in frames (30fps &mdash; 20 &asymp; &frac23;s)"><span class="frlbl">FR</span></span></div>
       <div class="sidecol">
         <div class="row"><button id="keybtn">KEY</button><select id="pat"><option value="" disabled selected>pattern&hellip;</option></select><span id="mxlmsg"></span></div>
         <div class="row"><button id="contribbtn">&#128752; Send us your feed</button>
@@ -142,7 +133,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 <script>
 (function(){
   var $=function(s){return document.querySelector(s)},$$=function(s){return document.querySelectorAll(s)};
-  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),cutbtn=$('#cutbtn'),autobtn=$('#autobtn'),afr=$('#afr'),busy=false;
+  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),cutbtn=$('#cutbtn'),busy=false;
   // ATEM semantics: PGM row = on air (red, clicking = hot cut), PVW row = armed
   // next (green, client-side), CUT = take preview to program then flip-flop.
   var pgm=null, pvw=1, liveMap={};
@@ -160,10 +151,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     });
   }
   function paint(st){
-    // mid-fade the selector rides through slot 6 — hold the optimistic target
-    // instead of flashing the Layout ring for a second
+    // if an API-driven fade is riding slot 6, hold the last program ring
     pgm=st.fading?pgm:st.input;
-    autobtn.classList.toggle('fading',!!st.fading);
     if(st.slots){
       st.slots.forEach(function(s){liveMap[s.slot]=s.live});
       var g1=st.slots[4],g2=st.slots[5];
@@ -198,17 +187,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     var i=Number(b.dataset.inp);if(liveMap[i]===false)return;pvw=i;paintBuses();
   })});
   cutbtn.addEventListener('click',function(){if(pvw!=null&&pvw!==pgm)cutTo(pvw)});
-  // AUTO = fade PVW to PGM through the layout compositor (the transition M/E).
-  // Layout itself can't fade (the M/E can't contain itself) — falls back to cut.
-  autobtn.addEventListener('click',function(){
-    if(pvw==null||pvw===pgm)return;
-    var to=pvw,frames=Math.max(2,Math.min(150,Number(afr.value)||20)),was=pgm;
-    if(pgm===6||to===6){cutTo(to);return}
-    post('/api/mxl/auto',{to:to,frames:frames},'fading…',function(){
-      autobtn.classList.add('fading');
-      pgm=to;pvw=was;paintBuses();
-    });
-  });
+  // AUTO/fade UI removed 2026-09-11: the dissolve engine works (see repo
+  // tools/layout_pgm.py + POST /api/mxl/auto, both still live for API use),
+  // but the program path to it — the selector's slot-6 reader needs a long
+  // catch-up after every reattach, and layout branches wedge on source
+  // restarts — froze on air twice. Not booth-trustworthy; revisit post-IBC.
   keybtn.addEventListener('click',function(){post('/api/mxl/key',{on:!keybtn.classList.contains('on')})});
   pat.addEventListener('change',function(){if(pat.value)post('/api/mxl/pattern',{pattern:pat.value})});
   // contributor panel

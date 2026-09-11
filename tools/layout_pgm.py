@@ -204,6 +204,16 @@ def run_fade(f, ctl):
         padB.set_property('zorder', 2)
         padB.set_property('alpha', 0.0)
         time.sleep(0.4)  # let both branches roll fullscreen before the hidden cut
+        # a wedged branch can't blend — the "fade" would freeze or hard-cut.
+        # Be honest: clean cut now, then respawn so the NEXT fade has fresh readers.
+        stale = [SLOTS[j] for j in (ia, ib) if time.monotonic() - last_buf[j] > 1.5]
+        if stale:
+            print(f'fade abort: branch(es) {stale} not delivering — clean cut + exit for fresh attach', flush=True)
+            _post(INPUT_URL, {'input': ib, '_fade': f['id']})
+            _post(DONE_URL, {'id': f['id']})
+            time.sleep(1)
+            import os
+            os._exit(1)  # supervisor respawns; startup repair re-attaches slot 6
         _post(INPUT_URL, {'input': 6, '_fade': f['id']})
         time.sleep(0.25)
         for s in range(1, n + 1):
@@ -293,10 +303,40 @@ def wedge_watch():
                     pass
                 import os
                 os._exit(1)
+        if fade_st['busy']:
+            continue
+        # NON-selected branches wedge invisibly but sabotage the next AUTO fade
+        # that needs them. When the layout is OFF air a respawn costs nothing
+        # visible, so heal proactively; on air, leave it to the selected checks.
+        for i, t in last_buf.items():
+            if t > 0 and now - t > 15 and i not in (active['a'], active['b']):
+                try:
+                    req = _rq.Request('https://prodbots.com/api/mxl/status',
+                                      headers={'User-Agent': 'mxl-layout/1.0'})
+                    onair = json.load(_rq.urlopen(req, timeout=5)).get('input') == 6
+                except Exception:
+                    onair = True  # unknown — don't risk a visible respawn
+                if not onair:
+                    print(f'idle-branch wedge: {SLOTS[i]} silent {now - t:.0f}s — '
+                          f'off-air respawn for fresh attach', flush=True)
+                    import os
+                    os._exit(1)
+                break  # on air: check again next sweep
+
+
+def startup_repair():
+    """Every (re)start of this process recreates the Layout PGM flow, which
+    wedges the video selector's slot-6 reader (readers never survive flow
+    recreation). Announce a cascade repair once the sink is up so cuts and
+    AUTO fades onto slot 6 work again. auto:1 rides the backend's 120s
+    cooldown — worst case a manual repair is needed after rapid respawns."""
+    time.sleep(6)
+    _post('https://prodbots.com/api/mxl/repair', {'auto': 1})
 
 
 threading.Thread(target=control, daemon=True).start()
 threading.Thread(target=wedge_watch, daemon=True).start()
+threading.Thread(target=startup_repair, daemon=True).start()
 
 pipe.set_state(Gst.State.PLAYING)
 print('layout_pgm running', flush=True)
