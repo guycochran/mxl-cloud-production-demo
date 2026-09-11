@@ -172,6 +172,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     });
     hls.attachMedia(v);
     window._hls=hls; // debug handle
+    window._dbg=function(fr){return {ep:fracToEpoch(fr),m:fracToMedia(fr),winDur:winDur,frags:fragList.length,lastPDT:fragList.length?fragList[fragList.length-1].programDateTime:null,lastStart:fragList.length?fragList[fragList.length-1].start:null,winMedia0:winMedia0}};
     return hls;
   }
   function goLive(){pinned=false;editHold=false;
