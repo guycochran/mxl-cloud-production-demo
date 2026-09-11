@@ -116,7 +116,20 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
   var BASE='/tamsapi/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
-  var hls=null,mode='live',pinned=false,editHold=false; // editHold: gesture in progress — freeze the window MATH, never reload mid-gesture  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
+  var hls=null,mode='live',pinned=false,editHold=false,swapping=false,pendingReleaseFr=null;
+  // Writing currentTime against a just-attached MediaSource (no metadata yet)
+  // wedges MSE duration at ~1s — every post-swap seek must wait for readiness.
+  function mseReady(){
+    // ANY seek while MSE is still establishing wedges its duration at the
+    // seek-time value (observed: 1s, 16s). Only ready once the element's
+    // duration has reached the playlist's.
+    return isFinite(v.duration)&&winDur>0&&v.duration>winDur-5;
+  }
+  function seekWhenReady(t,tries){
+    tries=tries||0;
+    if(mseReady()){v.currentTime=t;return;}
+    if(tries<30)setTimeout(function(){seekWhenReady(t,tries+1)},150);
+  } // editHold: gesture in progress — freeze the window MATH, never reload mid-gesture  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
   var winStart=null,winDur=0,winMedia0=0,fragList=[];  // playlist window + fragment index (for gap-accurate time mapping)
 
   function fmtD(d){return d?d.toISOString().substr(11,8)+'Z':'--:--:--'}
@@ -147,6 +160,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       if(f.length){
         var s=f[0].programDateTime?new Date(f[0].programDateTime):null;
         winStart=s;winDur=d.totalduration;winMedia0=f[0].start;fragList=f;
+        if(swapping){
+          swapping=false;                                // VOD math live — scrub away
+          if(pendingReleaseFr!=null){seekWhenReady(fracToMedia(pendingReleaseFr));pendingReleaseFr=null;}
+        }
         var en=s?new Date(s.getTime()+d.totalduration*1000):null;
         rng.textContent=(pinned?'\u2744 pinned for editing (\u25b6 live resumes): ':mode==='clip'?'clip: ':mode==='archive'?'archive: ':'recent: ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
         sc.textContent=f.length+' segments';
@@ -154,6 +171,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       }
     });
     hls.attachMedia(v);
+    window._hls=hls; // debug handle
     return hls;
   }
   function goLive(){pinned=false;editHold=false;
@@ -308,6 +326,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // guaranteed feedback; this video-seek is the enhancement on top.
   var seekPending=false, seekTarget=null;
   function liveScrub(fr){
+    if(swapping)return;                                  // source mid-swap — tooltip only
+    if(!mseReady())return;                               // MSE still establishing
     seekTarget=fracToMedia(fr);
     if(seekPending)return;                               // coalesce — one seek in flight
     seekPending=true;
@@ -330,12 +350,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     dragging=true; scr.setPointerCapture(e.pointerId);
     wasPlaying=!v.paused; v.pause();                     // paused = hls live-sync can't yank
     editHold=true;                                       // ...and the ruler math freezes
-    var fr=evFrac(e); showTip(fr); liveScrub(fr);
+    var fr=evFrac(e);
+    // pin starts NOW so drag-scrubbing runs against the fast VOD; seeks are
+    // suppressed while the source swaps (see swapping) — that suppression is
+    // what killed the old black-screen race
+    if(mode==='live')pinWindowForEdit(fracToEpoch(fr));
+    showTip(fr); liveScrub(fr);
   });
   scr.addEventListener('pointerup',function(e){
     if(!dragging)return; dragging=false;
     var fr=evFrac(e);
-    v.currentTime=fracToMedia(fr);                       // final precise position
+    if(swapping){pendingReleaseFr=fr;}                   // swap will land this seek
+    else v.currentTime=fracToMedia(fr);                  // final precise position
     tip.style.display='none';ghost.style.display='none';
     // EDITOR RULE (Guy): touching the bar PAUSES — no auto-resume, so the
     // gold played-line and playhead hold still while you compose IN/OUT.
@@ -407,13 +433,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var startE=Math.floor(winStart.getTime()/1000);
     var now=Math.floor(Date.now()/1000);
     ARCH_WIN=Math.max(60,now-startE);
-    pinned=true;mode='archive';paintMode();
+    pinned=true;swapping=true;mode='archive';paintMode();
     var tr=encodeURIComponent('['+startE+':0_'+now+':0)');
     newHls().loadSource(BASE+'?timerange='+tr+'&limit='+(now-startE+10)+'&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){
       setTimeout(function(){
-        if(ep!=null&&winStart)v.currentTime=(ep-winStart.getTime()/1000)+winMedia0;
-        v.play().catch(function(){});
+        if(dragging)return;                              // the drag owns the playhead
+        if(pendingReleaseFr!=null)return;                // queued release owns it
+        if(ep!=null&&winStart)seekWhenReady((ep-winStart.getTime()/1000)+winMedia0);
       },350);
     });
     rng.textContent='\u2744 window pinned for editing \u2014 press \u25b6 live to resume growth';
