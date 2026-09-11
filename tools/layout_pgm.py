@@ -28,6 +28,8 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 CMD_URL = 'https://prodbots.com/api/mxl/layout-state'
+INPUT_URL = 'https://prodbots.com/api/mxl/input'      # fade choreography cuts
+DONE_URL = 'https://prodbots.com/api/mxl/fade-done'
 DST = '1a900700-aaaa-4bbb-8ccc-000000000001'   # Layout PGM
 SLOTS = ['cam', 'playout', 'pattern', 'cam2', 'guest1', 'guest2']
 FLOWS = {
@@ -163,8 +165,65 @@ def apply_geometry(style):
         padA.set_property('zorder', 1);  padB.set_property('zorder', 2)
 
 
+def _post(url, obj):
+    try:
+        req = urllib.request.Request(url, data=json.dumps(obj).encode(),
+                                     headers={'Content-Type': 'application/json',
+                                              'User-Agent': 'mxl-layout/1.0'})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return json.load(r)
+    except Exception as e:
+        print(f'post {url}: {e}', flush=True)
+        return None
+
+
+# AUTO transition (fade) — this compositor doubles as the switcher's
+# transition M/E. The backend parks a {id, from, to, frames} command in
+# layout-state; we run the whole choreography: both selectors fullscreen
+# (A=outgoing visible, B=incoming alpha 0), an invisible selector cut to
+# slot 6, the alpha ramp (the actual on-air mix), an invisible cut to the
+# target, then hand the pads back to the user's 2-up/PiP.
+fade_st = {'busy': False, 'seen': 0}
+
+
+def run_fade(f, ctl):
+    ia, ib, n = int(f['from']), int(f['to']), max(2, min(150, int(f.get('frames', 20))))
+    try:
+        full = Gst.Caps.from_string('video/x-raw,width=1920,height=1080')
+        selA.set_property('active-pad', selA.get_static_pad(f'sink_{ia}'))
+        selB.set_property('active-pad', selB.get_static_pad(f'sink_{ib}'))
+        active['a'] = ia
+        active['b'] = ib
+        fcapsA.set_property('caps', full)
+        fcapsB.set_property('caps', full)
+        for p in (padA, padB):
+            p.set_property('xpos', 0)
+            p.set_property('ypos', 0)
+        padA.set_property('zorder', 1)
+        padA.set_property('alpha', 1.0)
+        padB.set_property('zorder', 2)
+        padB.set_property('alpha', 0.0)
+        time.sleep(0.4)  # let both branches roll fullscreen before the hidden cut
+        _post(INPUT_URL, {'input': 6, '_fade': f['id']})
+        time.sleep(0.25)
+        for s in range(1, n + 1):
+            padB.set_property('alpha', s / n)
+            time.sleep(1 / 30)
+        _post(INPUT_URL, {'input': ib, '_fade': f['id']})
+        time.sleep(0.25)
+        print(f'fade {SLOTS[ia]} -> {SLOTS[ib]} ({n}f) done', flush=True)
+    except Exception as e:
+        print(f'fade: {e}', flush=True)
+    finally:
+        padA.set_property('alpha', 1.0)
+        padB.set_property('alpha', 1.0)
+        ctl['cur'] = None          # force control() to restore the user layout
+        fade_st['busy'] = False
+        _post(DONE_URL, {'id': f['id']})
+
+
 def control():
-    cur = None
+    ctl = {'cur': None}
     while True:
         try:
             # UA header dodges the zone's python-urllib bot rule (CF-1010,
@@ -172,8 +231,17 @@ def control():
             req = urllib.request.Request(CMD_URL, headers={'User-Agent': 'mxl-layout/1.0'})
             with urllib.request.urlopen(req, timeout=3) as r:
                 cmd = json.load(r)
+            fade = cmd.get('fade')
+            if fade and fade.get('id') != fade_st['seen'] and not fade_st['busy'] \
+                    and 0 <= fade.get('from', -1) <= 5 and 0 <= fade.get('to', -1) <= 5:
+                fade_st['seen'] = fade['id']
+                fade_st['busy'] = True
+                threading.Thread(target=run_fade, args=(fade, ctl), daemon=True).start()
+            if fade_st['busy']:
+                time.sleep(0.3)   # pads belong to the fade; poll fast, apply nothing
+                continue
             key = (cmd.get('style', '2up'), cmd.get('a', 'cam'), cmd.get('b', 'cam2'))
-            if key != cur:
+            if key != ctl['cur']:
                 style, a, b = key
                 ia = SLOTS.index(a) if a in SLOTS else 0
                 ib = SLOTS.index(b) if b in SLOTS else 3
@@ -182,11 +250,11 @@ def control():
                 active['a'] = ia
                 active['b'] = ib
                 apply_geometry(style)
-                cur = key
+                ctl['cur'] = key
                 print(f'layout -> {style} A={a} B={b}', flush=True)
         except Exception:
             pass  # backend briefly unreachable — keep last layout
-        time.sleep(1)
+        time.sleep(0.5)  # also the AUTO trigger latency — keep snappy
 
 
 apply_geometry('2up')
