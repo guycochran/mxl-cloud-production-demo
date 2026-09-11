@@ -259,6 +259,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // 200×112 (scale 200/192 → sheet renders 2000×672).
   var SPRITE='/tamsobj/tams-media/sprites/';
   var sprOK={}, sprBad={}, thumbOK={}, thumbBad={}, thumbReq=0;
+  // negative caches EXPIRE (30s): the newest minutes 404 on first probe but
+  // gain sprites/thumbs shortly — permanent bad-flags froze the fresh edge
+  // (exactly where the 1-hour view lands you), while old 12h territory worked
+  function badSpr(m){return sprBad[m]&&(Date.now()-sprBad[m]<30000)}
+  function badThumb(ep){return thumbBad[ep]&&(Date.now()-thumbBad[ep]<30000)}
   function showSprite(ep){
     var m=ep-ep%60, i=ep-m;
     hovimg.style.backgroundImage='url('+SPRITE+m+'.jpg)';
@@ -273,16 +278,16 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     hovspin.textContent='';
   }
   function preloadSprite(m){
-    if(m<=0||sprOK[m]||sprBad[m])return;
+    if(m<=0||sprOK[m]||badSpr(m))return;
     var p=new Image();
     p.onload=function(){sprOK[m]=1};
-    p.onerror=function(){sprBad[m]=1};
+    p.onerror=function(){sprBad[m]=Date.now()};
     p.src=SPRITE+m+'.jpg';
   }
   // live-edge fallback: exact-second jpg, walking outward on 404s (±4s)
   function tryThumb(ep, token, depth){
     if(depth>4){hovspin.textContent='';return;}
-    if(thumbBad[ep]){ return tryThumb(nextEp(ep,depth), token, depth+1); }
+    if(badThumb(ep)){ return tryThumb(nextEp(ep,depth), token, depth+1); }
     var probe=new Image();
     probe.onload=function(){
       thumbOK[ep]=1;
@@ -290,7 +295,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       showSingle(probe.src);
     };
     probe.onerror=function(){
-      thumbBad[ep]=1;
+      thumbBad[ep]=Date.now();
       if(token!==thumbReq)return;
       tryThumb(nextEp(ep,depth), token, depth+1);
     };
@@ -302,7 +307,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var m=ep-ep%60;
     preloadSprite(m-60); preloadSprite(m+60);           // neighbors warm while you hover
     if(sprOK[m]){showSprite(ep);return;}
-    if(sprBad[m]){                                       // newest partial minute — no sprite yet
+    if(badSpr(m)){                                       // newest partial minute — no sprite yet (retries after 30s)
       if(thumbOK[ep]){showSingle(THUMB+ep+'.jpg');} else tryThumb(ep,token,0);
       return;
     }
