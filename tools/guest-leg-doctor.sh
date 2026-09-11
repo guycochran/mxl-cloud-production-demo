@@ -30,9 +30,14 @@ while true; do
   # frozen/degraded target state that fed the TAMS recorder 9fps for 11 hours
   if [ -f /home/guy/fabric/pgm-target.log ]; then
     age=$(( $(date +%s) - $(stat -c %Y /home/guy/fabric/pgm-target.log) ))
+    # frozen-slices has a STEALTH variant: log stays live (grains tick 30/s)
+    # while the slice counter freezes — avg slices/grain decays from 1080.
+    # Healthy is ALWAYS "avg 1080.0"; anything under 1000 is sick.
+    pavg=$(tail -1 /home/guy/fabric/pgm-target.log | grep -oP 'avg \K[0-9]+' | head -1)
     now=$(date +%s); last=${cooldown[pgm]:-0}
-    if [ "$age" -gt 120 ] && [ $((now - last)) -gt 600 ]; then
+    if { [ "$age" -gt 120 ] || { [ -n "$pavg" ] && [ "$pavg" -lt 1000 ]; }; } && [ $((now - last)) -gt 600 ]; then
       cooldown[pgm]=$now
+      logger -t guest-leg-doctor "PGM sick (age=${age}s avg=${pavg:-?})"
       heal_pgm
     fi
   fi
