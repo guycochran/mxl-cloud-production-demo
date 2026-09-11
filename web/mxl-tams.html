@@ -78,6 +78,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <button id="marefresh" style="display:none">&#8635;</button>
       <button id="back1">-1 min</button>
       <button id="back5">-5 min</button>
+      <button id="fwd10" title="nudge forward 10s — scrub to IN, +10 SEC, mark OUT, Save (shortcut: .)">+10 sec <kbd style="font-size:9px;opacity:.6">.</kbd></button>
       <span id="attime">--:--:--</span>
       <span id="range">loading&hellip;</span>
     </div>
@@ -234,6 +235,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   ma.addEventListener('click',function(e){if(e.shiftKey)goArchive(7200)});
   document.getElementById('back1').onclick=function(){v.currentTime=Math.max(0,v.currentTime-60)};
   document.getElementById('back5').onclick=function(){v.currentTime=Math.max(0,v.currentTime-300)};
+  // +10s nudge: the IN→OUT workflow — scrub to IN, jump forward 10s, mark OUT.
+  // Pause+hold if we're live so the jump sticks (same guard as J/arrow keys).
+  document.getElementById('fwd10').onclick=function(){if(mode==='live'){v.pause();editHold=true}v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)};
   v.addEventListener('timeupdate',function(){at.textContent=fmtD(playingDate())});
 
   // ── editor timeline: LIVE frame scrub on drag, nearest-available thumbnails ──
@@ -586,6 +590,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     else if(k==='l'){v.paused?v.play():v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)}
     else if(k==='s'){if(!sv.disabled)sv.onclick()}
     else if(k==='x'){cx.onclick();flash(cx)}
+    else if(k==='.'){e.preventDefault();var f=document.getElementById('fwd10');f.onclick();flash(f)}
   });
   function flash(b){b.style.background='#ffb400';b.style.color='#141414';setTimeout(function(){b.style.background='';b.style.color=''},180)}
 
