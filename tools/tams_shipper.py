@@ -149,6 +149,17 @@ def sprite_pass():
                 S3.put_object(Bucket='tams-media', Key=f'sprites/{m}.jpg', Body=sf.read(),
                               ContentType='image/jpeg', CacheControl='public, max-age=86400')
             print(f'sprite {m} ({len(have)}/60 real frames)', flush=True)
+            # ADDITIVE (2026-09-11, Session A): also stash a tiny 1-frame tile
+            # for this minute so the 12h OVERVIEW strip can be tiled cheaply
+            # from 720 minis instead of re-reading 720 full sprite sheets. Crop
+            # the sheet's first tile (second 0) and shrink to OV_TILE.
+            try:
+                os.makedirs(MINI, exist_ok=True)
+                subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', out,
+                                '-vf', f'crop=384:216:0:0,scale={OV_TW}:{OV_TH}',
+                                '-q:v', '6', f'{MINI}/{m}.jpg'], timeout=15, check=True)
+            except Exception as e:
+                print(f'mini {m} err: {e}', flush=True)
         except Exception as e:
             # don't retry a bad minute forever — the page falls back to the
             # per-second thumbs (still in MinIO) for any minute with no sprite
@@ -157,10 +168,82 @@ def sprite_pass():
             try: os.remove(p)                  # consumed either way
             except OSError: pass
 
+
+# ── 12h OVERVIEW strip (ADDITIVE 2026-09-11, Session A) ──────────────────────
+# One coarse sheet covering the rolling 12h at 1 tile/minute (720 tiles), so a
+# WIDE (12h) scrub loads ONE image as the filmstrip background instead of ~720
+# per-minute sheets. Built from the local mini tiles (kept in ~/tams-mini),
+# tiled OV_COLS×OV_ROWS. A JSON sidecar tells the page the exact time window
+# and grid so it can map a hover fraction → tile. New keys only; nothing else
+# in the shipper is touched.
+MINI = os.path.expanduser('~/tams-mini')
+OV_TW, OV_TH = 96, 54            # overview tile size
+OV_COLS, OV_ROWS = 30, 24        # 720 tiles = 12h at 1/min
+OV_MINS = OV_COLS * OV_ROWS
+
+def overview_pass():
+    try:
+        minis = sorted(int(f.split('.')[0]) for f in os.listdir(MINI)
+                       if f.endswith('.jpg') and f[0].isdigit())
+    except FileNotFoundError:
+        return
+    if not minis:
+        return
+    # prune minis older than 12h so the dir stays ~720 files
+    cutoff = (int(time.time()) - 12 * 3600) // 60 * 60
+    for m in minis:
+        if m < cutoff:
+            try: os.remove(f'{MINI}/{m}.jpg')
+            except OSError: pass
+    minis = [m for m in minis if m >= cutoff]
+    if not minis:
+        return
+    # window = most recent 12h grid ending at the latest mini's minute
+    end = minis[-1]
+    start = end - (OV_MINS - 1) * 60
+    have = {m: f'{MINI}/{m}.jpg' for m in minis if m >= start}
+    if not have:
+        return
+    # build a padded concat list: one entry per minute slot, holes filled with
+    # the nearest available minute (so the grid is dense, no black gaps)
+    keys = sorted(have)
+    lst = f'{MINI}/ov-list.txt'
+    with open(lst, 'w') as lf:
+        for i in range(OV_MINS):
+            slot = start + i * 60
+            near = min(keys, key=lambda k: abs(k - slot))
+            lf.write(f"file '{have[near]}'\n")
+    ov = f'{MINI}/overview-12h.jpg'
+    try:
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0',
+                        '-i', lst, '-vf', f'tile={OV_COLS}x{OV_ROWS}', '-q:v', '6', ov],
+                       timeout=45, check=True)
+        with open(ov, 'rb') as f:
+            S3.put_object(Bucket='tams-media', Key='sprites/overview-12h.jpg', Body=f.read(),
+                          ContentType='image/jpeg', CacheControl='public, max-age=60')
+        meta = json.dumps({'start': start, 'end': start + OV_MINS * 60,
+                           'cols': OV_COLS, 'rows': OV_ROWS, 'tiles': OV_MINS,
+                           'tileSec': 60, 'tw': OV_TW, 'th': OV_TH,
+                           'built': int(time.time())}).encode()
+        S3.put_object(Bucket='tams-media', Key='sprites/overview-12h.json', Body=meta,
+                      ContentType='application/json', CacheControl='public, max-age=60')
+        print(f'overview: {len(have)}/{OV_MINS} min covered ({start}..{start+OV_MINS*60})', flush=True)
+    except Exception as e:
+        print(f'overview err: {e}', flush=True)
+    finally:
+        try: os.remove(lst)
+        except OSError: pass
+
 print('tams shipper up (parallel x4)', flush=True)
+_last_overview = 0
 while True:
     prune()
     sprite_pass()
+    # rebuild the 12h overview strip every 30s (tiling 720 minis is ~1s of CPU;
+    # a new minute only appears every 60s so 30s is plenty fresh) — ADDITIVE
+    if time.time() - _last_overview > 30:
+        overview_pass()
+        _last_overview = time.time()
     now = time.time()
     files = [p for p in sorted(glob.glob(f'{SPOOL}/seg-*.ts'))
              if now - os.path.getmtime(p) >= 2.5]           # skip in-progress file

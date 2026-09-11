@@ -226,11 +226,12 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var _pre12=false;
   function prefetch12h(){
     if(_pre12)return; _pre12=true;
-    setTimeout(function(){ try{ fetch(archiveUrl(43200),{cache:'no-store'}); }catch(e){} },2000);
+    setTimeout(function(){ try{ fetch(archiveUrl(43200),{cache:'no-store'}); loadOverview(); }catch(e){} },2000);
   }
   function goArchive(win){
     pinned=false;editHold=false;if(win)ARCH_WIN=win;
     mode='archive';paintMode();
+    if(ARCH_WIN>3600)loadOverview();                    // wide zoom → use the 12h overview strip
     // plain VOD only returns the contiguous run since the last gap — ask for the
     // window explicitly (gaps are skipped in playback)
     newHls().loadSource(archiveUrl(ARCH_WIN));
@@ -307,6 +308,35 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // 200×112 (scale 200/192 → sheet renders 2000×672).
   var SPRITE='/tamsobj/tams-media/sprites/';
   var sprOK={}, sprBad={}, thumbOK={}, thumbBad={}, thumbReq=0;
+  // ── 12h OVERVIEW strip: at WIDE (12h) zoom, one coarse sheet (30×24 = 720
+  // tiles, 1/min) is the whole filmstrip — loaded ONCE, so dragging across 12h
+  // fetches NOTHING (vs ~720 per-minute sheets). The shipper rebuilds it every
+  // 30s; a JSON sidecar gives the exact window + grid so hover maps to a tile.
+  var OVERVIEW='/tamsobj/tams-media/sprites/overview-12h.jpg';
+  var ovMeta=null, ovImgOK=false, ovMetaAt=0;
+  function loadOverview(){
+    if(Date.now()-ovMetaAt<60000)return;               // meta cached 60s (it rolls)
+    ovMetaAt=Date.now();
+    fetch(OVERVIEW.replace('.jpg','.json')+'?t='+Date.now()).then(function(r){return r.json()})
+      .then(function(j){ovMeta=j;var im=new Image();
+        im.onload=function(){ovImgOK=true};im.onerror=function(){ovImgOK=false};
+        im.src=OVERVIEW+'?b='+j.built;}).catch(function(){});
+  }
+  function useOverview(){return mode==='archive'&&ARCH_WIN>3600&&ovMeta&&ovImgOK;}
+  function showOverviewFrame(ep){
+    var idx=Math.floor((ep-ovMeta.start)/ovMeta.tileSec);
+    if(idx<0)idx=0; if(idx>=ovMeta.tiles)idx=ovMeta.tiles-1;
+    var col=idx%ovMeta.cols, row=Math.floor(idx/ovMeta.cols), url=OVERVIEW+'?b='+ovMeta.built;
+    hovimg.style.backgroundImage='url('+url+')';
+    hovimg.style.backgroundSize=(tileW()*ovMeta.cols)+'px '+(tileH()*ovMeta.rows)+'px';
+    hovimg.style.backgroundPosition=(-(col*tileW()))+'px '+(-(row*tileH()))+'px';
+    hovspin.textContent='';
+    if(svActive){var d=svDims();
+      svimg.style.width=d.w+'px';svimg.style.height=d.h+'px';
+      svimg.style.backgroundImage='url('+url+')';
+      svimg.style.backgroundSize=(d.w*ovMeta.cols)+'px '+(d.h*ovMeta.rows)+'px';
+      svimg.style.backgroundPosition=(-(col*d.w))+'px '+(-(row*d.h))+'px';}
+  }
   // negative caches EXPIRE (30s): the newest minutes 404 on first probe but
   // gain sprites/thumbs shortly — permanent bad-flags froze the fresh edge
   // (exactly where the 1-hour view lands you), while old 12h territory worked
@@ -377,6 +407,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // alternate outward: ep-1, ep+1, ep-2, ep+2 … (prefer slightly-earlier frame)
   function nextEp(ep,depth){var step=Math.ceil((depth+1)/2);return depth%2===0?ep-step:ep+step;}
   function loadFrame(ep, token){
+    if(useOverview()){showOverviewFrame(ep);return;}    // 12h zoom: one preloaded sheet, no fetch
     var m=ep-ep%60;
     preloadSprite(m-60); preloadSprite(m+60);           // neighbors warm while you hover
     if(sprOK[m]){showSprite(ep);return;}
@@ -407,7 +438,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       tip.style.display='block';
       tip.style.left=Math.min(bw-tileW()/2-8,Math.max(tileW()/2+8,x))+'px';
     }
-    var ep=fracToEpoch(fr);
+    // In 12h/overview mode the filmstrip is the preloaded overview sheet, mapped
+    // straight from the fraction over the overview's window — so it works
+    // INSTANTLY even while the huge 12h video playlist is still parsing (that's
+    // the whole point of the overview). Otherwise use the gap-accurate playlist
+    // mapping.
+    var ep = (useOverview() && ovMeta)
+      ? Math.floor(ovMeta.start + fr * (ovMeta.end - ovMeta.start))
+      : fracToEpoch(fr);
     hovt.textContent=ep?fmtE(ep):'--:--:--';
     if(svActive)svt.textContent=hovt.textContent;
     if(ep){
