@@ -11,6 +11,7 @@ recreated by a repair cascade -> try-pull stalls) tears the pipeline down,
 deletes the stale JPEG so the UI shows a no-signal slate, and retries every
 5s. v210 frames are just converted+scaled+jpeg'd - no decode, tiny CPU.
 """
+import json
 import os
 import time
 import threading
@@ -91,8 +92,39 @@ def worker(name, uuid):
         time.sleep(5)
 
 
+def health():
+    """VM1 system health beside the thumbs -> rides the same :8086/tunnel/
+    proxy path to the demo page (no new plumbing, no extra process).
+    /proc/loadavg + /proc/meminfo are HOST-true inside the container."""
+    path = os.path.join(OUT, 'health.json')
+    while True:
+        try:
+            with open('/proc/loadavg') as f:
+                l1, l5, l15 = f.read().split()[:3]
+            mem = {}
+            with open('/proc/meminfo') as f:
+                for line in f:
+                    k, v = line.split(':', 1)
+                    mem[k] = int(v.strip().split()[0])
+            data = {
+                'ts': int(time.time()),
+                'load1': float(l1), 'load5': float(l5), 'load15': float(l15),
+                'cores': os.cpu_count(),
+                'mem_avail_mb': mem.get('MemAvailable', 0) // 1024,
+                'swap_used_mb': (mem.get('SwapTotal', 0) - mem.get('SwapFree', 0)) // 1024,
+            }
+            tmp = path + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+        except Exception as e:
+            print(f'health: {e}', flush=True)
+        time.sleep(15)
+
+
 for n, u in SLOTS.items():
     threading.Thread(target=worker, args=(n, u), daemon=True).start()
+threading.Thread(target=health, daemon=True).start()
 print('mxl_thumbs running', flush=True)
 while True:
     time.sleep(3600)

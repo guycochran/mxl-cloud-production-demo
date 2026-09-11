@@ -64,7 +64,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     <div class="brand">Office Hours <span>×</span> MXL &mdash; Live Cloud Production</div>
     <div class="tag">This camera feed is flowing through an <b style="color:#cfd8ef">MXL shared-memory domain in Microsoft Azure</b> &mdash; graphics keyed in the cloud. Drive the real camera on the right. &rarr;</div>
   </div>
-  <div class="live"><span class="dot"></span>LIVE &middot; camera in U.S. studio</div>
+  <div class="live" style="gap:14px"><span id="vmhealth" style="color:#8b96b5;cursor:default;white-space:nowrap" title="Azure VM running the MXL domain">&#9679; VM &mdash;</span><span style="display:flex;align-items:center;gap:6px"><span class="dot"></span>LIVE &middot; camera in U.S. studio</span></div>
   <a class="live" href="/mxl-tams.html" title="Everything here is being recorded into a time-addressable store — scrub it, clip it" style="margin-left:14px;color:#ff8f92;text-decoration:none"><span class="dot" style="background:#e5484d;box-shadow:0 0 8px #e5484d"></span>REC</a>
   <button id="v60" title="Swap the big view: produced MXL program (30p + cloud graphics) vs the camera&#39;s native 1080p60 straight off SRT — zero transcode anywhere" style="margin-left:14px;font:inherit;font-size:11px;font-weight:700;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:4px 10px;cursor:pointer;white-space:nowrap">&#127902; 60p direct</button>
 </header>
@@ -237,6 +237,24 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     clearInterval(lprevTimer);lprevTimer=null;
   }
   $('#lprevbox').addEventListener('click',hideLayoutPreview);
+  // VM1 health chip — the whole control room is one cloud VM; show its pulse.
+  // Green under 75% of cores, amber to 110%, red beyond. Payload is public-
+  // safe (load/mem only). 15s poll matches the reporter's write cadence.
+  (function(){
+    var el=$('#vmhealth');
+    function tick(){
+      fetch('/api/mxl/health').then(function(r){return r.json()}).then(function(h){
+        if(!h||!h.cores)return;
+        var c=h.load1<h.cores*0.75?'#28d17c':(h.load1<h.cores*1.1?'#ffb400':'#ff5d5d');
+        el.style.color=c;
+        el.innerHTML='&#9679; VM '+h.load1.toFixed(1)+'/'+h.cores;
+        el.title='Azure VM running the MXL domain\nload '+h.load1+' / '+h.load5+' / '+h.load15+' ('+h.cores+' cores)\n'+
+          Math.round(h.mem_avail_mb/1024)+' GB RAM free'+(h.swap_used_mb>0?' \u00b7 swap '+h.swap_used_mb+' MB':'')+
+          '\nupdated '+Math.max(0,Math.round((Date.now()/1000)-h.ts))+'s ago';
+      }).catch(function(){});
+    }
+    tick();setInterval(tick,15000);
+  })();
   [lstyle,lsrcA,lsrcB,lsrcC,lsrcD].forEach(function(el){
     el.addEventListener('change',pushLayout);
     el.addEventListener('focus',showLayoutPreview);
