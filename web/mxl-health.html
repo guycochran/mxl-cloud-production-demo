@@ -48,6 +48,7 @@ h1 span{color:#ffb400}
       <div class="d lbl" id="load515" style="margin-top:5px">5m &mdash; &middot; 15m &mdash;</div></div>
     <div><div class="big" id="mem">&mdash;</div><div class="lbl">GB RAM free</div></div>
     <div><div class="big" id="swap">0</div><div class="lbl">MB swap used</div></div>
+    <div><div class="big" id="viewers">&mdash;</div><div class="lbl">viewers now</div></div>
     <div><div class="big" id="age">&mdash;</div><div class="lbl">data age (s)</div></div>
   </div>
 </div>
@@ -55,6 +56,8 @@ h1 span{color:#ffb400}
 <div class="card"><h2>History <span class="mut" style="text-transform:none;font-weight:400">(last 4h &middot; 15s samples &middot; kept on the server, survives reload)</span></h2>
   <div class="lbl" style="margin-bottom:3px">CPU load <span class="mut">&mdash; dashed line = 16 cores</span></div>
   <canvas id="cload" style="width:100%;height:120px;display:block"></canvas>
+  <div class="lbl" style="margin:10px 0 3px">Viewers <span class="mut">&mdash; open WebRTC sessions &middot; green number above = safe to down the box</span></div>
+  <canvas id="cview" style="width:100%;height:70px;display:block"></canvas>
   <div class="lbl" style="margin:10px 0 3px">RAM free (GB)</div>
   <canvas id="cmem" style="width:100%;height:70px;display:block"></canvas>
   <div class="lbl" style="margin:10px 0 3px">Input freezes <span class="mut">&mdash; amber &gt;3s frozen &middot; red &gt;12s &middot; grey = no signal</span></div>
@@ -102,6 +105,10 @@ function tick(){
     el('swap').textContent=h.swap_used_mb;
     el('swap').style.color=h.swap_used_mb>500?'#ff5d5d':'#cfd8ef';
     el('age').textContent=Math.max(0,Math.round(Date.now()/1000-h.ts));
+    var vw=h.viewers;
+    el('viewers').textContent=vw?String(vw.open):'?';
+    el('viewers').title=vw?('sessions open '+vw.open+' \u00b7 opened last 10 min '+vw.opened_10m+' \u00b7 last hour '+vw.opened_60m):'counter offline';
+    el('viewers').style.color=vw&&vw.open===0&&vw.opened_10m===0?'#28d17c':'#cfd8ef';
 
     if(h.procs){
       var out='';
@@ -205,6 +212,8 @@ function redraw(){
   var ymax=Math.max(HIST.cores*1.25,Math.max.apply(null,loads)*1.1);
   drawLine(el('cload'),loads,ts,ymax,HIST.cores,function(v){return v.toFixed(0)});
   drawLine(el('cmem'),sm.map(function(s){return s.mem/1024}),ts,64,null,function(v){return v.toFixed(0)});
+  var vs=sm.map(function(s){return s.v==null?0:s.v});
+  drawLine(el('cview'),vs,ts,Math.max(5,Math.max.apply(null,vs)*1.2),null,function(v){return v.toFixed(0)});
   drawFrz(el('cfrz'),sm);
 }
 function histTick(){
@@ -214,7 +223,7 @@ function histTick(){
 histTick();setInterval(histTick,30000);
 window.addEventListener('resize',redraw);
 // crosshair tooltip: nearest sample under the pointer
-['cload','cmem','cfrz'].forEach(function(id){
+['cload','cview','cmem','cfrz'].forEach(function(id){
   var cv=el(id);
   cv.addEventListener('mousemove',function(ev){
     if(!HIST||!HIST.samples.length)return;
@@ -226,7 +235,7 @@ window.addEventListener('resize',redraw);
     var fr=Object.keys(best.frozen||{}).map(function(n){
       return LABELS[n]+(best.frozen[n]===-1?' no-signal':' frozen '+best.frozen[n]+'s')}).join(' · ');
     var tip=el('ctip');
-    tip.innerHTML='<b>'+tfmt(best.ts)+'</b> · load '+best.load1.toFixed(1)+' · '+
+    tip.innerHTML='<b>'+tfmt(best.ts)+'</b> · load '+best.load1.toFixed(1)+(best.v!=null?' · '+best.v+' viewers':'')+' · '+
       Math.round(best.mem/1024)+' GB free'+(best.swap>0?' · swap '+best.swap+'MB':'')+(fr?'<br>'+fr:'');
     tip.style.display='block';tip.style.left=Math.min(ev.clientX+14,window.innerWidth-260)+'px';tip.style.top=(ev.clientY+14)+'px';
   });

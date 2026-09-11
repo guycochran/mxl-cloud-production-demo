@@ -136,8 +136,17 @@ def health():
                 for w in want:
                     if w in cmd:
                         procs[w] = procs.get(w, 0) + 1
+            viewers = None
+            try:  # written by the host-side mxl-viewer-count service
+                with open(os.path.join(OUT, 'viewers.json')) as f:
+                    viewers = json.load(f)
+                if time.time() - viewers.get('ts', 0) > 120:
+                    viewers = None  # counter down — don't show a stale zero
+            except Exception:
+                pass
             data = {
                 'ts': int(now),
+                'viewers': viewers,
                 'load1': float(l1), 'load5': float(l5), 'load15': float(l15),
                 'cores': os.cpu_count(),
                 'mem_avail_mb': mem.get('MemAvailable', 0) // 1024,
