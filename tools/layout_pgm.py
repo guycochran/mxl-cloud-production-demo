@@ -103,6 +103,15 @@ valveD = pipe.get_by_name('valveD')
 # diag proved raw domain timestamps block the sink forever.)
 out_state = {'off': None}
 SLEW_MAX_NS = 80_000  # per frame; 2.4ms/s of correction capacity
+# A single hard re-lock is a legit one-shot jump after a startup/stall
+# transient. But if the compositor output settles ~1s off (as it did after the
+# D32 resize left repair calls 502/429ing and the pipeline lagging), the servo
+# can only slew 2.4ms/s and NEVER closes a 1s gap — so it hard-re-locks EVERY
+# frame forever, which reads as the layout branches freezing-then-jumping on
+# motion (Guy saw this as "Cam 1 frozen when I pan" in 4up). Detect the loop
+# and exit for a clean respawn (a fresh process locks a good offset — the
+# proven cure); wedge_watch/startup_repair re-attach slot 6.
+relock = {'times': []}
 
 
 def out_restamp(pad, info):
@@ -121,6 +130,13 @@ def out_restamp(pad, info):
         out_state['off'] = now + MARGIN_NS - buf.pts
         mapped = now + MARGIN_NS
         print(f'output hard re-lock ({err/1e9:+.2f}s)', flush=True)
+        wall = time.monotonic()
+        relock['times'] = [t for t in relock['times'] if wall - t < 10] + [wall]
+        if len(relock['times']) >= 8:
+            # 8 re-locks in 10s = the servo can't win — respawn for a clean lock
+            print('output re-lock LOOP (8/10s) — exiting for fresh offset', flush=True)
+            import os
+            os._exit(1)
     else:
         corr = max(-SLEW_MAX_NS, min(SLEW_MAX_NS, int(err * 0.02)))
         out_state['off'] -= corr
