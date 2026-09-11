@@ -79,7 +79,7 @@ h1 span{color:#ffb400}
   <div class="chips" id="procs"><span class="chip mut">loading&hellip;</span></div>
 </div>
 
-<div class="card"><h2>Grain flow <span class="mut" style="text-transform:none;font-weight:400">(3s rolling window, persistent readers &middot; <b>uniq/s is the wedge-catcher</b>: a repeat-wedged reader still delivers full rate &mdash; of the same frame &middot; pattern &amp; keyer read low legitimately: synthetic / 8-bit composite of calm scenes)</span></h2>
+<div class="card"><h2>Grain flow <span class="mut" style="text-transform:none;font-weight:400">(3s rolling window, persistent readers &middot; <b>uniq/s is the wedge-catcher</b>: a repeat-wedged reader still delivers full rate &mdash; of the same frame &middot; pattern, selector &amp; keyer read low legitimately on dark/calm content &mdash; 8-bit internal paths; alarms apply to the direct input flows)</span></h2>
   <div class="chips" id="grains"><span class="chip mut">waiting for first sweep&hellip;</span></div>
   <div class="foot" id="gage"></div>
 </div>
@@ -135,7 +135,7 @@ function tick(){
     var G=(h.grains&&h.grains.flows)||null;
     var GORDER=['cam','cam2','playout','pattern','guest1','guest2','layout','selector','keyer'];
     var GLBL={selector:'Selector PGM',keyer:'Keyer PGM'};
-    var STATIC={pattern:1,keyer:1};  // pattern: synthetic; keyer: CEF 8-bit compositing crushes sensor noise, calm scenes read low — both informational only
+    var STATIC={pattern:1,keyer:1,selector:1};  // informational-only: pattern is synthetic; selector+keyer run 8-bit internal paths that crush sensor noise, so dark/calm scenes hash-collide (verified 29.4 true fps at a browser while these read ~6-9). Alarms live on the direct 10-bit input flows.
     function gchip(n){
       var g=G[n],lbl=GLBL[n]||LABELS[n];
       if(!g)return '<span class="chip mut">'+lbl+' · idle</span>';
