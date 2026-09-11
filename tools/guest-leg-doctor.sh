@@ -71,5 +71,12 @@ for f in json.load(sys.stdin):
     tgt=mxl-$leg-target
     $SSH_VM1 "sudo systemctl restart $tgt" && sleep 3
     systemctl restart mxl-$leg-initiator
+    # the target restart RECREATED the guest flow on VM1 — the video
+    # selector keeps a stale reader (repeat-frames judder on program)
+    # until a cascade repair reattaches it (found live 9/11: guest1
+    # "not smooth 30p" with every hop measuring a clean 30fps)
+    sleep 6
+    curl -s -m 20 -X POST -H "Content-Type: application/json" -d '{"auto":1}' https://prodbots.com/api/mxl/repair >/dev/null \
+      && logger -t guest-leg-doctor "$leg heal: cascade repair announced"
   done
 done
