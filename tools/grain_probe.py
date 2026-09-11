@@ -60,8 +60,8 @@ def load1():
 # Load guard — the probe must never be what tips the box over (v2 helped
 # shove VM1 to load 24 and the selector API starved). Don't even attach
 # readers while the box is busy; bail out if load climbs while running.
-while load1() > 12:
-    print(f'load {load1():.1f} > 12 — waiting to start', flush=True)
+while load1() > 14.5:
+    print(f'load {load1():.1f} > 14.5 — waiting to start', flush=True)
     time.sleep(30)
 
 
@@ -114,6 +114,6 @@ while True:
     if now - last_any > STALL_EXIT_S:
         print('all flows silent — exiting for fresh attaches', flush=True)
         os._exit(1)
-    if load1() > 14:
-        print(f'load {load1():.1f} > 14 — exiting to shed weight (runner respawns when calm)', flush=True)
+    if load1() > 16.5:
+        print(f'load {load1():.1f} > 16.5 — exiting to shed weight (runner respawns when calm)', flush=True)
         os._exit(1)
