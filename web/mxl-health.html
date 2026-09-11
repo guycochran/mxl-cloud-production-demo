@@ -52,6 +52,16 @@ h1 span{color:#ffb400}
   </div>
 </div>
 
+<div class="card"><h2>History <span class="mut" style="text-transform:none;font-weight:400">(last 4h &middot; 15s samples &middot; kept on the server, survives reload)</span></h2>
+  <div class="lbl" style="margin-bottom:3px">CPU load <span class="mut">&mdash; dashed line = 16 cores</span></div>
+  <canvas id="cload" style="width:100%;height:120px;display:block"></canvas>
+  <div class="lbl" style="margin:10px 0 3px">RAM free (GB)</div>
+  <canvas id="cmem" style="width:100%;height:70px;display:block"></canvas>
+  <div class="lbl" style="margin:10px 0 3px">Input freezes <span class="mut">&mdash; amber &gt;3s frozen &middot; red &gt;12s &middot; grey = no signal</span></div>
+  <canvas id="cfrz" style="width:100%;height:118px;display:block"></canvas>
+  <div id="ctip" style="display:none;position:fixed;z-index:9;background:#111a2e;border:1px solid #26314d;border-radius:7px;padding:5px 9px;font-size:11px;pointer-events:none;white-space:nowrap"></div>
+</div>
+
 <div class="card"><h2>Pipeline writers <span class="mut" style="text-transform:none;font-weight:400">(in the hls2mxl container &middot; count &gt;1 on a singleton = duplicate-writer hazard)</span></h2>
   <div class="chips" id="procs"><span class="chip mut">loading&hellip;</span></div>
 </div>
@@ -117,6 +127,82 @@ function tick(){
   }).catch(function(){});
 }
 tick();setInterval(tick,5000);
+</script>
+<script>
+// ---- history charts: single-series lines (one hue, #6aa9ff) + status strip ----
+var HIST=null, LINE='#6aa9ff', GRID='#1a2338', MUT='#8b96b5';
+function dpr(c){var r=c.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  c.width=r.width*d;c.height=r.height*d;var x=c.getContext('2d');x.scale(d,d);return [x,r.width,r.height]}
+function tfmt(t){var d=new Date(t*1000);return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
+function xpos(t,t0,t1,w){return 34+(w-40)*(t-t0)/Math.max(1,(t1-t0))}
+
+function drawLine(cv,vals,ts,ymax,ref,fmt){
+  var a=dpr(cv),x=a[0],w=a[1],h=a[2],t0=ts[0],t1=ts[ts.length-1];
+  x.clearRect(0,0,w,h);
+  x.strokeStyle=GRID;x.fillStyle=MUT;x.font='9px system-ui';x.lineWidth=1;
+  [0,.5,1].forEach(function(f){var y=6+(h-24)*(1-f);
+    x.beginPath();x.moveTo(34,y);x.lineTo(w-6,y);x.stroke();
+    x.fillText(fmt(ymax*f),2,y+3)});
+  for(var t=Math.ceil(t0/3600)*3600;t<=t1;t+=3600){var px=xpos(t,t0,t1,w);
+    x.fillText(tfmt(t),px-11,h-2)}
+  if(ref!=null&&ref<=ymax){var ry=6+(h-24)*(1-ref/ymax);
+    x.strokeStyle=MUT;x.setLineDash([4,4]);x.beginPath();x.moveTo(34,ry);x.lineTo(w-6,ry);x.stroke();x.setLineDash([])}
+  x.strokeStyle=LINE;x.lineWidth=2;x.lineJoin='round';x.beginPath();
+  vals.forEach(function(v,i){var px=xpos(ts[i],t0,t1,w),py=6+(h-24)*(1-Math.min(v,ymax)/ymax);
+    i?x.lineTo(px,py):x.moveTo(px,py)});
+  x.stroke();
+  x.lineTo(xpos(t1,t0,t1,w),h-18);x.lineTo(xpos(t0,t0,t1,w),h-18);x.closePath();
+  x.fillStyle='rgba(106,169,255,.08)';x.fill();
+}
+function drawFrz(cv,samples){
+  var a=dpr(cv),x=a[0],w=a[1],h=a[2];x.clearRect(0,0,w,h);
+  if(!samples.length)return;
+  var t0=samples[0].ts,t1=samples[samples.length-1].ts,rh=14;
+  NAMES.forEach(function(n,r){
+    var y=r*rh+4;
+    x.fillStyle=MUT;x.font='9px system-ui';x.fillText(LABELS[n],2,y+9);
+    x.fillStyle=GRID;x.fillRect(64,y+3,w-70,6);
+    samples.forEach(function(sm){
+      var f=sm.frozen&&sm.frozen[n];if(f===undefined)return;
+      var px=64+(w-70)*(sm.ts-t0)/Math.max(1,(t1-t0));
+      x.fillStyle=f===-1?'#3a4258':(f>12?'#ff5d5d':'#ffb400');
+      x.fillRect(px-1.5,y,3,12)});
+  });
+}
+function redraw(){
+  if(!HIST||!HIST.samples.length)return;
+  var sm=HIST.samples,ts=sm.map(function(s){return s.ts});
+  var loads=sm.map(function(s){return s.load1});
+  var ymax=Math.max(HIST.cores*1.25,Math.max.apply(null,loads)*1.1);
+  drawLine(el('cload'),loads,ts,ymax,HIST.cores,function(v){return v.toFixed(0)});
+  drawLine(el('cmem'),sm.map(function(s){return s.mem/1024}),ts,64,null,function(v){return v.toFixed(0)});
+  drawFrz(el('cfrz'),sm);
+}
+function histTick(){
+  fetch('/api/mxl/health/history').then(function(r){return r.json()})
+    .then(function(j){HIST=j;redraw()}).catch(function(){});
+}
+histTick();setInterval(histTick,30000);
+window.addEventListener('resize',redraw);
+// crosshair tooltip: nearest sample under the pointer
+['cload','cmem','cfrz'].forEach(function(id){
+  var cv=el(id);
+  cv.addEventListener('mousemove',function(ev){
+    if(!HIST||!HIST.samples.length)return;
+    var r=cv.getBoundingClientRect(),sm=HIST.samples;
+    var t0=sm[0].ts,t1=sm[sm.length-1].ts;
+    var frac=(ev.clientX-r.left-(id==='cfrz'?64:34))/(r.width-(id==='cfrz'?70:40));
+    var t=t0+Math.max(0,Math.min(1,frac))*(t1-t0),best=sm[0];
+    sm.forEach(function(s){if(Math.abs(s.ts-t)<Math.abs(best.ts-t))best=s});
+    var fr=Object.keys(best.frozen||{}).map(function(n){
+      return LABELS[n]+(best.frozen[n]===-1?' no-signal':' frozen '+best.frozen[n]+'s')}).join(' · ');
+    var tip=el('ctip');
+    tip.innerHTML='<b>'+tfmt(best.ts)+'</b> · load '+best.load1.toFixed(1)+' · '+
+      Math.round(best.mem/1024)+' GB free'+(best.swap>0?' · swap '+best.swap+'MB':'')+(fr?'<br>'+fr:'');
+    tip.style.display='block';tip.style.left=Math.min(ev.clientX+14,window.innerWidth-260)+'px';tip.style.top=(ev.clientY+14)+'px';
+  });
+  cv.addEventListener('mouseleave',function(){el('ctip').style.display='none'});
+});
 </script>
 </body>
 </html>
