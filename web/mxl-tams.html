@@ -67,8 +67,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <div style="font-size:10px;color:#5b6885;margin-top:3px">drag to scrub the live frame &middot; <b style="color:#8b96b5">I</b>/<b style="color:#8b96b5">O</b> mark in/out &middot; <b style="color:#8b96b5">X</b> clears &middot; the shaded band is your clip</div>
     </div>
     <div class="tmbar">
-      <button id="mlive" class="on">&#9210; Recent</button>
-      <button id="march" title="Last hour (Shift-click for the full 12h archive)">&#128252; Archive (1h)</button>
+      <button id="mlive" class="on" title="Reload the last hour, anchored to right now">&#10227; Now (last hour)</button>
+      <button id="march" title="Load the full 12-hour archive">&#128252; Full 12h</button>
       <button id="marefresh" style="display:none">&#8635;</button>
       <button id="back1">-1 min</button>
       <button id="back5">-5 min</button>
@@ -165,7 +165,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
           if(pendingReleaseFr!=null){seekWhenReady(fracToMedia(pendingReleaseFr));pendingReleaseFr=null;}
         }
         var en=s?new Date(s.getTime()+d.totalduration*1000):null;
-        rng.textContent=(pinned?'\u2744 pinned for editing (\u25b6 live resumes): ':mode==='clip'?'clip: ':mode==='archive'?'archive: ':'recent: ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
+        rng.textContent=(mode==='clip'?'clip: ':'editing (static \u2014 \u27f3 re-anchors): ')+fmtD(s)+' → '+fmtD(en)+' ('+Math.round(d.totalduration/60)+' min)';
         sc.textContent=f.length+' segments';
         paintMarkers();
       }
@@ -210,15 +210,19 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var now=Math.floor(Date.now()/1000);
     var tr=encodeURIComponent('['+(now-ARCH_WIN)+':0_'+now+':0)');
     newHls().loadSource(BASE+'?timerange='+tr+'&limit='+ARCH_WIN+'&t='+Date.now());
-    hls.on(Hls.Events.MANIFEST_PARSED,function(){v.currentTime=0;v.play().catch(function(){})});
+    hls.on(Hls.Events.MANIFEST_PARSED,function(){
+      // land paused near the end — "what just happened" is what people clip;
+      // hover/drag skims, click seeks, space plays
+      setTimeout(function(){seekWhenReady(winMedia0+Math.max(0,winDur-8));},400);
+    });
   }
   var ml=document.getElementById('mlive'),ma=document.getElementById('march'),mr=document.getElementById('marefresh'),fs=document.getElementById('fullshow');
   function paintMode(){
-    ml.classList.toggle('on',mode==='live');ma.classList.toggle('on',mode==='archive');
+    ml.classList.toggle('on',mode==='archive'&&ARCH_WIN<=3600);ma.classList.toggle('on',mode==='archive'&&ARCH_WIN>3600);
     mr.style.display=mode==='archive'?'':'none';fs.style.display=mode==='clip'?'':'none';
   }
   // wrap so the click Event isn't passed as the window arg
-  ml.onclick=goLive; ma.onclick=function(){goArchive(1800)}; mr.onclick=function(){goArchive()};
+  ml.onclick=function(){goArchive(3600)}; ma.onclick=function(){goArchive(43200)}; mr.onclick=function(){goArchive()};
   // optional: hold Shift when clicking Full archive to load the entire 2h window
   ma.addEventListener('click',function(e){if(e.shiftKey)goArchive(7200)});
   document.getElementById('back1').onclick=function(){v.currentTime=Math.max(0,v.currentTime-60)};
@@ -469,7 +473,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     newHls().loadSource(clipUrl());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.currentTime=0;v.play().catch(function(){})});
   };
-  fs.onclick=goLive;
+  fs.onclick=function(){goArchive(3600)};
   cl.onclick=function(){
     var share=location.origin+location.pathname+'?clip='+inE+'_'+outE;
     navigator.clipboard.writeText(share).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
@@ -547,7 +551,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // shared clip link: ?clip=IN_OUT opens straight into clip playback
   var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
   if(m){inE=parseInt(m[1],10);outE=parseInt(m[2],10);paintClip();pv.onclick()}
-  else goLive();
+  else goArchive(3600);  // the editor is ALWAYS a static window — the live pane on the right is the live view
 })();
 </script>
 </body></html>
