@@ -68,6 +68,8 @@
     padding: 10px 20px;
     border-radius: 6px;
   }
+  /* dip-to-black transition layer — driven by /api/mxl/dip-state polling */
+  #dip { position: absolute; inset: 0; background: #000; opacity: 0; z-index: 99; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -77,9 +79,40 @@
     <div class="title">MXL Lab &mdash; live from Azure &bull; shared-memory production</div>
   </div>
   <div class="clock" id="clock"></div>
+  <div id="dip"></div>
   <script>
     const c = document.getElementById('clock');
     setInterval(() => { c.textContent = new Date().toLocaleTimeString('en-US', { hour12: false }); }, 200);
+
+    // Dip-to-black: the backend parks {id, fadeMs, cutAt, upAt} (server-epoch
+    // ms) in dip-state; we fade this layer to black BEFORE cutAt (the hidden
+    // selector cut) and back up at upAt. Server clock rides in `now` so VM/CEF
+    // clock skew doesn't matter. Wedge-immune: no MXL readers involved.
+    (function () {
+      var dip = document.getElementById('dip'), seen = 0;
+      function fade(op, ms) {
+        dip.style.transition = 'opacity ' + ms + 'ms linear';
+        void dip.offsetWidth; // commit the transition change before flipping opacity
+        dip.style.opacity = op;
+      }
+      function poll() {
+        fetch('https://prodbots.com/api/mxl/dip-state', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            var d = j.dip;
+            if (!d || d.id === seen) return;
+            seen = d.id;
+            var off = j.now - Date.now();          // server minus local clock
+            var now = Date.now() + off;
+            var downMs = Math.max(80, Math.min(d.fadeMs, d.cutAt - now - 120));
+            fade(1, downMs);
+            var upIn = Math.max(d.upAt - now, downMs + 150);
+            setTimeout(function () { fade(0, d.fadeMs); }, upIn);
+          })
+          .catch(function () {});
+      }
+      setInterval(poll, 250); poll();
+    })();
   </script>
 </body>
 </html>
