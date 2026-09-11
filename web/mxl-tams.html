@@ -268,17 +268,20 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var THUMB='/tamsobj/tams-media/thumbs/';
   var dragging=false, wasPlaying=false;
   function fracToMedia(fr){return winMedia0+fr*winDur}
-  function fracToEpoch(fr){
-    // gap-accurate: map media time to the owning fragment's program-date-time
-    var m=fracToMedia(fr);
+  // media-time (v.currentTime) -> wall-clock epoch, gap-accurate via fragList.
+  // This is the SINGLE source of truth for "what instant is the playhead on",
+  // used by both the frac helper and mark IN/OUT — so the mark always matches
+  // the visible playhead.
+  function mediaToEpoch(m){
     if(fragList.length){
       var lo=0,hi=fragList.length-1;
       while(lo<hi){var mid=(lo+hi+1)>>1; if(fragList[mid].start<=m)lo=mid; else hi=mid-1}
       var fg=fragList[lo];
       if(fg.programDateTime)return Math.floor(fg.programDateTime/1000+Math.max(0,m-fg.start));
     }
-    return winStart?Math.floor(winStart.getTime()/1000+fr*winDur):null;
+    return winStart&&winDur?Math.floor(winStart.getTime()/1000+(m-winMedia0)):null;
   }
+  function fracToEpoch(fr){return mediaToEpoch(fracToMedia(fr));}
   function evFrac(e){var r=scr.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))}
   // Inverse of fracToEpoch, gap-accurate via the SAME fragment list — so a
   // marker at epoch `ep` lands at the exact fraction the playhead sits at for
@@ -546,7 +549,16 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       ci=document.getElementById('clipinfo'),pv=document.getElementById('prevclip'),
       cl=document.getElementById('copylink'),dl=document.getElementById('dlclip'),
       sv=document.getElementById('saveclip');
-  function curEpoch(){var d=playingDate();return d?Math.floor(d.getTime()/1000):null}
+  // Mark from the PLAYHEAD (v.currentTime), not hls.playingDate — the latter is
+  // the decoded-playback PDT which LAGS after a scrub/seek, so it cut clips from
+  // a different instant than the one you'd scrubbed to and were looking at.
+  // v.currentTime is the true playhead the ruler is drawn from, so what you see
+  // is what you mark is what you download. Fall back to playingDate only if the
+  // media time can't be mapped yet.
+  function curEpoch(){
+    if(isFinite(v.currentTime)){var e=mediaToEpoch(v.currentTime);if(e!=null)return e;}
+    var d=playingDate();return d?Math.floor(d.getTime()/1000):null;
+  }
   function fmtE(e){return new Date(e*1000).toISOString().substr(11,8)+'Z'}
   function paintClip(){
     var ok=inE!=null&&outE!=null&&outE>inE;
