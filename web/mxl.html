@@ -57,7 +57,29 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 #contrib button{font:inherit;font-size:11px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:4px 9px;cursor:pointer}
 .ctrl{background:#0a0e1a}
 .ctrl .hd{position:absolute;top:0;left:0;right:0;padding:7px 14px;font-size:11px;font-weight:700;letter-spacing:.6px;color:#8b96b5;background:linear-gradient(#0a0e14,rgba(10,14,20,0));pointer-events:none;z-index:3;text-transform:uppercase}
-@media(max-width:920px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.feed{border-right:0;border-bottom:1px solid #1a2338}}
+#mtabs{display:none}
+@media(max-width:920px){
+  /* Mobile: video always on top; a tab bar swaps the lower area between the
+     switcher and the PTZ controls, so each gets the full width and the PTZ is
+     never buried. */
+  #mtabs{display:flex;flex:0 0 auto;gap:0;background:#0c1220;border-bottom:1px solid #1a2338}
+  #mtabs button{flex:1 1 0;font-size:14px;font-weight:700;padding:12px 8px;background:transparent;border:0;border-bottom:3px solid transparent;color:#8b96b5;border-radius:0}
+  #mtabs button.on{color:#eef2ff;border-bottom-color:#ffb400}
+  main{display:flex;flex-direction:column;min-height:0}
+  .feed{border-right:0;min-height:0;flex-direction:column}
+  .feedview{height:38vh;flex:0 0 auto;border-bottom:1px solid #1a2338}
+  .mxlbar{max-height:none}
+  .ctrl{min-height:0}
+  /* PTZ tab: video (38vh) + PTZ fills the rest; switcher bar hidden */
+  body.mtab-ptz .feed{flex:0 0 auto}
+  body.mtab-ptz .mxlbar{display:none}
+  body.mtab-ptz .ctrl{display:flex;flex:1 1 auto}
+  /* Switcher tab: video (38vh) + switcher bar fills the rest (wraps+scrolls);
+     PTZ hidden */
+  body.mtab-switch .feed{flex:1 1 auto}
+  body.mtab-switch .mxlbar{flex:1 1 auto;flex-wrap:wrap;align-content:flex-start;overflow-y:auto}
+  body.mtab-switch .ctrl{display:none}
+}
 </style></head><body>
 <header>
   <div>
@@ -68,6 +90,13 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   <a class="live" href="/mxl-tams.html" title="Everything here is being recorded into a time-addressable store — scrub it, clip it" style="margin-left:14px;color:#ff8f92;text-decoration:none"><span class="dot" style="background:#e5484d;box-shadow:0 0 8px #e5484d"></span>REC</a>
   <button id="v60" title="Swap the big view: produced MXL program (30p + cloud graphics) vs the camera&#39;s native 1080p60 straight off SRT — zero transcode anywhere" style="margin-left:14px;font:inherit;font-size:11px;font-weight:700;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:4px 10px;cursor:pointer;white-space:nowrap">&#127902; 60p direct</button>
 </header>
+<!-- mobile-only tab bar: keeps the feed on top and puts the PTZ controls one
+     clearly-labelled tap away at full width (they were cramped below the fold
+     in the old stacked layout). Hidden on desktop. -->
+<div id="mtabs" role="tablist">
+  <button data-tab="switch" class="on">&#127916; Switcher</button>
+  <button data-tab="ptz">&#128249; PTZ Camera</button>
+</div>
 <main>
   <div class="pane feed">
     <div class="feedview">
@@ -134,6 +163,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 (function(){
   var $=function(s){return document.querySelector(s)},$$=function(s){return document.querySelectorAll(s)};
   var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),cutbtn=$('#cutbtn'),busy=false;
+
+  // Mobile tab bar (Switcher / PTZ) — default to Switcher; the classes drive
+  // the responsive CSS. No-op visually on desktop (tab bar is display:none).
+  (function(){
+    function setTab(t){
+      document.body.classList.remove('mtab-switch','mtab-ptz');
+      document.body.classList.add('mtab-'+t);
+      $$('#mtabs button').forEach(function(b){b.classList.toggle('on',b.dataset.tab===t)});
+    }
+    $$('#mtabs button').forEach(function(b){b.addEventListener('click',function(){setTab(b.dataset.tab)})});
+    setTab('switch');
+  })();
   // ATEM semantics: PGM row = on air (red, clicking = hot cut), PVW row = armed
   // next (green, client-side), CUT = take preview to program then flip-flop.
   var pgm=null, pvw=1, liveMap={};
