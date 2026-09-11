@@ -78,6 +78,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <button id="marefresh" style="display:none">&#8635;</button>
       <button id="back1">-1 min</button>
       <button id="back5">-5 min</button>
+      <button id="back10" title="nudge back 10s (shortcut: ,)">-10 sec <kbd style="font-size:9px;opacity:.6">,</kbd></button>
       <button id="fwd10" title="nudge forward 10s — scrub to IN, +10 SEC, mark OUT, Save (shortcut: .)">+10 sec <kbd style="font-size:9px;opacity:.6">.</kbd></button>
       <span id="attime">--:--:--</span>
       <span id="range">loading&hellip;</span>
@@ -210,14 +211,29 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // sluggish scrub. Default to the last ARCH_WIN seconds (snappy); the buttons
   // below can widen it on demand.
   var ARCH_WIN=3600; // an hour to peruse (Guy) — still snappy; Shift-click Full for 12h
+  // Round 'now' to 30s so repeated loads (and the background prefetch below)
+  // build the SAME timerange → they hit the proxy's playlist cache instead of
+  // re-triggering the ~11s gateway generation. Drop the &t= buster for archive
+  // (the 30s-rounded timerange already varies enough; the buster would defeat
+  // the cache). Live still busts.
+  function archiveUrl(win){
+    var now=Math.floor(Date.now()/30000)*30;
+    var tr=encodeURIComponent('['+(now-win)+':0_'+now+':0)');
+    return BASE+'?timerange='+tr+'&limit='+win;
+  }
+  // Warm the 12h playlist in the background ~2s after the page settles, so the
+  // "Full 12h" click hits the cache (generation already paid, invisibly).
+  var _pre12=false;
+  function prefetch12h(){
+    if(_pre12)return; _pre12=true;
+    setTimeout(function(){ try{ fetch(archiveUrl(43200),{cache:'no-store'}); }catch(e){} },2000);
+  }
   function goArchive(win){
     pinned=false;editHold=false;if(win)ARCH_WIN=win;
     mode='archive';paintMode();
     // plain VOD only returns the contiguous run since the last gap — ask for the
     // window explicitly (gaps are skipped in playback)
-    var now=Math.floor(Date.now()/1000);
-    var tr=encodeURIComponent('['+(now-ARCH_WIN)+':0_'+now+':0)');
-    newHls().loadSource(BASE+'?timerange='+tr+'&limit='+ARCH_WIN+'&t='+Date.now());
+    newHls().loadSource(archiveUrl(ARCH_WIN));
     hls.on(Hls.Events.MANIFEST_PARSED,function(){
       // land paused near the end — "what just happened" is what people clip;
       // hover/drag skims, click seeks, space plays
@@ -238,6 +254,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // +10s nudge: the IN→OUT workflow — scrub to IN, jump forward 10s, mark OUT.
   // Pause+hold if we're live so the jump sticks (same guard as J/arrow keys).
   document.getElementById('fwd10').onclick=function(){if(mode==='live'){v.pause();editHold=true}v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)};
+  document.getElementById('back10').onclick=function(){if(mode==='live'){v.pause();editHold=true}v.currentTime=Math.max(0,v.currentTime-10)};
   v.addEventListener('timeupdate',function(){at.textContent=fmtD(playingDate())});
 
   // ── editor timeline: LIVE frame scrub on drag, nearest-available thumbnails ──
@@ -262,6 +279,26 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     return winStart?Math.floor(winStart.getTime()/1000+fr*winDur):null;
   }
   function evFrac(e){var r=scr.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))}
+  // Inverse of fracToEpoch, gap-accurate via the SAME fragment list — so a
+  // marker at epoch `ep` lands at the exact fraction the playhead sits at for
+  // that instant. Naively using (ep - winStart)/winDur assumes wall-clock and
+  // media advance in lockstep, but recording GAPS (freeze windows, restarts)
+  // are skipped in playback, so that drifts the green IN flag off the playhead.
+  function epochToFrac(ep){
+    if(!winDur)return null;
+    if(fragList.length){
+      // find the fragment whose program-date-time span contains ep
+      var lo=0,hi=fragList.length-1;
+      while(lo<hi){var mid=(lo+hi+1)>>1; var pdt=fragList[mid].programDateTime;
+        if(pdt&&pdt/1000<=ep)lo=mid; else hi=mid-1}
+      var fg=fragList[lo];
+      if(fg.programDateTime){
+        var media=fg.start+Math.max(0,ep-fg.programDateTime/1000);
+        return (media-winMedia0)/winDur;
+      }
+    }
+    return winStart?(ep-winStart.getTime()/1000)/ (winDur):null; // fallback (no gaps)
+  }
 
   // ── Thumbnails: storyboard SPRITES first (one 10×6 sheet per minute — the
   // JW/Video.js "storyboard" convention), per-second jpgs only as the live-edge
@@ -447,16 +484,20 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   })();
   function paintMarkers(){
     var w0=winStart?winStart.getTime()/1000:0;
-    function frac(ep){return (ep-w0)/winDur;}
+    // gap-aware: same basis as the playhead, so the flag sits under the head
+    function frac(ep){var f=epochToFrac(ep);return f==null?(ep-w0)/winDur:f;}
     if(!winStart||!winDur){mkin.style.display=mkout.style.display=clipsel.style.display='none';return}
     function place(mk,ep){
-      if(ep==null||ep<w0||ep>w0+winDur){mk.style.display='none';return}
-      mk.style.display='block';mk.style.left=(frac(ep)*100)+'%';
+      if(ep==null){mk.style.display='none';return}
+      var f=frac(ep);
+      if(f<0||f>1){mk.style.display='none';return}
+      mk.style.display='block';mk.style.left=(f*100)+'%';
     }
     place(mkin,inE);place(mkout,outE);
     // shaded selection band between IN and OUT
     if(inE!=null&&outE!=null&&outE>inE){
-      var a=Math.max(0,Math.min(1,frac(inE))), b=Math.max(0,Math.min(1,frac(outE)));
+      var fa=frac(inE),fb=frac(outE);
+      var a=Math.max(0,Math.min(1,fa==null?0:fa)), b=Math.max(0,Math.min(1,fb==null?1:fb));
       clipsel.style.display='block';clipsel.style.left=(a*100)+'%';clipsel.style.width=((b-a)*100)+'%';
     } else clipsel.style.display='none';
   }
@@ -591,6 +632,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     else if(k==='s'){if(!sv.disabled)sv.onclick()}
     else if(k==='x'){cx.onclick();flash(cx)}
     else if(k==='.'){e.preventDefault();var f=document.getElementById('fwd10');f.onclick();flash(f)}
+    else if(k===','){e.preventDefault();var b=document.getElementById('back10');b.onclick();flash(b)}
+    else if(k==='home'){e.preventDefault();v.currentTime=0}
+    else if(k==='end'){e.preventDefault();v.currentTime=v.duration||1e9}
   });
   function flash(b){b.style.background='#ffb400';b.style.color='#141414';setTimeout(function(){b.style.background='';b.style.color=''},180)}
 
@@ -598,6 +642,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
   if(m){inE=parseInt(m[1],10);outE=parseInt(m[2],10);paintClip();pv.onclick()}
   else goArchive(3600);  // the editor is ALWAYS a static window — the live pane on the right is the live view
+  prefetch12h();  // warm the 12h playlist so "Full 12h" is ready when clicked
 })();
 </script>
 </body></html>
