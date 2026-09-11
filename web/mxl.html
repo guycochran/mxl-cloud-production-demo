@@ -165,7 +165,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     paintBuses();
     keybtn.classList.toggle('on',st.key);keybtn.textContent=st.key?'KEY ON':'KEY OFF';
     if(pat.options.length<=1&&st.available){st.available.forEach(function(p){var o=document.createElement('option');o.value=o.textContent=p;pat.appendChild(o)})}
-    if(st.input===2&&st.patterns.tg1&&!busy)pat.value=st.patterns.tg1;
+    if(st.patterns.tg1&&!busy)pat.value=st.patterns.tg1;
   }
   function refresh(){if(busy)return;fetch('/api/mxl/status').then(function(r){return r.json()}).then(function(st){if(!st.error)paint(st)}).catch(function(){})}
   function post(url,body,note,done){
