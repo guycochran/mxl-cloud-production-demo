@@ -41,7 +41,13 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 <main>
   <div class="pane tm">
     <div class="hd">&#9202; Time machine <span class="chip rec">&#9679; REC</span> <span class="chip" id="segcount">&hellip;</span></div>
-    <video id="tmv" controls muted playsinline></video>
+    <div id="vwrap" style="position:relative;flex:1 1 auto;min-height:0;display:flex">
+      <video id="tmv" controls muted playsinline style="flex:1 1 auto;min-height:0;width:100%;object-fit:contain;background:#000"></video>
+      <div id="scrubview" style="display:none;position:absolute;inset:0;background:#000;z-index:4;opacity:1;transition:opacity .15s">
+        <div id="svimg" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#000 no-repeat"></div>
+        <div id="svtime" style="position:absolute;left:50%;bottom:16px;transform:translateX(-50%);font:700 26px ui-monospace,Menlo,monospace;color:#ffb400;background:rgba(8,11,20,.82);padding:4px 16px;border-radius:8px">--:--:--</div>
+      </div>
+    </div>
     <div style="flex:0 0 auto;padding:10px 14px 4px;background:#0c1220;border-top:1px solid #1a2338">
       <div id="scrub" style="position:relative;height:30px;cursor:pointer;touch-action:none;user-select:none">
         <div style="position:absolute;left:0;right:0;top:12px;height:6px;background:#1a2338;border-radius:3px"></div>
@@ -265,7 +271,31 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // (exactly where the 1-hour view lands you), while old 12h territory worked
   function badSpr(m){return sprBad[m]&&(Date.now()-sprBad[m]<30000)}
   function badThumb(ep){return thumbBad[ep]&&(Date.now()-thumbBad[ep]<30000)}
+  // ── IN-PLAYER SCRUB VIEW: while dragging, the PLAYER shows the filmstrip
+  // frame full-size (instant), like every real editor's seek preview; the
+  // video swaps back in once its seek lands after release.
+  var svw=document.getElementById('scrubview'),svimg=document.getElementById('svimg'),
+      svt=document.getElementById('svtime'),svActive=false;
+  function svDims(){var W=svw.clientWidth,H=svw.clientHeight;var w=Math.min(W,H*16/9),h=w*9/16;return{w:w,h:h}}
+  function svSprite(ep){var m=ep-ep%60,i=ep-m,d=svDims();
+    svimg.style.width=d.w+'px';svimg.style.height=d.h+'px';
+    svimg.style.backgroundImage='url('+SPRITE+m+'.jpg)';
+    svimg.style.backgroundSize=(d.w*10)+'px '+(d.h*6)+'px';
+    svimg.style.backgroundPosition=(-(i%10)*d.w)+'px '+(-Math.floor(i/10)*d.h)+'px';}
+  function svSingle(url){var d=svDims();
+    svimg.style.width=d.w+'px';svimg.style.height=d.h+'px';
+    svimg.style.backgroundImage='url('+url+')';
+    svimg.style.backgroundSize='contain';svimg.style.backgroundPosition='center';}
+  function svShow(){svActive=true;svw.style.display='block';svw.style.opacity=1;}
+  function svHide(){svActive=false;svw.style.opacity=0;setTimeout(function(){if(!svActive)svw.style.display='none';},170);}
+  function svSettleAfterSeek(){
+    var done=function(){v.removeEventListener('seeked',done);clearTimeout(to);svHide();};
+    var to=setTimeout(done,1500);
+    v.addEventListener('seeked',done);
+  }
+
   function showSprite(ep){
+    if(svActive)svSprite(ep);
     var m=ep-ep%60, i=ep-m;
     hovimg.style.backgroundImage='url('+SPRITE+m+'.jpg)';
     hovimg.style.backgroundSize=(tileW()*10)+'px '+(tileH()*6)+'px';
@@ -273,6 +303,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     hovspin.textContent='';
   }
   function showSingle(url){
+    if(svActive)svSingle(url);
     hovimg.style.backgroundImage='url('+url+')';
     hovimg.style.backgroundSize='cover';
     hovimg.style.backgroundPosition='center';
@@ -330,10 +361,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var bw=scr.getBoundingClientRect().width;
     var x=fr*bw;
     ghost.style.display='block';ghost.style.left=x+'px';
-    tip.style.display='block';
-    tip.style.left=Math.min(bw-tileW()/2-8,Math.max(tileW()/2+8,x))+'px';
+    if(svActive){tip.style.display='none';}
+    else{
+      tip.style.display='block';
+      tip.style.left=Math.min(bw-tileW()/2-8,Math.max(tileW()/2+8,x))+'px';
+    }
     var ep=fracToEpoch(fr);
     hovt.textContent=ep?fmtE(ep):'--:--:--';
+    if(svActive)svt.textContent=hovt.textContent;
     if(ep){
       if(hovimg.dataset.ep!==String(ep)){
         hovimg.dataset.ep=ep;
@@ -371,7 +406,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     dragging=true; scr.setPointerCapture(e.pointerId);
     wasPlaying=!v.paused; v.pause();                     // paused = hls live-sync can't yank
     editHold=true;                                       // ...and the ruler math freezes
-    applyTipSize();                                      // big skim preview
+    svShow();                                            // the PLAYER becomes the scrub preview
     var fr=evFrac(e);
     // pin starts NOW so drag-scrubbing runs against the fast VOD; seeks are
     // suppressed while the source swaps (see swapping) — that suppression is
@@ -384,7 +419,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var fr=evFrac(e);
     if(swapping){pendingReleaseFr=fr;}                   // swap will land this seek
     else v.currentTime=fracToMedia(fr);                  // final precise position
-    applyTipSize();                                      // back to small hover size
+    svSettleAfterSeek();                                 // overlay fades once the frame lands
     tip.style.display='none';ghost.style.display='none';
     // EDITOR RULE (Guy): touching the bar PAUSES — no auto-resume, so the
     // gold played-line and playhead hold still while you compose IN/OUT.
