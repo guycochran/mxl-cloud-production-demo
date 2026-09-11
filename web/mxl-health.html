@@ -58,7 +58,7 @@ h1 span{color:#ffb400}
   <canvas id="cload" style="width:100%;height:120px;display:block"></canvas>
   <div class="lbl" style="margin:10px 0 3px">Viewers <span class="mut">&mdash; open WebRTC sessions &middot; green number above = safe to down the box</span></div>
   <canvas id="cview" style="width:100%;height:70px;display:block"></canvas>
-  <div class="lbl" style="margin:10px 0 3px">RAM free (GB)</div>
+  <div class="lbl" style="margin:10px 0 3px">RAM free (GB) <span class="mut">&mdash; ceiling = total RAM</span></div>
   <canvas id="cmem" style="width:100%;height:70px;display:block"></canvas>
   <div class="lbl" style="margin:10px 0 3px">Input freezes <span class="mut">&mdash; amber &gt;3s frozen &middot; red &gt;12s &middot; grey = no signal</span></div>
   <canvas id="cfrz" style="width:100%;height:118px;display:block"></canvas>
@@ -115,7 +115,7 @@ function tick(){
     el('swap').textContent=h.swap_used_mb;
     el('swap').style.color=h.swap_used_mb>500?'#ff5d5d':'#cfd8ef';
     el('age').textContent=Math.max(0,Math.round(Date.now()/1000-h.ts));
-    window.__lastHealth=h; drawTraffic();
+    window.__lastHealth=h; window.__memTotalGB=h.mem_total_mb?Math.round(h.mem_total_mb/1024):64; drawTraffic();
     var vw=h.viewers;
     el('viewers').textContent=vw?String(vw.open):'?';
     el('viewers').title=vw?('sessions open '+vw.open+' \u00b7 opened last 10 min '+vw.opened_10m+' \u00b7 last hour '+vw.opened_60m):'counter offline';
@@ -222,7 +222,7 @@ function redraw(){
   var loads=sm.map(function(s){return s.load1});
   var ymax=Math.max(HIST.cores*1.25,Math.max.apply(null,loads)*1.1);
   drawLine(el('cload'),loads,ts,ymax,HIST.cores,function(v){return v.toFixed(0)});
-  drawLine(el('cmem'),sm.map(function(s){return s.mem/1024}),ts,64,null,function(v){return v.toFixed(0)});
+  drawLine(el('cmem'),sm.map(function(s){return s.mem/1024}),ts,(window.__memTotalGB||64),null,function(v){return v.toFixed(0)});
   var vs=sm.map(function(s){return s.v==null?0:s.v});
   drawLine(el('cview'),vs,ts,Math.max(5,Math.max.apply(null,vs)*1.2),null,function(v){return v.toFixed(0)});
   drawFrz(el('cfrz'),sm);

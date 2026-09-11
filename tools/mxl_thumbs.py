@@ -149,6 +149,7 @@ def health():
                 'viewers': viewers,
                 'load1': float(l1), 'load5': float(l5), 'load15': float(l15),
                 'cores': os.cpu_count(),
+                'mem_total_mb': mem.get('MemTotal', 0) // 1024,
                 'mem_avail_mb': mem.get('MemAvailable', 0) // 1024,
                 'swap_used_mb': (mem.get('SwapTotal', 0) - mem.get('SwapFree', 0)) // 1024,
                 'slots': slots,
