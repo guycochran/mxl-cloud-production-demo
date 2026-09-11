@@ -313,7 +313,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     }
     var probe=new Image();
     probe.onload=function(){sprOK[m]=1;if(token===thumbReq)showSprite(ep);};
-    probe.onerror=function(){sprBad[m]=1;if(token===thumbReq){if(thumbOK[ep])showSingle(THUMB+ep+'.jpg');else tryThumb(ep,token,0);}};
+    probe.onerror=function(){sprBad[m]=Date.now();if(token===thumbReq){if(thumbOK[ep])showSingle(THUMB+ep+'.jpg');else tryThumb(ep,token,0);}};
     probe.src=SPRITE+m+'.jpg';
   }
   // While DRAGGING the preview becomes a big 480x270 filmstrip frame —
