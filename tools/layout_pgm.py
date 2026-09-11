@@ -421,7 +421,47 @@ print('layout_pgm running', flush=True)
 loop = GLib.MainLoop()
 bus = pipe.get_bus()
 bus.add_signal_watch()
-bus.connect('message::error', lambda b, m: (print(f'gst error: {m.parse_error()}', flush=True), loop.quit()))
+
+# Error handling that DOESN'T take the show down on a single bad source.
+# History: when one mxlsrc branch hit not-negotiated (a source flow recreated by
+# a guest join), the old handler quit → the supervisor respawned → each respawn
+# RECREATED the on-air Layout flow → wedge storm (41 restarts / 2-min frozen
+# program at the 2026-09-11 demo). Fix: a source-branch error just SILENCES that
+# branch (set its mxlsrc to NULL so it stops erroring); the compositor keeps
+# running on the surviving branches (dead quadrant → black background), the
+# mxlsink and on-air Layout flow stay ALIVE, and the backend layout-freeze guard
+# cuts program to Cam 1 + repairs off-air. We exit (clean respawn) ONLY on a
+# fatal sink/compositor error, or if too many branches die (whole feed gone).
+err_state = {'dead': set(), 'times': []}
+SRC_NAMES = {f'src{i}': i for i in range(len(SLOTS))}
+
+
+def on_error(b, m):
+    err, dbg = m.parse_error()
+    name = m.src.get_name() if m.src else '?'
+    print(f'gst error from {name}: {err}', flush=True)
+    # walk up: the error may come from an element inside a branch; find the srcN
+    branch = SRC_NAMES.get(name)
+    if branch is None:
+        for sn, idx in SRC_NAMES.items():
+            if name.startswith(sn):
+                branch = idx
+                break
+    now = time.monotonic()
+    err_state['times'] = [t for t in err_state['times'] if now - t < 20] + [now]
+    if branch is not None and len(err_state['dead']) < len(SLOTS) - 1 and len(err_state['times']) < 12:
+        err_state['dead'].add(branch)
+        print(f'  silencing branch {SLOTS[branch]} — program stays alive on the rest', flush=True)
+        try:
+            pipe.get_by_name(f'src{branch}').set_state(Gst.State.NULL)  # stop the error spam
+        except Exception as e:
+            print(f'  could not silence {SLOTS[branch]}: {e}', flush=True)
+        return  # DO NOT quit — sink + on-air flow survive
+    print('  fatal (sink/compositor) or too many dead branches — exiting for clean respawn', flush=True)
+    loop.quit()
+
+
+bus.connect('message::error', on_error)
 bus.connect('message::eos', lambda b, m: loop.quit())
 loop.run()
 raise SystemExit(1)
