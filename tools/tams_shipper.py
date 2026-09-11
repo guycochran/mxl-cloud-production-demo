@@ -143,7 +143,7 @@ def sprite_pass():
         out = f'{SPOOL}/thumbs/sprite-{m}.jpg'
         try:
             subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0',
-                            '-i', lst, '-vf', 'scale=192:108,tile=10x6', '-q:v', '7', out],
+                            '-i', lst, '-vf', 'scale=384:216,tile=10x6', '-q:v', '7', out],
                            timeout=30, check=True)
             with open(out, 'rb') as sf:
                 S3.put_object(Bucket='tams-media', Key=f'sprites/{m}.jpg', Body=sf.read(),
