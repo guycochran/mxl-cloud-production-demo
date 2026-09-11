@@ -66,6 +66,11 @@ h1 span{color:#ffb400}
   <div class="chips" id="procs"><span class="chip mut">loading&hellip;</span></div>
 </div>
 
+<div class="card"><h2>Grain flow <span class="mut" style="text-transform:none;font-weight:400">(3s rolling window, persistent readers &middot; <b>uniq/s is the wedge-catcher</b>: a repeat-wedged reader still delivers full rate &mdash; of the same frame &middot; synthetic sources like a flat pattern legitimately read low)</span></h2>
+  <div class="chips" id="grains"><span class="chip mut">waiting for first sweep&hellip;</span></div>
+  <div class="foot" id="gage"></div>
+</div>
+
 <div class="card"><h2>Inputs <span class="mut" style="text-transform:none;font-weight:400">(red ring = on program &middot; green ring = preview &middot; "frozen" = content unchanged: the wedge the demo self-heals)</span></h2>
   <div class="grid" id="slots"></div>
   <div class="foot" id="lstate"></div>
@@ -108,6 +113,26 @@ function tick(){
       el('procs').innerHTML=out;
     }
 
+    // ---- grain flow: rate + uniqueness per flow (incl. downstream chain) ----
+    var G=(h.grains&&h.grains.flows)||null;
+    var GORDER=['cam','cam2','playout','pattern','guest1','guest2','layout','selector','keyer'];
+    var GLBL={selector:'Selector PGM',keyer:'Keyer PGM'};
+    var STATIC={pattern:1};  // synthetic sources: low uniq is not a wedge
+    function gchip(n){
+      var g=G[n],lbl=GLBL[n]||LABELS[n];
+      if(!g)return '<span class="chip mut">'+lbl+' · idle</span>';
+      var cls='ok',note='';
+      if(g.bps<25){cls='bad';note=' ⚠ slow'}
+      else if(!STATIC[n]&&g.ufps<20){cls='bad';note=' ⚠ repeating'}
+      else if(!STATIC[n]&&g.ufps<27){cls='warn'}
+      return '<span class="chip '+cls+'">'+lbl+' · '+g.bps+'/s · <b>'+g.ufps+' uniq</b>'+note+'</span>';
+    }
+    if(G){
+      el('grains').innerHTML=GORDER.map(gchip).join('');
+      var gs=Math.max(0,Math.round(Date.now()/1000-h.grains.ts));
+      el('gage').textContent='updated '+gs+'s ago'+(gs>60?' — probe stale, readings unreliable':'');
+    }
+
     var live={},input=-1;
     if(st&&st.slots){st.slots.forEach(function(s){live[s.name]=s.live});input=st.input}
     var out='';
@@ -118,6 +143,10 @@ function tick(){
       var dot=s? (s.frozen>10?'#ff5d5d':(s.age>5?'#ffb400':'#28d17c')) : '#586179';
       var d=s? ('frame '+s.age+'s · '+(s.frozen>3?'<b style="color:'+(s.frozen>10?'#ff5d5d':'#ffb400')+'">frozen '+s.frozen+'s</b>':'moving'))
              : (isLive===false?'no signal':'no reader');
+      if(G&&G[n]&&!STATIC[n]){
+        var u=G[n].ufps;
+        d+=' · <span style="color:'+(u<20?'#ff5d5d':(u<27?'#ffb400':'#28d17c'))+'">'+u+' uniq/s</span>';
+      }
       out+='<div class="slot'+cls+'"><img src="/api/mxl/thumbs/'+n+'.jpg?t='+Date.now()+'" onerror="this.style.opacity=.15">'+
         '<div class="m"><div class="n"><span class="dot" style="background:'+dot+'"></span>'+LABELS[n]+(i===input?' · PGM':'')+'</div>'+
         '<div class="d">'+d+'</div></div></div>';
