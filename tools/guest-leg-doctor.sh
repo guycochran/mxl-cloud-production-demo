@@ -9,8 +9,33 @@
 TOKEN=$(grep -oP '^EASY_MXL_TOKEN=\K.*' /etc/default/easy-mxl)
 SSH_VM1="ssh -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/home/guy/.ssh/known_hosts guy@10.0.0.4"
 declare -A cooldown
+PGM_BODY='{"domain_path":"/mxl-domain","video_flow_uuid":"373517cc-9e60-446a-af59-c115240edbc0","use_mediamtx":true,"encoder":{"tune":4,"speed_preset":2,"bitrate":6000,"key_int_max":30,"intra_refresh":false}}'
+heal_pgm(){
+  logger -t guest-leg-doctor "healing PGM leg (target log stale) — target, rkeys, VM1 initiator, viewer"
+  pid=$(pgrep -f "domain_fabric.*-s 1313" | head -1)
+  [ -n "$pid" ] && kill -9 "$pid"
+  sleep 1
+  sudo -u guy bash -c 'nohup /home/guy/mxl/build/Linux-GCC-Release/tools/mxl-fabrics-demo/mxl-fabrics-demo -d /dev/shm/mxl/domain_fabric -p tcp -n 10.0.0.5 -s 1313 -f /home/guy/fabric/pgm-flow.json -t @/home/guy/fabric/pgm-target.json >> /home/guy/fabric/pgm-target.log 2>&1 &'
+  sleep 3
+  scp -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o UserKnownHostsFile=/home/guy/.ssh/known_hosts /home/guy/fabric/pgm-target.json guy@10.0.0.4:/home/guy/fabric/pgm-target.json
+  $SSH_VM1 "sudo systemctl restart mxl-pgm-initiator"
+  docker restart mxl2webrtc >/dev/null
+  sleep 8
+  curl -s -m 20 -X POST -H "Content-Type: application/json" -d "$PGM_BODY" http://127.0.0.1:9601/pipeline/start >/dev/null
+  logger -t guest-leg-doctor "PGM leg heal complete"
+}
 while true; do
   sleep 15
+  # PGM leg: a healthy target logs stats every ~2s; a silent log means the
+  # frozen/degraded target state that fed the TAMS recorder 9fps for 11 hours
+  if [ -f /home/guy/fabric/pgm-target.log ]; then
+    age=$(( $(date +%s) - $(stat -c %Y /home/guy/fabric/pgm-target.log) ))
+    now=$(date +%s); last=${cooldown[pgm]:-0}
+    if [ "$age" -gt 120 ] && [ $((now - last)) -gt 600 ]; then
+      cooldown[pgm]=$now
+      heal_pgm
+    fi
+  fi
   load=$(awk '{print $1}' /proc/loadavg)
   [ "${load%%.*}" -ge 16 ] && continue
   flows=$(curl -s -m 6 -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9700/api/domains/domain_1/flows)
