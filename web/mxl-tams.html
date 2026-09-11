@@ -332,9 +332,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   });
   scr.addEventListener('pointerup',function(e){
     if(!dragging)return; dragging=false;
-    v.currentTime=fracToMedia(evFrac(e));                // final precise position
+    var fr=evFrac(e);
+    v.currentTime=fracToMedia(fr);                       // final precise position
     tip.style.display='none';ghost.style.display='none';
     if(wasPlaying)v.play().catch(function(){});          // resume if it was playing
+    // first touch of the bar in live mode PINS the window (Guy's rule): the
+    // whole scrub-and-mark session then happens on a stable timeline; the
+    // ▶ live button resumes growth. (Landing at the live edge stays live.)
+    pinWindowForEdit(fracToEpoch(fr));
   });
   scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
   // playhead knob + played fill track the real position (rAF = smooth, no thrash)
@@ -382,9 +387,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // rescaling under the cursor — miserable for marking. First I/O press PINS
   // the current window as a static archive load (playhead preserved); the
   // "live" button resumes growth. Marks are absolute epochs, so they survive.
-  function pinWindowForEdit(){
+  function pinWindowForEdit(epArg){
     if(mode!=='live'||!winStart||!winDur)return;
-    var ep=curEpoch();
+    var ep=epArg!=null?epArg:curEpoch();
     // Marking AT the live edge means bracketing forward — a pinned window
     // would stall at its end and OUT could never advance past IN. Only pin
     // when the playhead is in history (scrubbed back); at the edge we stay
