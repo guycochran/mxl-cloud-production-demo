@@ -116,7 +116,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
   var BASE='/tamsapi/flows/'+FLOW+'/output.m3u8';
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
-  var hls=null,mode='live',pinned=false;  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
+  var hls=null,mode='live',pinned=false,editHold=false; // editHold: gesture in progress — freeze the window MATH, never reload mid-gesture  // 'live' (growing DVR, hls.js self-refreshes) | 'archive' (static VOD) | 'clip'
   var winStart=null,winDur=0,winMedia0=0,fragList=[];  // playlist window + fragment index (for gap-accurate time mapping)
 
   function fmtD(d){return d?d.toISOString().substr(11,8)+'Z':'--:--:--'}
@@ -142,6 +142,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     });
     hls.on(Hls.Events.ERROR,function(e,d){if(d.fatal)console.log('hls fatal',d.details)});
     hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
+      if(editHold&&mode==='live')return; // bar is being worked — hold the ruler still
       var d=data.details,f=d.fragments;
       if(f.length){
         var s=f[0].programDateTime?new Date(f[0].programDateTime):null;
@@ -155,7 +156,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     hls.attachMedia(v);
     return hls;
   }
-  function goLive(){pinned=false;
+  function goLive(){pinned=false;editHold=false;
     mode='live';paintMode();
     newHls(true).loadSource(BASE+'?type=live&t='+Date.now());
     hls.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
@@ -184,7 +185,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // below can widen it on demand.
   var ARCH_WIN=1800; // 30 min ≈ 1800 fragments — smooth
   function goArchive(win){
-    pinned=false;if(win)ARCH_WIN=win;
+    pinned=false;editHold=false;if(win)ARCH_WIN=win;
     mode='archive';paintMode();
     // plain VOD only returns the contiguous run since the last gap — ask for the
     // window explicitly (gaps are skipped in playback)
@@ -327,14 +328,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   });
   scr.addEventListener('pointerdown',function(e){
     dragging=true; scr.setPointerCapture(e.pointerId);
-    wasPlaying=!v.paused; v.pause();                     // freeze while scrubbing
-    var fr=evFrac(e);
-    // Leave live mode THE MOMENT the bar is touched: hls live-sync yanks the
-    // playhead back to the edge whenever it falls >12s behind — fatal while
-    // hunting an IN point. Pin first (window span ≈ unchanged, so the drag's
-    // fractions stay valid); the guard keeps edge-clicks live for watching.
-    if(mode==='live')pinWindowForEdit(fracToEpoch(fr));
-    showTip(fr); liveScrub(fr);
+    wasPlaying=!v.paused; v.pause();                     // paused = hls live-sync can't yank
+    editHold=true;                                       // ...and the ruler math freezes
+    var fr=evFrac(e); showTip(fr); liveScrub(fr);
   });
   scr.addEventListener('pointerup',function(e){
     if(!dragging)return; dragging=false;
@@ -345,8 +341,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     // gold played-line and playhead hold still while you compose IN/OUT.
     // Space / L resumes playback when you're ready.
     v.pause();
-    // fallback pin: touched AT the edge (guard kept live) but dragged back
+    // gesture over: pin ONCE, after the seek — a reload can now never race
+    // the drag (the black-screen bug). editHold clears inside the pin (or
+    // here if the guard keeps us live for an edge landing).
     if(mode==='live')pinWindowForEdit(fracToEpoch(fr));
+    if(mode==='live')editHold=false;
   });
   scr.addEventListener('pointerleave',function(){if(!dragging){tip.style.display='none';ghost.style.display='none'}});
   // playhead knob + played fill track the real position (rAF = smooth, no thrash)
@@ -418,6 +417,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       },350);
     });
     rng.textContent='\u2744 window pinned for editing \u2014 press \u25b6 live to resume growth';
+    editHold=false;
   }
   si.onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip();pinWindowForEdit()};
   so.onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip();pinWindowForEdit()};
@@ -493,9 +493,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     if(k==='i'){si.onclick();flash(si)}
     else if(k==='o'){so.onclick();flash(so)}
     else if(k===' '){e.preventDefault();v.paused?v.play():v.pause()}
-    else if(k==='arrowleft'){e.preventDefault();if(mode==='live')pinWindowForEdit(curEpoch());v.currentTime=Math.max(0,v.currentTime-step)}
+    else if(k==='arrowleft'){e.preventDefault();if(mode==='live'){v.pause();editHold=true}v.currentTime=Math.max(0,v.currentTime-step)}
     else if(k==='arrowright'){e.preventDefault();v.currentTime=Math.min(v.duration||1e9,v.currentTime+step)}
-    else if(k==='j'){if(mode==='live')pinWindowForEdit(curEpoch());v.currentTime=Math.max(0,v.currentTime-10)}
+    else if(k==='j'){if(mode==='live'){v.pause();editHold=true}v.currentTime=Math.max(0,v.currentTime-10)}
     else if(k==='k'){v.pause()}
     else if(k==='l'){v.paused?v.play():v.currentTime=Math.min(v.duration||1e9,v.currentTime+10)}
     else if(k==='s'){if(!sv.disabled)sv.onclick()}
