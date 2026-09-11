@@ -40,17 +40,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 .bus.pgmrow .src.on{background:#e5484d;border-color:#e5484d;color:#fff;box-shadow:0 0 10px rgba(229,72,77,.55)}
 .bus.pvwrow .src.on{background:#28d17c;border-color:#28d17c;color:#08130c;box-shadow:0 0 10px rgba(40,209,124,.45)}
 .bus .src.nofeed{opacity:.35;cursor:not-allowed}
-#cutbtn{min-width:64px;font-size:14px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
+#cutbtn{align-self:stretch;min-width:64px;font-size:14px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
 #cutbtn:hover{background:#e5484d;border-color:#e5484d}
-.transcol{display:flex;flex-direction:column;align-self:stretch;gap:5px}
-.transcol #cutbtn{flex:1}
-.transcol .dr{flex:1;display:flex;gap:4px;align-items:stretch}
-#dipbtn{flex:1;min-width:64px;font-size:14px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
-#dipbtn:hover{background:#101623;border-color:#8b96b5}
-#dipbtn.dipping{background:#000;border-color:#8b96b5;color:#8b96b5;animation:dippulse .5s ease-in-out infinite alternate}
-@keyframes dippulse{from{opacity:1}to{opacity:.5}}
-#dfr{width:34px;font-size:11px;text-align:center;background:#0c1220;border:1px solid #26314d;border-radius:6px;color:#eef2ff;padding:2px;flex:1}
-.frlbl{font-size:8px;font-weight:700;letter-spacing:.5px;color:#8b96b5}
 .sidecol{display:flex;flex-direction:column;gap:5px;justify-content:center}
 .sidecol .row{display:flex;gap:6px;align-items:center}
 .mixlbl{font-size:9px;font-weight:800;color:#8b96b5}
@@ -124,10 +115,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
           <button class="src" data-inp="0"><img class="th" alt=""><span>&#128249; Cam 1</span></button><button class="src" data-inp="3"><img class="th" alt=""><span>&#127916; Cam 2</span></button><button class="src" data-inp="1"><img class="th" alt=""><span>&#127902; Playout</span></button><button class="src g" data-inp="4"><img class="th" alt=""><span>&#128752; Guest 1</span></button><button class="src g" data-inp="5"><img class="th" alt=""><span>&#128752; Guest 2</span></button><button class="src" data-inp="2"><img class="th" alt=""><span>&#127912; Pattern</span></button><button class="src" data-inp="6"><img class="th" alt=""><span>&#129513; Layout</span></button>
         </div>
       </div>
-      <div class="transcol">
-        <button id="cutbtn" title="cut preview to program">CUT</button>
-        <span class="dr"><button id="dipbtn" title="dip through black to preview">DIP</button><span style="display:flex;flex-direction:column;align-items:center;gap:1px"><input id="dfr" type="number" min="2" max="90" value="20" title="dip fade length in frames (30fps &mdash; 20 &asymp; &frac23;s each side)"><span class="frlbl">FR</span></span></span>
-      </div>
+      <button id="cutbtn" title="cut preview to program">CUT</button>
       <div class="sidecol">
         <div class="row"><button id="keybtn">KEY</button><select id="pat"><option value="" disabled selected>pattern&hellip;</option></select><span id="mxlmsg"></span></div>
         <div class="row"><button id="contribbtn">&#128752; Send us your feed</button>
@@ -145,7 +133,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 <script>
 (function(){
   var $=function(s){return document.querySelector(s)},$$=function(s){return document.querySelectorAll(s)};
-  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),cutbtn=$('#cutbtn'),dipbtn=$('#dipbtn'),dfr=$('#dfr'),busy=false;
+  var msg=$('#mxlmsg'),keybtn=$('#keybtn'),pat=$('#pat'),cutbtn=$('#cutbtn'),busy=false;
   // ATEM semantics: PGM row = on air (red, clicking = hot cut), PVW row = armed
   // next (green, client-side), CUT = take preview to program then flip-flop.
   var pgm=null, pvw=1, liveMap={};
@@ -163,9 +151,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     });
   }
   function paint(st){
-    // mid-transition the program ring would flicker old->new — hold it
+    // if an API-driven transition is mid-flight, hold the program ring
     pgm=(st.fading||st.dipping)?pgm:st.input;
-    dipbtn.classList.toggle('dipping',!!st.dipping);
     if(st.slots){
       st.slots.forEach(function(s){liveMap[s.slot]=s.live});
       var g1=st.slots[4],g2=st.slots[5];
@@ -200,19 +187,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     var i=Number(b.dataset.inp);if(liveMap[i]===false)return;pvw=i;paintBuses();
   })});
   cutbtn.addEventListener('click',function(){if(pvw!=null&&pvw!==pgm)cutTo(pvw)});
-  // AUTO/cross-fade UI removed 2026-09-11: the dissolve engine works (repo
-  // tools/layout_pgm.py + POST /api/mxl/auto remain live for API use), but
-  // its slot-6 program path froze on air twice (stale-attach reader lag +
-  // branch wedges). DIP below is the wedge-immune replacement: the CEF
-  // keyer layer fades to black, the cut hides under it, layer fades up.
-  dipbtn.addEventListener('click',function(){
-    if(pvw==null||pvw===pgm)return;
-    var to=pvw,frames=Math.max(2,Math.min(90,Number(dfr.value)||20)),was=pgm;
-    post('/api/mxl/dip',{to:to,frames:frames},'dipping…',function(){
-      dipbtn.classList.add('dipping');
-      pgm=to;pvw=was;paintBuses();
-    });
-  });
+  // Transition UIs removed 2026-09-11 (Guy's call — cuts only for broadcast).
+  // Both engines remain API-usable: POST /api/mxl/auto (cross-fade through
+  // the layout compositor; froze on air twice from slot-6 stale-attach lag,
+  // see MXL-NOTES) and POST /api/mxl/dip (dip-to-black via the CEF keyer
+  // layer; verified working end-to-end, just not wanted in the UI).
   keybtn.addEventListener('click',function(){post('/api/mxl/key',{on:!keybtn.classList.contains('on')})});
   pat.addEventListener('change',function(){if(pat.value)post('/api/mxl/pattern',{pattern:pat.value})});
   // contributor panel
