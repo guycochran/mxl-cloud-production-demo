@@ -143,7 +143,60 @@ without a bigger box:
 
 Result: load fell from ~13/8 to ~4/8; the freezes stopped.
 
-## 10. Assorted
+## 10. An MXL-native multiviewer: compose in the domain, encode once
+
+A 3×3 production multiview built the way a hardware switcher does it — as a
+flow, not as nine video players. One CPU compositor reads all seven switcher
+inputs plus the keyed program straight out of shared memory and writes the
+wall back to the domain as a new v210 flow; a single x264 leg encodes that
+one flow for every browser viewer. No GPU, and no source is ever decoded
+(the tiles are scaled from the same v210 grains the selector cuts).
+
+```
+ CONTRIBUTIONS                       MXL SHARED-MEMORY DOMAIN
+                                    ┌──────────────────────────────────────────────┐
+ Cam 1 (SRT) ──► ingest ──────────► │ Cam 1     ─┐                                 │
+ Cam 2 (SRT) ──► ingest ──────────► │ Cam 2      │                                 │
+ Episode file ─► file-player ─────► │ Playout    │  8× mxlsrc                      │
+ Guest 1 ─(fabric from host 2)────► │ Guest 1    ├────► compositor (CPU)           │
+ Guest 2 ─(fabric from host 2)────► │ Guest 2    │      3×3 · 640×360 tiles        │
+ Test generator ──────────────────► │ Pattern    │      1080p v210                 │
+ layout compositor ───────────────► │ Layout     │         │ mxlsink               │
+ HTML5 keyer (program+gfx) ───────► │ Keyer PGM ─┘         ▼                       │
+                                    │            "Multiview PGM" flow — a peer     │
+                                    │            flow: listable, probeable,        │
+                                    │            even cuttable to program          │
+                                    └──────────────────────┬───────────────────────┘
+                                                           │ mxlsrc
+                                                           ▼
+                                       ONE encoder for all 8 tiles:
+                                       x264 ── MPEG-TS ── SRT ── MediaMTX ── WebRTC
+                                       (tally borders + click-to-arm are HTML
+                                        overlays on the fixed grid in the web UI)
+```
+
+Cost: ~2 cores of a D32s_v5 for the whole wall at 15 fps. Note the recursion:
+compositor input #7 is *itself* a composited flow (the 2-up/PiP/4-up layout
+engine) — domain flows compose like any other source.
+
+Lessons:
+
+- **`compositor ignore-inactive-pads=true` EOS's instantly at startup** — every
+  pad is "inactive" before first data, so the aggregator declares the stream
+  over (a silent exit, easily misread as a crash). A `latency=` timeout on the
+  compositor alone handles absent sources correctly.
+- **A live `mpegtsmux` in application code needs pipeline latency handling**
+  that `gst-launch` does for free: listen for the `latency` bus message and
+  call `recalculate_latency()`, and keep an `identity` between the mux and
+  `srtsink` — without it the mux's aggregation never opens (encoded frames in,
+  zero TS out, no error anywhere).
+- **MediaMTX silently discards SRT payloads that aren't 1316-byte aligned.**
+  `mpegtsmux` defaults to one 188-byte TS packet per buffer; the publisher
+  shows "publishing", readers get zero bytes, nothing logs. `alignment=7` is
+  mandatory. ffmpeg-based publishers never hit this (1316 B is its default),
+  which is exactly why it was hard to spot.
+
+## 11. Assorted
 
 - **CEF/HTML5 keyer on CPU tops out ~50 fps at 1080p** (SwiftShader, no GPU on
   Azure D-series): keying 1080p60 drifts and eventually freezes. Run the chain
