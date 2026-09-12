@@ -272,14 +272,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // This is the SINGLE source of truth for "what instant is the playhead on",
   // used by both the frac helper and mark IN/OUT — so the mark always matches
   // the visible playhead.
+  // Returns a FLOAT epoch (seconds + fraction). Do NOT floor — the operator
+  // wants frame-exact clips; flooring to the whole second cost up to ~1s of
+  // accuracy on each of IN/OUT. Sub-second precision is carried through the
+  // timerange (nanoseconds) and the backend trims to it exactly.
   function mediaToEpoch(m){
     if(fragList.length){
       var lo=0,hi=fragList.length-1;
       while(lo<hi){var mid=(lo+hi+1)>>1; if(fragList[mid].start<=m)lo=mid; else hi=mid-1}
       var fg=fragList[lo];
-      if(fg.programDateTime)return Math.floor(fg.programDateTime/1000+Math.max(0,m-fg.start));
+      if(fg.programDateTime)return fg.programDateTime/1000+Math.max(0,m-fg.start);
     }
-    return winStart&&winDur?Math.floor(winStart.getTime()/1000+(m-winMedia0)):null;
+    return winStart&&winDur?winStart.getTime()/1000+(m-winMedia0):null;
   }
   function fracToEpoch(fr){return mediaToEpoch(fracToMedia(fr));}
   function evFrac(e){var r=scr.getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))}
@@ -562,12 +566,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   function fmtE(e){return new Date(e*1000).toISOString().substr(11,8)+'Z'}
   function paintClip(){
     var ok=inE!=null&&outE!=null&&outE>inE;
-    ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT')+(ok?(' · '+(outE-inE)+'s'):'');
+    ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT')+(ok?(' · '+(outE-inE).toFixed(1)+'s'):'');
     pv.disabled=cl.disabled=dl.disabled=sv.disabled=!ok;
     document.getElementById('qrclip').disabled=!ok;
     paintMarkers();
   }
-  function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+inE+':0_'+outE+':0)')}
+  // TAMS timerange part with nanosecond precision: "<seconds>:<nanos>"
+  function trPart(ep){var s=Math.floor(ep);return s+':'+String(Math.round((ep-s)*1e9)).padStart(9,'0');}
+  function clipUrl(){return BASE+'?timerange='+encodeURIComponent('['+trPart(inE)+'_'+trPart(outE)+')')}
   // In LIVE mode the DVR window grows every second, so the timeline keeps
   // rescaling under the cursor — miserable for marking. First I/O press PINS
   // the current window as a static archive load (playhead preserved); the
@@ -614,7 +620,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     var share=location.origin+location.pathname+'?clip='+inE+'_'+outE;
     navigator.clipboard.writeText(share).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
   };
-  dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE+'&out='+outE};
+  dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE.toFixed(3)+'&out='+outE.toFixed(3)};
 
   // ── "take it home": QR + mailto (no server email, no stored PII) ──
   var qb=document.getElementById('qrclip'),qm=document.getElementById('qrmodal'),
@@ -689,8 +695,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   function flash(b){b.style.background='#ffb400';b.style.color='#141414';setTimeout(function(){b.style.background='';b.style.color=''},180)}
 
   // shared clip link: ?clip=IN_OUT opens straight into clip playback
-  var m=/[?&]clip=(\d+)_(\d+)/.exec(location.search);
-  if(m){inE=parseInt(m[1],10);outE=parseInt(m[2],10);paintClip();pv.onclick()}
+  var m=/[?&]clip=(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)/.exec(location.search);
+  if(m){inE=parseFloat(m[1]);outE=parseFloat(m[2]);paintClip();pv.onclick()}
   else goArchive(3600);  // the editor is ALWAYS a static window — the live pane on the right is the live view
   prefetch12h();  // warm the 12h playlist so "Full 12h" is ready when clicked
 })();
