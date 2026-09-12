@@ -175,7 +175,10 @@ one flow for every browser viewer. No GPU, and no source is ever decoded
                                         overlays on the fixed grid in the web UI)
 ```
 
-Cost: ~2 cores of a D32s_v5 for the whole wall at 15 fps. Note the recursion:
+Cost: ~2 cores of a D32s_v5 for the whole wall at 15 fps, ~3.5 at 30 fps
+(measured: doubling the cadence cost ~1.7 cores — the per-branch 1080p
+videoconvert dominates, and it scales linearly with output fps). Runs at
+30 fps in the live demo. Note the recursion:
 compositor input #7 is *itself* a composited flow (the 2-up/PiP/4-up layout
 engine) — domain flows compose like any other source.
 

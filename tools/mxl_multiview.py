@@ -33,7 +33,8 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 DST = 'ab900700-aaaa-4bbb-8ccc-000000000001'   # Multiview PGM
-FPS = 15                                        # wall cadence (cheap, smooth enough)
+FPS = 30                                        # wall cadence (30 tried 9/12: watch load vs the
+                                                # babysitter's MAX_LOAD=16 guard; 15 = the cheap fallback)
 SLOTS = ['cam', 'cam2', 'playout', 'guest1', 'guest2', 'pattern', 'layout', 'pgm']
 FLOWS = {
     'cam':     'ca111e00-aaaa-4bbb-8ccc-000000000001',
