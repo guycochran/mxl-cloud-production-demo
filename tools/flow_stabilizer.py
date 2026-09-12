@@ -90,10 +90,14 @@ def push_loop():
     while True:
         sm = state['latest']
         now_m = time.monotonic()
+        state['loops'] = state.get('loops', 0) + 1
+        if state['loops'] % 300 == 0:
+            print(f"diag out pushed={state['pushed']} have_input={sm is not None} "
+                  f"clock={outpipe.get_clock() is not None}", flush=True)
         if sm is not None and now_m - state['latest_at'] <= FREEWHEEL_S:
-            clock = outpipe.get_clock()
-            if clock:
-                now = clock.get_time() - outpipe.get_base_time()
+            clock = outpipe.get_clock() or Gst.SystemClock.obtain()
+            if True:
+                now = clock.get_time() - (outpipe.get_base_time() or 0)
                 if state['base'] is None:
                     state['base'] = now + MARGIN_NS
                     state['pushed'] = 0
