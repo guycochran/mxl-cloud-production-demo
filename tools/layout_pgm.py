@@ -488,7 +488,10 @@ def startup_repair():
 
 threading.Thread(target=control, daemon=True).start()
 threading.Thread(target=wedge_watch, daemon=True).start()
-threading.Thread(target=startup_repair, daemon=True).start()
+# startup_repair RETIRED 9/12: the selector reads layout-STABLE (via
+# flow_stabilizer), which survives our respawns — the cascade this fired
+# was pure disruption (froze program ~10s in the on-air kill test).
+# threading.Thread(target=startup_repair, daemon=True).start()
 
 pipe.set_state(Gst.State.PLAYING)
 print('layout_pgm running', flush=True)

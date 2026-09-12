@@ -39,63 +39,109 @@ SWAP_COOLDOWN_S = 15   # don't thrash swaps while a guest is simply absent
 
 Gst.init(None)
 
-# sink side runs FOREVER; the reader ahead of the queue is replaceable
-pipe = Gst.parse_launch(
+FRAME_NS = Gst.SECOND * 1001 // 30000 if False else Gst.SECOND // 30
+FREEWHEEL_S = 20   # bridge input gaps (heals/respawns) this long, then go dark
+
+# INPUT side: replaceable reader -> appsink (latest-frame mailbox)
+inpipe = Gst.parse_launch(
     f'mxlsrc name=reader domain={DOMAIN} video-flow-id={SRC_UUID} '
-    f'! queue name=q max-size-buffers=8 leaky=downstream '
+    f'! queue name=q max-size-buffers=4 leaky=downstream '
+    f'! appsink name=asink max-buffers=2 drop=true sync=false')
+q = inpipe.get_by_name('q')
+asink = inpipe.get_by_name('asink')
+
+# OUTPUT side: SEPARATE pipeline, free-running 30fps clock -> mxlsink.
+# The stable flow's timeline is OURS: perfectly continuous, never stalls,
+# never jumps — a downstream reader can never see a discontinuity (the 9/12
+# on-air kill test froze program because a passthrough stable flow stalled
+# ~15s and timeline-jumped when the layout engine respawned).
+outpipe = Gst.parse_launch(
+    f'appsrc name=asrc is-live=true format=time do-timestamp=false '
     f'! mxlsink name=sink domain={DOMAIN} flow-id={DST_UUID} '
-    f'label="{LABEL}" description="stabilized {NAME} (wedge-proof indirection)" '
+    f'label="{LABEL}" description="stabilized {NAME} (freewheeling conform)" '
     f'group-hint="{NAME.capitalize()}Stable:Video" sync=false')
+asrc = outpipe.get_by_name('asrc')
 
-q = pipe.get_by_name('q')
-sink = pipe.get_by_name('sink')
-
-state = {'off': None, 'last_buf': 0.0, 'n': 0, 't0': None}
-
-
-def restamp(pad, info):
-    buf = info.get_buffer()
-    state['last_buf'] = time.monotonic()
-    state['dry_swaps'] = 0  # data flows — swaps (if any) worked
-    clock = pipe.get_clock()
-    if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
-        return Gst.PadProbeReturn.OK
-    now = clock.get_time() - pipe.get_base_time()
-    # offset-lock (cam_relay pattern): follow the source cadence through one
-    # offset, hard re-lock on >500ms error (fresh reader / recreated source)
-    if state['off'] is None or abs((buf.pts + state['off']) - (now + MARGIN_NS)) > 500_000_000:
-        state['off'] = now + MARGIN_NS - buf.pts
-        print(f'offset locked ({state["off"] / 1e6:.0f}ms)', flush=True)
-    buf.pts += state['off']
-    state['n'] += 1
-    if state['t0'] is None:
-        state['t0'] = now
-    if state['n'] % 300 == 0:
-        el = (now - state['t0']) / 1e9
-        print(f'diag n={state["n"]} fps={state["n"] / el:.2f}', flush=True)
-    return Gst.PadProbeReturn.OK
+state = {'latest': None, 'latest_at': 0.0, 'caps_set': False,
+         'n': 0, 'base': None, 'pushed': 0, 't0': None}
 
 
-sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, restamp)
+def pull_loop():
+    while True:
+        sm = asink.emit('try-pull-sample', 500 * Gst.MSECOND)
+        if sm is None:
+            continue
+        state['latest'] = sm          # keep the whole sample (buffer + caps)
+        state['latest_at'] = time.monotonic()
+        state['dry_swaps'] = 0
+        state['n'] += 1
+        if state['n'] % 300 == 0:
+            print(f'diag in n={state["n"]}', flush=True)
+
+
+def push_loop():
+    # fixed 33.33ms grid stamped against OUR clock with a slow servo
+    # (layout_pgm's v4 restamp lesson: slew, don't jump). Pacing is by
+    # ABSOLUTE deadline — a fudge-factor sleep (v3) ran 8% fast, the servo
+    # couldn't absorb it, and the output hard-re-locked every ~13s: each
+    # re-lock is a timestamp jump on the stable flow = the wedge class
+    # sneaking back in through this very tool.
+    next_at = time.monotonic()
+    while True:
+        sm = state['latest']
+        now_m = time.monotonic()
+        if sm is not None and now_m - state['latest_at'] <= FREEWHEEL_S:
+            clock = outpipe.get_clock()
+            if clock:
+                now = clock.get_time() - outpipe.get_base_time()
+                if state['base'] is None:
+                    state['base'] = now + MARGIN_NS
+                    state['pushed'] = 0
+                pts = state['base'] + state['pushed'] * FRAME_NS
+                err = pts - (now + MARGIN_NS)
+                if abs(err) > Gst.SECOND:
+                    state['base'] = now + MARGIN_NS - state['pushed'] * FRAME_NS
+                    pts = now + MARGIN_NS
+                    print('output hard re-lock', flush=True)
+                else:
+                    state['base'] -= max(-80_000, min(80_000, int(err * 0.02)))
+                if not state['caps_set']:
+                    asrc.set_property('caps', sm.get_caps())
+                    state['caps_set'] = True
+                    print(f'caps set: {sm.get_caps().to_string()[:70]}', flush=True)
+                buf = sm.get_buffer().copy()
+                buf.pts = pts
+                buf.dts = pts
+                buf.duration = FRAME_NS
+                asrc.emit('push-buffer', buf)
+                state['pushed'] += 1
+        else:
+            # no input (idle guest / gap expired): stop pushing so the flow
+            # head goes stale and the UI correctly shows 'awaiting feed'
+            state['base'] = None
+        next_at += FRAME_NS / 1e9
+        delay = next_at - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        elif delay < -1.0:
+            next_at = time.monotonic()  # fell far behind (suspend) — resync
 
 
 def swap_reader():
-    """Replace the mxlsrc in-place. The sink never stops -> the stable flow
-    is never recreated -> downstream readers never wedge. This is the whole
-    point of the tool."""
-    old = pipe.get_by_name('reader')
+    """Replace the mxlsrc in-place on the INPUT pipeline. The output
+    pipeline (and the stable flow) never stops. This is the whole point."""
+    old = inpipe.get_by_name('reader')
     old.set_state(Gst.State.NULL)
-    pipe.remove(old)
+    inpipe.remove(old)
     new = Gst.ElementFactory.make('mxlsrc', 'reader')
     new.set_property('domain', DOMAIN)
     new.set_property('video-flow-id', SRC_UUID)
-    pipe.add(new)
+    inpipe.add(new)
     if not new.link(q):
         print('swap: LINK FAILED — exiting for supervisor respawn', flush=True)
         import os
         os._exit(1)
     new.sync_state_with_parent()
-    state['off'] = None  # fresh reader timeline -> re-lock on first buffer
     state['dry_swaps'] = state.get('dry_swaps', 0) + 1
     if state['dry_swaps'] > 20:
         # ~5min of fruitless swaps: something deeper than a reader wedge
@@ -135,12 +181,40 @@ def watch():
         ino = cur
 
 
-threading.Thread(target=watch, daemon=True).start()
+def boot_frame():
+    # Push ONE near-black v210 frame at boot so the stable flow EXISTS from
+    # the start — downstream (selector attach, layout branches) must never
+    # find the flow missing (guest2's pane blocked on a not-yet-created
+    # flow, 9/12). Word pattern packs 10-bit black-ish YCbCr.
+    caps = Gst.Caps.from_string(
+        'video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
+        'interlace-mode=progressive,pixel-aspect-ratio=1/1,colorimetry=bt709')
+    asrc.set_property('caps', caps)
+    state['caps_set'] = True
+    import struct
+    row_words = ((1920 + 47) // 48) * 32          # v210: 48 px -> 32 words/group
+    word = struct.pack('<I', (0x200 << 20) | (0x040 << 10) | 0x200)
+    data = word * row_words * 1080
+    buf = Gst.Buffer.new_wrapped(data)
+    clock = outpipe.get_clock()
+    now = (clock.get_time() - outpipe.get_base_time()) if clock else 0
+    buf.pts = now + MARGIN_NS
+    buf.dts = buf.pts
+    buf.duration = FRAME_NS
+    asrc.emit('push-buffer', buf)
+    print('boot frame pushed — stable flow exists from t0', flush=True)
 
-pipe.set_state(Gst.State.PLAYING)
-print(f'flow_stabilizer {NAME}: {SRC_UUID[:8]} -> {DST_UUID[:8]} running', flush=True)
+
+threading.Thread(target=watch, daemon=True).start()
+threading.Thread(target=pull_loop, daemon=True).start()
+threading.Thread(target=push_loop, daemon=True).start()
+
+outpipe.set_state(Gst.State.PLAYING)
+GLib.timeout_add(1500, lambda: (boot_frame(), False)[1])
+inpipe.set_state(Gst.State.PLAYING)
+print(f'flow_stabilizer {NAME} (freewheel): {SRC_UUID[:8]} -> {DST_UUID[:8]} running', flush=True)
 loop = GLib.MainLoop()
-bus = pipe.get_bus()
+bus = inpipe.get_bus()
 
 
 def on_err(b, m):
