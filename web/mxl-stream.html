@@ -27,7 +27,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .dot{width:8px;height:8px;border-radius:50%}
 </style></head><body>
 <h1>Office Hours <span>×</span> MXL — Output Node</h1>
-<div class="sub">The finished MXL program — switched, keyed and composited in a shared-memory domain in Azure — pushed out to the world. This is the <b style="color:#cfd8ef">distribute</b> stage: the same program you can drive on the switcher and scrub in the time machine, now egressed to YouTube or any RTMP/SRT destination (an open-standard version of a Grass Valley AMPP output node). &middot; <a href="/mxl.html">← switcher</a> &nbsp; <a href="/mxl-tams.html">time machine →</a></div>
+<div class="sub">The finished MXL program — switched, keyed and composited in a shared-memory domain in Azure — pushed out to the world. This is the <b style="color:#cfd8ef">distribute</b> stage: the same program you can drive on the switcher and scrub in the time machine, now egressed to YouTube or any RTMP/SRT destination (an open-standard version of a Grass Valley AMPP output node). &middot; <a href="/mxl.html">← switcher</a> &nbsp; <a href="/mxl-tams.html">time machine →</a> &nbsp; <a href="#" id="mvpop" title="open the 9-up multiview in a floating window">&#9638; pop out multiview ⧉</a></div>
 <div class="wrap">
   <div>
     <div class="card"><h2>Program (what goes out)</h2>
@@ -137,6 +137,12 @@ $('em-set').onclick=function(){
   });
 };
 $('em-clear').onclick=function(){var code=$('emcode').value.trim();post('/api/mxl/embed',{clear:true},code).then(function(){$('emmsg').textContent='cleared';setTimeout(refreshEmbed,300)});};
+// pop the 9-up multiview into a sized floating window (falls back to a tab if
+// the browser blocks the popup)
+$('mvpop').onclick=function(e){e.preventDefault();
+  var w=window.open('/mxl-multiview.html','mxlmultiview','width=1280,height=760,menubar=no,toolbar=no');
+  if(!w) window.open('/mxl-multiview.html','_blank');
+};
 refresh(); setInterval(refresh,5000);
 refreshEmbed(); setInterval(refreshEmbed,5000);
 </script>
