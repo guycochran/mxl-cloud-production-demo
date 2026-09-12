@@ -321,14 +321,20 @@ def take_check(want):
 
 
 def control():
-    ctl = {'cur': None}
+    ctl = {'cur': None, 'seq': 0}
     while True:
         try:
             # UA header dodges the zone's python-urllib bot rule (CF-1010,
-            # same fix as the TAMS shipper)
-            req = urllib.request.Request(CMD_URL, headers={'User-Agent': 'mxl-layout/1.0'})
-            with urllib.request.urlopen(req, timeout=3) as r:
+            # same fix as the TAMS shipper).
+            # LONG-POLL (9/12, Super-Source speed): with ?wait=1&seq=N the
+            # backend PARKS this request until the operator changes the
+            # layout (20s heartbeat otherwise) — a dropdown change lands
+            # here in ~one round-trip. First pass (seq=0) returns instantly.
+            url = CMD_URL + (f'?wait=1&seq={ctl["seq"]}' if ctl['seq'] else '')
+            req = urllib.request.Request(url, headers={'User-Agent': 'mxl-layout/1.0'})
+            with urllib.request.urlopen(req, timeout=25) as r:
                 cmd = json.load(r)
+            ctl['seq'] = cmd.get('seq', 0)  # 0 on old backends -> plain polling
             fade = cmd.get('fade')
             if fade and fade.get('id') != fade_st['seen'] and not fade_st['busy'] \
                     and 0 <= fade.get('from', -1) <= 5 and 0 <= fade.get('to', -1) <= 5:
@@ -366,8 +372,13 @@ def control():
                                  args=({k: active[k] for k in onkeys},), daemon=True).start()
                 print(f'layout -> {style} A={a} B={b} C={c} D={d}', flush=True)
         except Exception:
-            pass  # backend briefly unreachable — keep last layout
-        time.sleep(0.5)  # also the AUTO trigger latency — keep snappy
+            # backend briefly unreachable — keep last layout, back off so a
+            # dead backend doesn't turn the long-poll into a request spin
+            time.sleep(2)
+            continue
+        # long-poll paces us (parked server-side); tiny gap only so an
+        # old backend without seq support degrades to fast plain polling
+        time.sleep(0.15 if ctl['seq'] else 0.5)
 
 
 apply_geometry('2up')
