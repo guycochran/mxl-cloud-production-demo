@@ -428,12 +428,13 @@ def startup_repair():
     AUTO fades onto slot 6 work again. auto:1 rides the backend's 120s
     cooldown — worst case a manual repair is needed after rapid respawns."""
     time.sleep(6)
-    for _try in range(4):  # cooldown is 120s — keep trying so slot 6 always heals
-        r = _post('https://prodbots.com/api/mxl/repair', {'auto': 1})
-        if r is not None:
-            print('startup repair accepted — slot 6 reattached', flush=True)
-            return
-        time.sleep(140)
+    # ONE SHOT, never retried: a delayed retry fired an unattended cascade
+    # minutes after a good manual repair and broke the healthy chain (9/12).
+    # Every cascade is a dice roll — they must only run when someone (human,
+    # doctor, or a respawn THIS instant) knows the chain needs one. If this
+    # loses the 429 race, slot 6 stays stale until the next deliberate repair.
+    if _post('https://prodbots.com/api/mxl/repair', {'auto': 1}) is not None:
+        print('startup repair accepted — slot 6 reattached', flush=True)
 
 
 threading.Thread(target=control, daemon=True).start()
