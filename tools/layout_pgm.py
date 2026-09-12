@@ -299,6 +299,27 @@ def run_fade(f, ctl):
         _post(DONE_URL, {'id': f['id']})
 
 
+def take_check(want):
+    time.sleep(2.5)
+    now = time.monotonic()
+    dead = [i for i in set(want.values()) if now - last_buf[i] > 2.0]
+    if not dead:
+        return
+    try:
+        req = urllib.request.Request('https://prodbots.com/api/mxl/status',
+                                     headers={'User-Agent': 'mxl-layout/1.0'})
+        live = {sl['name']: sl['live'] for sl in
+                json.load(urllib.request.urlopen(req, timeout=5)).get('slots', [])}
+    except Exception:
+        return  # can't verify — the slower guarded checks will handle it
+    wedged = [SLOTS[i] for i in dead if live.get(SLOTS[i])]
+    if wedged:
+        print(f'take-check: newly selected {wedged} silent with LIVE writers — '
+              f'immediate exit for fresh attach', flush=True)
+        import os
+        os._exit(1)
+
+
 def control():
     ctl = {'cur': None}
     while True:
@@ -335,6 +356,14 @@ def control():
                 active['d'] = id_
                 apply_geometry(style)
                 ctl['cur'] = key
+                # FAST TAKE-CHECK (9/12): the user just asked for these
+                # sources — if a newly selected branch delivers nothing
+                # within 2.5s while its writer is LIVE, it's wedged; exit
+                # NOW for fresh attach instead of the 8-15s generic checks
+                # ("select guest in 2up -> pane dead for 20s" complaint).
+                onkeys = ('a', 'b', 'c', 'd') if style == '4up' else ('a', 'b')
+                threading.Thread(target=take_check,
+                                 args=({k: active[k] for k in onkeys},), daemon=True).start()
                 print(f'layout -> {style} A={a} B={b} C={c} D={d}', flush=True)
         except Exception:
             pass  # backend briefly unreachable — keep last layout
@@ -428,13 +457,22 @@ def startup_repair():
     AUTO fades onto slot 6 work again. auto:1 rides the backend's 120s
     cooldown — worst case a manual repair is needed after rapid respawns."""
     time.sleep(6)
-    # ONE SHOT, never retried: a delayed retry fired an unattended cascade
-    # minutes after a good manual repair and broke the healthy chain (9/12).
-    # Every cascade is a dice roll — they must only run when someone (human,
-    # doctor, or a respawn THIS instant) knows the chain needs one. If this
-    # loses the 429 race, slot 6 stays stale until the next deliberate repair.
-    if _post('https://prodbots.com/api/mxl/repair', {'auto': 1}) is not None:
-        print('startup repair accepted — slot 6 reattached', flush=True)
+    # Tied strictly to THIS respawn (the flow WAS just recreated, so slot 6
+    # is known-stale — this is a deliberate trigger, unlike the timed retry
+    # that broke a healthy chain on 9/12 and was removed). Two auto tries,
+    # then ONE full-strength escalation guarded by a marker file at most
+    # every 5 min — cooldown starvation stranded slot 6 repeatedly today.
+    for _try in (1, 2):
+        if _post('https://prodbots.com/api/mxl/repair', {'auto': 1}) is not None:
+            print('startup repair accepted — slot 6 reattached', flush=True)
+            return
+        time.sleep(25)
+    import os as _os
+    mark = '/tmp/.layout-escalate.ts'
+    if time.time() - (_os.path.getmtime(mark) if _os.path.exists(mark) else 0) > 300:
+        open(mark, 'w').close()
+        if _post('https://prodbots.com/api/mxl/repair', {}) is not None:
+            print('startup repair ESCALATED — slot 6 reattached', flush=True)
 
 
 threading.Thread(target=control, daemon=True).start()
