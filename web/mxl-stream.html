@@ -1,0 +1,103 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office Hours × MXL — Output / Stream Out</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#080b14;color:#eef2ff;min-height:100vh;padding:18px 20px}
+a{color:#ffb400;text-decoration:none}
+h1{font-size:17px;font-weight:750}h1 span{color:#ffb400}
+.sub{font-size:12px;color:#8b96b5;margin:3px 0 16px;line-height:1.5}
+.wrap{display:grid;grid-template-columns:1fr 360px;gap:16px;max-width:1100px}
+@media(max-width:820px){.wrap{grid-template-columns:1fr}}
+.card{background:#0c1220;border:1px solid #26314d;border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card h2{font-size:11px;font-weight:800;letter-spacing:.7px;color:#8b96b5;text-transform:uppercase;margin-bottom:10px}
+.feed{aspect-ratio:16/9;width:100%;border:0;border-radius:10px;background:#000;display:block}
+label{display:block;font-size:11px;color:#8b96b5;margin:8px 0 3px}
+input{width:100%;font:inherit;font-size:13px;color:#eef2ff;background:#080b14;border:1px solid #26314d;border-radius:8px;padding:9px 11px}
+button{font:inherit;font-size:13px;font-weight:700;border-radius:9px;padding:10px 16px;cursor:pointer;border:1px solid #26314d;background:#131b2e;color:#cfd8ef}
+button:hover{border-color:#3c4a70}
+button.go{background:#e5484d;border-color:#e5484d;color:#fff}
+button.stop{background:#1a2338;border-color:#3c4a70}
+button:disabled{opacity:.5;cursor:not-allowed}
+.dest{border:1px solid #26314d;border-radius:10px;padding:13px 14px;margin-bottom:12px}
+.dest .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px}
+.live{background:#e5484d;color:#fff}.idle{background:#1a2338;color:#8b96b5}
+.mut{color:#586179;font-size:11px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#8b96b5}
+.dot{width:8px;height:8px;border-radius:50%}
+</style></head><body>
+<h1>Office Hours <span>×</span> MXL — Output Node</h1>
+<div class="sub">The finished MXL program — switched, keyed and composited in a shared-memory domain in Azure — pushed out to the world. This is the <b style="color:#cfd8ef">distribute</b> stage: the same program you can drive on the switcher and scrub in the time machine, now egressed to YouTube or any RTMP/SRT destination (an open-standard version of a Grass Valley AMPP output node). &middot; <a href="/mxl.html">← switcher</a> &nbsp; <a href="/mxl-tams.html">time machine →</a></div>
+<div class="wrap">
+  <div>
+    <div class="card"><h2>Program (what goes out)</h2>
+      <iframe class="feed" src="/mxlfeed/mxl2webrtc/" allow="autoplay" title="MXL program"></iframe>
+    </div>
+  </div>
+  <div>
+    <div class="card"><h2>Destinations</h2>
+
+      <div class="dest">
+        <div class="row"><span style="font-weight:700">▶ YouTube Live</span>
+          <span id="yt-badge" class="badge idle">idle</span></div>
+        <div class="mut" style="margin:5px 0 8px">Streams to the Office Hours channel. Director code required.</div>
+        <label>Director code</label>
+        <input id="ytcode" type="password" placeholder="director code" autocomplete="off">
+        <div class="row" style="margin-top:9px">
+          <button id="yt-go" class="go">● Go live to YouTube</button>
+          <button id="yt-stop" class="stop" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="dest">
+        <div class="row"><span style="font-weight:700">⇢ Custom RTMP / SRT</span>
+          <span id="c-badge" class="badge idle">idle</span></div>
+        <div class="mut" style="margin:5px 0 8px">Your own destination — Twitch, another channel, an SRT decoder. Full URL incl. key.</div>
+        <label>Destination URL</label>
+        <input id="curl" placeholder="rtmp://live.twitch.tv/app/live_xxx  or  srt://host:port">
+        <div class="row" style="margin-top:9px">
+          <button id="c-go" class="go">● Start</button>
+          <button id="c-stop" class="stop" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="pill"><span id="poll-dot" class="dot" style="background:#586179"></span>
+        <span id="status">checking…</span></div>
+    </div>
+  </div>
+</div>
+<script>
+var $=function(s){return document.getElementById(s)};
+function post(path,body,code){
+  var h={'Content-Type':'application/json'}; if(code)h['x-admin-code']=code;
+  return fetch(path,{method:'POST',headers:h,body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})});
+}
+function paint(statusText){
+  var yt=/youtube: LIVE/.test(statusText), c=/custom: LIVE/.test(statusText);
+  $('yt-badge').className='badge '+(yt?'live':'idle'); $('yt-badge').textContent=yt?'LIVE':'idle';
+  $('c-badge').className='badge '+(c?'live':'idle'); $('c-badge').textContent=c?'LIVE':'idle';
+  $('yt-go').disabled=yt; $('yt-stop').disabled=!yt;
+  $('c-go').disabled=c; $('c-stop').disabled=!c;
+  $('status').textContent=statusText||'no active egress';
+  $('poll-dot').style.background=(yt||c)?'#e5484d':'#28d17c';
+}
+function refresh(){ fetch('/api/mxl/stream/status').then(function(r){return r.json()}).then(function(j){paint((j.status||'').replace(/\n/g,' · '))}).catch(function(){$('status').textContent='status unavailable'}); }
+$('yt-go').onclick=function(){
+  var code=$('ytcode').value.trim(); if(!code){$('status').textContent='enter the director code';return;}
+  $('yt-go').disabled=true;$('status').textContent='connecting to YouTube…';
+  post('/api/mxl/stream/start',{dest:'youtube'},code).then(function(r){
+    if(!r.ok){$('status').textContent=r.j.error||'failed';$('yt-go').disabled=false;} else setTimeout(refresh,1500);
+  });
+};
+$('yt-stop').onclick=function(){var code=$('ytcode').value.trim();post('/api/mxl/stream/stop',{name:'youtube'},code).then(function(){setTimeout(refresh,800)});};
+$('c-go').onclick=function(){
+  var url=$('curl').value.trim(); if(!url){$('status').textContent='enter a destination URL';return;}
+  $('c-go').disabled=true;$('status').textContent='connecting…';
+  post('/api/mxl/stream/start',{dest:'custom',url:url}).then(function(r){
+    if(!r.ok){$('status').textContent=r.j.error||(r.j.out||'failed');$('c-go').disabled=false;} else setTimeout(refresh,1500);
+  });
+};
+$('c-stop').onclick=function(){post('/api/mxl/stream/stop',{name:'custom'}).then(function(){setTimeout(refresh,800)});};
+refresh(); setInterval(refresh,5000);
+</script>
+</body></html>
