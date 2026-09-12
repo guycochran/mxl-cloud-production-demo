@@ -25,9 +25,18 @@ push(){  # $1=name  $2=full rtmp/srt url
   if alive "$nm"; then echo "already streaming: $nm"; return 0; fi
   # -c:v copy (program is H.264) ; -c:a aac (YouTube needs AAC, source is Opus)
   # flvflags no_duration_filesize + realtime pacing; auto-reconnect on blips.
+  # RE-ENCODE to YouTube's live spec (copy made YT spin — it forwards the WebRTC
+  # encoder's GOP/timestamps, which YT won't lock onto). Fixed 2s keyframes
+  # (-g 60 @30fps, no scenecut), constant 30fps, H.264 High 4:2:0, ~6 Mbps
+  # (YT 1080p30 range 4.5-9), + AAC 128k/44.1k stereo. Same spec works for
+  # Twitch/SRT too. -vf scale is a safety net; source is already 1080p30.
   nohup ffmpeg -hide_banner -loglevel warning -rtsp_transport tcp \
-    -fflags +genpts -i "$SRC" \
-    -c:v copy -c:a aac -b:a 160k -ar 44100 \
+    -fflags +genpts+igndts -use_wallclock_as_timestamps 1 -i "$SRC" \
+    -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black,format=yuv420p,fps=30" \
+    -c:v libx264 -preset veryfast -profile:v high -level 4.1 \
+    -b:v 6000k -maxrate 6000k -bufsize 12000k \
+    -g 60 -keyint_min 60 -sc_threshold 0 -pix_fmt yuv420p \
+    -c:a aac -b:a 128k -ar 44100 -ac 2 \
     -f flv "$url" >> "$(logfile "$nm")" 2>&1 &
   echo $! > "$(pidfile "$nm")"
   sleep 2
