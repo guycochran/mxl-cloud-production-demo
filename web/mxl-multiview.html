@@ -1,0 +1,237 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Multiview — 9-up</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#05070d;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:6px 12px;background:#0c1220;border-bottom:1px solid #1a2338}
+header .t{font-size:12px;font-weight:750;letter-spacing:.4px}
+header .t span{color:#ffb400}
+header .hint{font-size:10px;color:#8b96b5}
+header .leg{margin-left:auto;display:flex;gap:12px;font-size:10px;font-weight:700;color:#8b96b5;white-space:nowrap;align-items:center}
+header .leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+#modebtn{font:inherit;font-size:10px;font-weight:700;color:#8b96b5;background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:3px 9px;cursor:pointer}
+#modebtn:hover{border-color:#3c4a70;color:#cfd8ef}
+/* ── composite mode: ONE MXL-rendered wall + HTML overlays ── */
+#wall{flex:1 1 auto;position:relative;min-height:0;display:flex;align-items:center;justify-content:center;background:#000}
+#wall iframe{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none}
+#ovl{position:absolute;z-index:5}
+.zone{position:absolute;width:33.333%;height:33.333%;border:2px solid transparent;border-radius:3px;cursor:pointer}
+.zone .zl{position:absolute;left:0;bottom:0;padding:2px 7px;font-size:11px;font-weight:700;letter-spacing:.4px;color:#cfd8ef;background:rgba(5,7,13,.65);border-radius:0 4px 0 3px;display:flex;gap:6px;align-items:center;pointer-events:none}
+.zone .tally{display:none;font-size:9px;font-weight:800;letter-spacing:.8px;padding:0 5px;border-radius:3px}
+.zone.pgm{border-color:#e5484d;box-shadow:inset 0 0 0 1px #e5484d,0 0 12px rgba(229,72,77,.35)}
+.zone.pgm .tally{display:inline-block;background:#e5484d;color:#fff}
+.zone.pvw{border-color:#28d17c;box-shadow:inset 0 0 0 1px #28d17c,0 0 12px rgba(40,209,124,.3)}
+.zone.pvw .tally{display:inline-block;background:#28d17c;color:#08130c}
+.zone.noclick{cursor:default}
+#zclock{position:absolute;right:0;bottom:0;width:33.333%;height:33.333%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;pointer-events:none}
+#clock{font-size:clamp(18px,3.2vw,40px);font-weight:800;letter-spacing:2px;font-variant-numeric:tabular-nums}
+#mvdate{font-size:10px;color:#8b96b5;letter-spacing:.6px;text-transform:uppercase}
+#mvvm{font-size:10px;font-weight:700;color:#8b96b5}
+/* ── tiles mode (fallback): thumbs + per-source WebRTC ── */
+.grid{flex:1 1 auto;display:none;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:3px;padding:3px;min-height:0;background:#05070d}
+body.tiles .grid{display:grid}
+body.tiles #wall{display:none}
+.tile{position:relative;background:#0a0e1a;border:2px solid #1a2338;border-radius:6px;overflow:hidden;cursor:pointer;min-height:0}
+.tile img{width:100%;height:100%;object-fit:contain;display:block;background:#05070d}
+.tile iframe{width:100%;height:100%;border:0;display:block;pointer-events:none}
+.tile .nm{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:.4px;color:#cfd8ef;background:linear-gradient(transparent,rgba(5,7,13,.85) 40%);pointer-events:none;display:flex;align-items:center;gap:6px}
+.tile .tally{display:none;font-size:9px;font-weight:800;letter-spacing:.8px;padding:1px 6px;border-radius:3px}
+.tile.pgm{border-color:#e5484d;box-shadow:0 0 14px rgba(229,72,77,.45),inset 0 0 0 1px #e5484d}
+.tile.pgm .tally{display:inline-block;background:#e5484d;color:#fff}
+.tile.pvw{border-color:#28d17c;box-shadow:0 0 14px rgba(40,209,124,.4),inset 0 0 0 1px #28d17c}
+.tile.pvw .tally{display:inline-block;background:#28d17c;color:#08130c}
+.tile.pgm.pvw{border-color:#e5484d}
+.tile.nofeed{cursor:not-allowed}
+.tile.nofeed .nm{color:#5a6584}
+.tile.util{cursor:default;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+</style></head><body>
+<header>
+  <div class="t">MXL <span>MULTIVIEW</span></div>
+  <div class="hint" id="hint">rendered out of MXL shared memory in Azure &middot; click a tile to arm PREVIEW</div>
+  <div class="leg"><span><i style="background:#e5484d"></i>PROGRAM</span><span><i style="background:#28d17c"></i>PREVIEW</span><button id="modebtn" title="switch between the MXL-composited wall and per-source tiles">tiles view</button></div>
+</header>
+<div id="wall"><iframe src="/mxlfeed/multiview/?muted=true&autoplay=true&controls=false" allow="autoplay" title="MXL multiview wall"></iframe><div id="ovl"></div></div>
+<div class="grid" id="grid"></div>
+<script>
+(function(){
+  // The wall grid rendered by mxl_multiview.py on VM1 (row-major 3x3,
+  // 640x360 tiles on a 1920x1080 canvas). inp = selector slot (null = not a
+  // cuttable input). Keep in lockstep with the compositor's POS table.
+  var WALL=[
+    {inp:0,nm:'📹 Cam 1',   col:0,row:0},
+    {inp:3,nm:'🎬 Cam 2',   col:1,row:0},
+    {inp:1,nm:'🎞 Playout', col:2,row:0},
+    {inp:4,nm:'🛰 Guest 1', col:0,row:1},
+    {inp:5,nm:'🛰 Guest 2', col:1,row:1},
+    {inp:2,nm:'🎨 Pattern', col:2,row:1},
+    {inp:6,nm:'🧩 Layout',  col:0,row:2},
+    {inp:null,nm:'PROGRAM OUT',col:1,row:2}
+  ];
+  // tiles-mode source map (same slots; vid = native contribution stream)
+  var SRC=[
+    {inp:0,th:'cam',    nm:'📹 Cam 1',  vid:'/mxlfeed/cam1/'},
+    {inp:3,th:'cam2',   nm:'🎬 Cam 2',  vid:'/mxlfeed/cam2/'},
+    {inp:1,th:'playout',nm:'🎞 Playout'},
+    {inp:4,th:'guest1', nm:'🛰 Guest 1',vid:'/fabricfeed/guest1/'},
+    {inp:5,th:'guest2', nm:'🛰 Guest 2',vid:'/fabricfeed/guest2/'},
+    {inp:2,th:'pattern',nm:'🎨 Pattern'},
+    {inp:6,th:'layout', nm:'🧩 Layout'}
+  ];
+  var VIDQ='?muted=true&autoplay=true&controls=false';
+  var NOSIG='data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#0a0e1a"/><text x="50%" y="54%" fill="#3c4a70" font-size="16" font-family="sans-serif" text-anchor="middle">no signal</text></svg>');
+  var pgm=null,pvw=null,liveMap={};
+  var bc=new BroadcastChannel('mxl-mv');
+
+  // ── composite-mode overlays ─────────────────────────────────────────────
+  var ovl=document.getElementById('ovl'),wallEl=document.getElementById('wall');
+  var zones={};
+  WALL.forEach(function(w){
+    var z=document.createElement('div');
+    z.className='zone'+(w.inp===null?' noclick':'');
+    z.style.left=(w.col*33.333)+'%';z.style.top=(w.row*33.333)+'%';
+    z.innerHTML='<div class="zl"><span class="tally">TALLY</span><span>'+w.nm+'</span></div>';
+    if(w.inp!==null)z.addEventListener('click',function(){
+      if(liveMap[w.inp]===false)return;
+      pvw=w.inp;paint();
+      bc.postMessage({type:'arm',inp:w.inp});
+    });
+    ovl.appendChild(z);
+    if(w.inp!==null)zones[w.inp]={el:z,tally:z.querySelector('.tally')};
+    else{z.querySelector('.tally').style.cssText='display:inline-block;background:#e5484d;color:#fff';z.querySelector('.tally').textContent='LIVE';}
+  });
+  var zc=document.createElement('div');zc.id='zclock';
+  zc.innerHTML='<div id="clock">--:--:--</div><div id="mvdate"></div><div id="mvvm">&#9679; VM &mdash;</div>';
+  ovl.appendChild(zc);
+  // overlay tracks the letterboxed 16:9 content rect inside the wall pane
+  function fitOverlay(){
+    var W=wallEl.clientWidth,H=wallEl.clientHeight;
+    var w=W,h=W*9/16;if(h>H){h=H;w=H*16/9;}
+    ovl.style.width=w+'px';ovl.style.height=h+'px';
+    ovl.style.left=((W-w)/2)+'px';ovl.style.top=((H-h)/2)+'px';
+  }
+  fitOverlay();window.addEventListener('resize',fitOverlay);
+
+  // ── tiles mode (fallback) ───────────────────────────────────────────────
+  var grid=document.getElementById('grid'),tiles={};
+  SRC.forEach(function(s){
+    var d=document.createElement('div');
+    d.className='tile';
+    d.innerHTML=(s.vid?'<iframe allow="autoplay" title="'+s.nm+'" style="display:none"></iframe>':'')
+      +'<img alt=""><div class="nm"><span class="tally">TALLY</span><span>'+s.nm+'</span></div>';
+    d.addEventListener('click',function(){
+      if(liveMap[s.inp]===false)return;
+      pvw=s.inp;paint();
+      bc.postMessage({type:'arm',inp:s.inp});
+    });
+    grid.appendChild(d);
+    tiles[s.inp]={el:d,img:d.querySelector('img'),th:s.th,vid:s.vid,
+      frame:d.querySelector('iframe'),tally:d.querySelector('.tally')};
+  });
+  var pg=document.createElement('div');
+  pg.className='tile util';pg.style.padding='0';
+  pg.innerHTML='<iframe allow="autoplay" title="MXL program" style="display:none"></iframe><div class="nm"><span class="tally" style="display:inline-block;background:#e5484d;color:#fff">LIVE</span><span>PROGRAM OUT</span></div>';
+  grid.appendChild(pg);
+  var pgFrame=pg.querySelector('iframe');
+  var ck=document.createElement('div');
+  ck.className='tile util';
+  ck.innerHTML='<div style="font-size:clamp(24px,5vw,52px);font-weight:800;letter-spacing:2px;font-variant-numeric:tabular-nums" id="clock2">--:--:--</div>';
+  grid.appendChild(ck);
+
+  // ── mode toggle: composite (default) vs tiles ──────────────────────────
+  var modebtn=document.getElementById('modebtn'),wallFrame=wallEl.querySelector('iframe');
+  function setMode(tilesOn){
+    document.body.classList.toggle('tiles',tilesOn);
+    modebtn.textContent=tilesOn?'wall view':'tiles view';
+    document.getElementById('hint').textContent=tilesOn
+      ?'per-source streams · click a tile to arm PREVIEW'
+      :'rendered out of MXL shared memory in Azure · click a tile to arm PREVIEW';
+    // drop idle connections on whichever mode is hidden
+    if(tilesOn){
+      wallFrame.removeAttribute('src');
+      pgFrame.src='/mxlfeed/mxl2webrtc/'+VIDQ;pgFrame.style.display='block';
+    }else{
+      if(!wallFrame.src)wallFrame.src='/mxlfeed/multiview/'+VIDQ;
+      pgFrame.removeAttribute('src');pgFrame.style.display='none';
+      Object.keys(tiles).forEach(function(k){var t=tiles[k];
+        if(t.frame&&t.frame.src){t.frame.removeAttribute('src');t.frame.style.display='none';t.img.style.display='block';}});
+    }
+    paint();
+  }
+  modebtn.addEventListener('click',function(){setMode(!document.body.classList.contains('tiles'))});
+
+  // ── clock + VM health ───────────────────────────────────────────────────
+  function tickClock(){
+    var n=new Date(),s=n.toLocaleTimeString([],{hour12:false});
+    document.getElementById('clock').textContent=s;
+    var c2=document.getElementById('clock2');if(c2)c2.textContent=s;
+    document.getElementById('mvdate').textContent=n.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
+  }
+  tickClock();setInterval(tickClock,1000);
+  (function(){
+    var el=document.getElementById('mvvm');
+    function tick(){
+      fetch('/api/mxl/health').then(function(r){return r.json()}).then(function(h){
+        if(!h||!h.cores)return;
+        el.style.color=h.load1<h.cores*0.75?'#28d17c':(h.load1<h.cores*1.1?'#ffb400':'#ff5d5d');
+        el.innerHTML='&#9679; VM '+h.load1.toFixed(1)+'/'+h.cores;
+      }).catch(function(){});
+    }
+    tick();setInterval(tick,15000);
+  })();
+
+  // ── tally paint (both modes) ────────────────────────────────────────────
+  function paint(){
+    Object.keys(zones).forEach(function(k){
+      var i=Number(k),z=zones[k];
+      z.el.classList.toggle('pgm',pgm===i);
+      z.el.classList.toggle('pvw',pvw===i&&pgm!==i);
+      z.tally.textContent=pgm===i?'PGM':'PVW';
+    });
+    if(!document.body.classList.contains('tiles'))return;
+    SRC.forEach(function(s){
+      var t=tiles[s.inp];
+      t.el.classList.toggle('pgm',pgm===s.inp);
+      t.el.classList.toggle('pvw',pvw===s.inp&&pgm!==s.inp);
+      t.el.classList.toggle('nofeed',liveMap[s.inp]===false);
+      t.tally.textContent=pgm===s.inp?'PGM':'PVW';
+      if(t.vid){
+        var live=liveMap[s.inp]!==false;
+        if(live&&!t.frame.src){t.frame.src=t.vid+VIDQ;t.frame.style.display='block';t.img.style.display='none';}
+        else if(!live&&t.frame.src){t.frame.removeAttribute('src');t.frame.style.display='none';t.img.style.display='block';t.img.src=NOSIG;}
+      }
+    });
+  }
+
+  // ── state: instant from the switcher via BroadcastChannel; status poll
+  // fallback when opened standalone (PGM only — PVW arm is client-side) ────
+  bc.onmessage=function(e){
+    var m=e.data||{};
+    if(m.type==='state'){pgm=m.pgm;pvw=m.pvw;if(m.liveMap)liveMap=m.liveMap;paint();}
+  };
+  bc.postMessage({type:'hello'});
+  function refreshStatus(){
+    fetch('/api/mxl/status').then(function(r){return r.json()}).then(function(st){
+      if(st.error)return;
+      if(!(st.fading||st.dipping))pgm=st.input;
+      if(st.slots)st.slots.forEach(function(s){liveMap[s.slot]=s.live});
+      paint();
+    }).catch(function(){});
+  }
+  refreshStatus();setInterval(refreshStatus,6000);
+
+  // ── tiles-mode thumbs (only polled while tiles mode is active) ──────────
+  function refreshThumbs(){
+    if(document.hidden||!document.body.classList.contains('tiles'))return;
+    SRC.forEach(function(s){
+      var t=tiles[s.inp];
+      if(t.vid)return;
+      var probe=new Image();
+      probe.onload=function(){t.img.src=probe.src};
+      probe.onerror=function(){t.img.src=NOSIG};
+      probe.src='/api/mxl/thumbs/'+t.th+'.jpg?t='+Date.now();
+    });
+  }
+  refreshThumbs();setInterval(refreshThumbs,900);
+})();
+</script>
+</body></html>

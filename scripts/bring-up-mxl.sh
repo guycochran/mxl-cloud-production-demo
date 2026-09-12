@@ -152,6 +152,30 @@ sudo docker cp /srv/mxl-tools/layout_pgm.py hls2mxl:/tmp/layout_pgm.py
 sudo docker exec hls2mxl sh -c 'pkill -9 -f run-layout.sh; pkill -9 -f layout_pgm.py; true'
 sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 8 python3 /tmp/layout_pgm.py >> /tmp/layout-pgm.log 2>&1; echo RESTART >> /tmp/layout-pgm.log; sleep 3; done\n" > /tmp/run-layout.sh && chmod +x /tmp/run-layout.sh'
 sudo docker exec -d hls2mxl /tmp/run-layout.sh
+
+# Grain probe (health board): persistent readers on all 9 flows, bps +
+# unique-fps (the wedge-catcher) -> /mxl-domain/thumbs/grains.json.
+# Load-guarded (start<17.5, exit>19.5), nice 19 — added 2026-09-11.
+sudo docker cp /srv/mxl-tools/grain_probe.py hls2mxl:/tmp/grain_probe.py
+sudo docker exec hls2mxl sh -c 'pkill -f "run-grainprobe.sh"; pkill -f "grain_probe.py"; true'
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 19 python3 /tmp/grain_probe.py >> /tmp/grain-probe.log 2>&1; echo RESTART >> /tmp/grain-probe.log; sleep 30; done\n" > /tmp/run-grainprobe.sh && chmod +x /tmp/run-grainprobe.sh'
+sudo docker exec -d hls2mxl /tmp/run-grainprobe.sh
+
+# MXL-native multiview (2026-09-12): mxl_multiview.py composites all 7 inputs
+# + Keyer PGM out of the domain into flow ab900700 (3x3 wall, 15fps v210);
+# mv_encode.py (mxl2webrtc container — only one with x264enc) encodes that ONE
+# flow -> SRT publish:multiview -> mediamtx -> /mxlfeed/multiview/ popout.
+# mv_encode's pipeline is PROVEN-VERBATIM: identity after mpegtsmux is
+# load-bearing and alignment=7 is required (mediamtx drops non-1316B SRT
+# payloads silently). See headers of both files before "cleaning up".
+sudo docker cp /srv/mxl-tools/mxl_multiview.py hls2mxl:/tmp/mxl_multiview.py
+sudo docker exec hls2mxl sh -c 'pkill -9 -f "[r]un-multiview.sh"; pkill -9 -f "[m]xl_multiview.py"; true'
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 12 python3 /tmp/mxl_multiview.py >> /tmp/mxl-multiview.log 2>&1; echo RESTART >> /tmp/mxl-multiview.log; sleep 3; done\n" > /tmp/run-multiview.sh && chmod +x /tmp/run-multiview.sh'
+sudo docker exec -d hls2mxl /tmp/run-multiview.sh
+sudo docker cp /srv/mxl-tools/mv_encode.py mxl2webrtc:/tmp/mv_encode.py
+sudo docker exec mxl2webrtc sh -c 'pkill -9 -f "[r]un-mvenc.sh"; pkill -9 -f "[m]v_encode.py"; true'
+sudo docker exec mxl2webrtc sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 12 python3 /tmp/mv_encode.py >> /tmp/mv-encode.log 2>&1; echo RESTART >> /tmp/mv-encode.log; sleep 3; done\n" > /tmp/run-mvenc.sh && chmod +x /tmp/run-mvenc.sh'
+sudo docker exec -d mxl2webrtc /tmp/run-mvenc.sh
 sleep 5
 
 # Selector: 0=CAM 1=Playout 2=TG 3=CAM2 4=guest1 5=guest2 6=Layout (UUIDs deterministic).

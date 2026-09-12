@@ -147,7 +147,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       <button id="cutbtn" title="cut preview to program">CUT</button>
       <div class="sidecol">
         <div class="row"><button id="keybtn">KEY</button><select id="pat"><option value="" disabled selected>pattern&hellip;</option></select><span id="mxlmsg"></span></div>
-        <div class="row"><button id="contribbtn">&#128752; Send us your feed</button>
+        <div class="row"><button id="mvbtn" title="pop out a 9-up multiview of every source">&#128250; Multiview</button><button id="contribbtn">&#128752; Send us your feed</button>
         <a href="/mxl-tams.html" style="font-size:11px;font-weight:600;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:5px 10px;text-decoration:none;white-space:nowrap;transition:all .15s" onmouseover="this.style.color='#ffb400';this.style.borderColor='#ffb400'" onmouseout="this.style.color='#8b96b5';this.style.borderColor='#26314d'">clip it &#9986; &rarr;</a></div>
         <div class="row" title="composite inputs on the Layout button (2-up / PiP / 4-up)"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#129513;</span><select id="lstyle" style="font-size:11px"><option value="2up">2-up</option><option value="pip">PiP</option><option value="4up">4-up</option></select><select id="lsrcA" style="font-size:11px"></select><select id="lsrcB" style="font-size:11px"></select><select id="lsrcC" style="font-size:11px;display:none"></select><select id="lsrcD" style="font-size:11px;display:none"></select></div>
         <div class="row" title="program audio mixer &mdash; level + mute per input" style="gap:7px"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#127911;</span><span class="mixlbl">PLY</span><input type="range" class="af" data-a="playout" min="0" max="150" value="80"><button class="am" data-a="playout">M</button><span class="mixlbl">G1</span><input type="range" class="af" data-a="guest1" min="0" max="150" value="100"><button class="am" data-a="guest1">M</button><span class="mixlbl">G2</span><input type="range" class="af" data-a="guest2" min="0" max="150" value="100"><button class="am" data-a="guest2">M</button></div>
@@ -190,6 +190,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       b.classList.toggle('on',pvw===i);
       b.classList.toggle('nofeed',liveMap[i]===false);
     });
+    mvState(); // keep the multiview popout's tally in lockstep
   }
   function paint(st){
     // if an API-driven transition is mid-flight, hold the program ring
@@ -235,6 +236,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   // layer; verified working end-to-end, just not wanted in the UI).
   keybtn.addEventListener('click',function(){post('/api/mxl/key',{on:!keybtn.classList.contains('on')})});
   pat.addEventListener('change',function(){if(pat.value)post('/api/mxl/pattern',{pattern:pat.value})});
+  // multiview popout — 9-up wall in its own window; tally + arm-back sync
+  // over BroadcastChannel (same-origin, works even if the popup gets re-opened
+  // standalone from a bookmark).
+  var mvbc=new BroadcastChannel('mxl-mv');
+  function mvState(){mvbc.postMessage({type:'state',pgm:pgm,pvw:pvw,liveMap:liveMap})}
+  mvbc.onmessage=function(e){var m=e.data||{};
+    if(m.type==='hello')mvState();
+    if(m.type==='arm'&&liveMap[m.inp]!==false){pvw=m.inp;paintBuses();}
+  };
+  $('#mvbtn').addEventListener('click',function(){
+    window.open('/mxl-multiview.html','mxlmv','width=1280,height=760,noopener');
+  });
   // contributor panel
   $('#contribbtn').addEventListener('click',function(){var c=$('#contrib');c.style.display=c.style.display==='block'?'none':'block'});
   $('#contribclose').addEventListener('click',function(){$('#contrib').style.display='none'});
