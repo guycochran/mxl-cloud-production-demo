@@ -43,8 +43,8 @@ FLOWS = {
     'playout': '2f34c189-64bf-5971-993a-332a28a7a6ee',
     'pattern': '6b5d8d68-64ce-56f8-bea2-e79b6c282a86',
     'cam2':    'ca222e00-aaaa-4bbb-8ccc-000000000001',
-    'guest1':  '57ab1e00-aaaa-4bbb-8ccc-000000000001',  # stabilized — pane can't wedge on reconnects
-    'guest2':  '57ab2e00-aaaa-4bbb-8ccc-000000000001',  # stabilized
+    'guest1':  '9e111e00-aaaa-4bbb-8ccc-000000000001',
+    'guest2':  '9e222e00-aaaa-4bbb-8ccc-000000000001',
 }
 MARGIN_NS = 66_000_000
 FRAME_NS = Gst.SECOND // 30
@@ -368,8 +368,14 @@ def control():
                 # NOW for fresh attach instead of the 8-15s generic checks
                 # ("select guest in 2up -> pane dead for 20s" complaint).
                 onkeys = ('a', 'b', 'c', 'd') if style == '4up' else ('a', 'b')
-                threading.Thread(target=take_check,
-                                 args=({k: active[k] for k in onkeys},), daemon=True).start()
+                # skip the take-check on the FIRST apply after startup: every
+                # branch is a fresh attach then, and cam needs ~3s to first
+                # frame — the 2.5s check false-fired and respawn-looped the
+                # whole engine (9/12 evening, 'newly selected [cam] silent').
+                if ctl.get('applied_once'):
+                    threading.Thread(target=take_check,
+                                     args=({k: active[k] for k in onkeys},), daemon=True).start()
+                ctl['applied_once'] = True
                 print(f'layout -> {style} A={a} B={b} C={c} D={d}', flush=True)
         except Exception:
             # backend briefly unreachable — keep last layout, back off so a

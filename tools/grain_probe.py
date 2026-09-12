@@ -38,9 +38,9 @@ FLOWS = {
     'playout':  '2f34c189-64bf-5971-993a-332a28a7a6ee',
     'pattern':  '6b5d8d68-64ce-56f8-bea2-e79b6c282a86',
     'cam2':     'ca222e00-aaaa-4bbb-8ccc-000000000001',
-    'guest1':   '57ab1e00-aaaa-4bbb-8ccc-000000000001',  # stabilized
-    'guest2':   '57ab2e00-aaaa-4bbb-8ccc-000000000001',  # stabilized
-    'layout':   '57ab6e00-aaaa-4bbb-8ccc-000000000001',  # stabilized
+    'guest1':   '9e111e00-aaaa-4bbb-8ccc-000000000001',
+    'guest2':   '9e222e00-aaaa-4bbb-8ccc-000000000001',
+    'layout':   '1a900700-aaaa-4bbb-8ccc-000000000001',
     'selector': '9437652d-20d9-565e-be6e-b98c36067930',
     'keyer':    '5c73394e-85df-50a3-8988-5edde5b5522a',
 }
