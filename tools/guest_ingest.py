@@ -69,6 +69,29 @@ def announce():
             print(f'announce {e.code} (attempt {attempt+1})', flush=True)
             if e.code not in (409, 429):
                 return
+            # ESCALATION (9/12): auto announces starve when the doctor and
+            # other self-heals compete for the single 120s cooldown window —
+            # a live guest sat stranded through 4 straight 429s. After 3
+            # consecutive 429s, fire ONE full-strength (non-auto) repair.
+            # Guard: a marker FILE (survives our own respawns — cellular
+            # flaps respawn this process) limits escalation to once per
+            # 5 min per guest, so a flapping feed still cannot storm the
+            # production chain.
+            if e.code == 429 and attempt >= 3:
+                import os as _os
+                mark = f'/tmp/{PATH}-escalate.ts'
+                last = _os.path.getmtime(mark) if _os.path.exists(mark) else 0
+                if _t.time() - last > 300:
+                    open(mark, 'w').close()
+                    try:
+                        r2 = urllib.request.Request(REPAIR_URL, data=b'{}',
+                                                    headers={'Content-Type': 'application/json',
+                                                             'User-Agent': 'guest-ingest/1.0'})
+                        with urllib.request.urlopen(r2, timeout=60) as resp:
+                            print(f'announce ESCALATED -> {resp.status} {resp.read()[:120]}', flush=True)
+                            return
+                    except Exception as e2:
+                        print(f'escalation failed: {e2} — back to patient retries', flush=True)
         except Exception as e:
             print(f'announce err: {e} (attempt {attempt+1})', flush=True)
         _t.sleep(30)
