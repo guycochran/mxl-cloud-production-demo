@@ -368,8 +368,22 @@ def wedge_watch():
         for key in sel_keys:
             i = active[key]
             if last_buf[i] > 0 and now - last_buf[i] > 8:
+                # silence is only a WEDGE if the source writer is alive — a
+                # guest whose feed stopped is silent legitimately (the
+                # 43-respawn loop of 9/12: every guest churn respawned us,
+                # recreating the layout flow and wedging the selector's
+                # slot-6 reader = "cut to Layout hangs")
+                try:
+                    req = _rq.Request('https://prodbots.com/api/mxl/status',
+                                      headers={'User-Agent': 'mxl-layout/1.0'})
+                    live = {sl['name']: sl['live'] for sl in
+                            json.load(_rq.urlopen(req, timeout=5)).get('slots', [])}
+                except Exception:
+                    break  # can't verify — never respawn blind
+                if not live.get(SLOTS[i]):
+                    continue  # writer gone: expected silence, not a wedge
                 print(f'input wedge: selected source {SLOTS[i]} silent '
-                      f'{now - last_buf[i]:.0f}s while others flow — exiting for fresh attach', flush=True)
+                      f'{now - last_buf[i]:.0f}s with a LIVE writer — exiting for fresh attach', flush=True)
                 try:
                     req = _rq.Request('https://prodbots.com/api/mxl/repair',
                                       data=b'{"auto":1}',
@@ -386,20 +400,25 @@ def wedge_watch():
         # that needs them. When the layout is OFF air a respawn costs nothing
         # visible, so heal proactively; on air, leave it to the selected checks.
         onscreen = {active[k] for k in sel_keys}
-        for i, t in last_buf.items():
-            if t > 0 and now - t > 15 and i not in onscreen:
-                try:
-                    req = _rq.Request('https://prodbots.com/api/mxl/status',
-                                      headers={'User-Agent': 'mxl-layout/1.0'})
-                    onair = json.load(_rq.urlopen(req, timeout=5)).get('input') == 6
-                except Exception:
-                    onair = True  # unknown — don't risk a visible respawn
-                if not onair:
-                    print(f'idle-branch wedge: {SLOTS[i]} silent {now - t:.0f}s — '
-                          f'off-air respawn for fresh attach', flush=True)
-                    import os
-                    os._exit(1)
-                break  # on air: check again next sweep
+        stale = [i for i, t in last_buf.items() if t > 0 and now - t > 15 and i not in onscreen]
+        if stale:
+            try:
+                req = _rq.Request('https://prodbots.com/api/mxl/status',
+                                  headers={'User-Agent': 'mxl-layout/1.0'})
+                st = json.load(_rq.urlopen(req, timeout=5))
+                onair = st.get('input') == 6
+                live = {sl['name']: sl['live'] for sl in st.get('slots', [])}
+            except Exception:
+                continue  # can't verify — never respawn blind
+            # only branches whose SOURCE WRITER IS ALIVE count as wedged; a
+            # feedless guest is silent legitimately (9/12: 43 respawns from
+            # exactly this, each recreating the layout flow -> slot-6 hang)
+            wedged = [i for i in stale if live.get(SLOTS[i])]
+            if wedged and not onair:
+                print(f'idle-branch wedge: {[SLOTS[i] for i in wedged]} silent >15s '
+                      f'with LIVE writers — off-air respawn for fresh attach', flush=True)
+                import os
+                os._exit(1)
 
 
 def startup_repair():
@@ -409,7 +428,12 @@ def startup_repair():
     AUTO fades onto slot 6 work again. auto:1 rides the backend's 120s
     cooldown — worst case a manual repair is needed after rapid respawns."""
     time.sleep(6)
-    _post('https://prodbots.com/api/mxl/repair', {'auto': 1})
+    for _try in range(4):  # cooldown is 120s — keep trying so slot 6 always heals
+        r = _post('https://prodbots.com/api/mxl/repair', {'auto': 1})
+        if r is not None:
+            print('startup repair accepted — slot 6 reattached', flush=True)
+            return
+        time.sleep(140)
 
 
 threading.Thread(target=control, daemon=True).start()
