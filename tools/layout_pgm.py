@@ -43,8 +43,8 @@ FLOWS = {
     'playout': '2f34c189-64bf-5971-993a-332a28a7a6ee',
     'pattern': '6b5d8d68-64ce-56f8-bea2-e79b6c282a86',
     'cam2':    'ca222e00-aaaa-4bbb-8ccc-000000000001',
-    'guest1':  '9e111e00-aaaa-4bbb-8ccc-000000000001',
-    'guest2':  '9e222e00-aaaa-4bbb-8ccc-000000000001',
+    'guest1':  '57ab1e00-aaaa-4bbb-8ccc-000000000001',  # stabilized — pane can't wedge on reconnects
+    'guest2':  '57ab2e00-aaaa-4bbb-8ccc-000000000001',  # stabilized
 }
 MARGIN_NS = 66_000_000
 FRAME_NS = Gst.SECOND // 30
