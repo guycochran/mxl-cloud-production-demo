@@ -34,7 +34,8 @@ push(){  # $1=name  $2=full rtmp/srt url
     -fflags +genpts+igndts -use_wallclock_as_timestamps 1 -i "$SRC" \
     -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black,format=yuv420p,fps=30" \
     -c:v libx264 -preset veryfast -profile:v high -level 4.1 \
-    -b:v 6000k -maxrate 6000k -bufsize 12000k \
+    -b:v 6000k -minrate 6000k -maxrate 6000k -bufsize 6000k \
+    -x264-params "nal-hrd=cbr:force-cfr=1" \
     -g 60 -keyint_min 60 -sc_threshold 0 -pix_fmt yuv420p \
     -c:a aac -b:a 128k -ar 44100 -ac 2 \
     -f flv "$url" >> "$(logfile "$nm")" 2>&1 &
