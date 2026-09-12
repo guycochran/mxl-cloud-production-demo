@@ -33,6 +33,10 @@ button:disabled{opacity:.5;cursor:not-allowed}
     <div class="card"><h2>Program (what goes out)</h2>
       <iframe class="feed" src="/mxlfeed/mxl2webrtc/" allow="autoplay" title="MXL program"></iframe>
     </div>
+    <div class="card" id="rtcard" style="display:none"><h2>Round-trip: live on YouTube</h2>
+      <div class="mut" style="margin-bottom:10px">Same program, after the full loop — produced in MXL shared memory → pushed out → returned from YouTube's CDN, playing back here. The whole pipeline, on one screen.</div>
+      <div id="ytwrap" style="position:relative;aspect-ratio:16/9;width:100%"></div>
+    </div>
   </div>
   <div>
     <div class="card"><h2>Destinations</h2>
@@ -63,6 +67,19 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
       <div class="pill"><span id="poll-dot" class="dot" style="background:#586179"></span>
         <span id="status">checking…</span></div>
+    </div>
+
+    <div class="card"><h2>Round-trip embed (director)</h2>
+      <div class="mut" style="margin-bottom:8px">Paste YouTube's <b>Share → Embed</b> (or the watch/share link) for the live broadcast. It appears in the round-trip player on the left for the on-air demo.</div>
+      <label>Director code</label>
+      <input id="emcode" type="password" placeholder="director code" autocomplete="off">
+      <label>YouTube embed / link</label>
+      <input id="embed" placeholder="&lt;iframe … youtube.com/embed/…&gt; or https://youtu.be/…">
+      <div class="row" style="margin-top:9px">
+        <button id="em-set" class="go" style="background:#131b2e;border-color:#3c4a70;color:#cfd8ef">Set round-trip</button>
+        <button id="em-clear" class="stop">Clear</button>
+      </div>
+      <div class="mut" id="emmsg" style="margin-top:6px"></div>
     </div>
   </div>
 </div>
@@ -98,6 +115,29 @@ $('c-go').onclick=function(){
   });
 };
 $('c-stop').onclick=function(){post('/api/mxl/stream/stop',{name:'custom'}).then(function(){setTimeout(refresh,800)});};
+// round-trip embed: build the iframe ourselves from the server-stored video id
+var curId=null;
+function paintEmbed(id){
+  if(id===curId)return; curId=id;
+  var wrap=$('ytwrap'), card=$('rtcard');
+  if(!id){ card.style.display='none'; wrap.innerHTML=''; return; }
+  card.style.display='';
+  wrap.innerHTML='<iframe style="position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:10px" '
+    +'src="https://www.youtube-nocookie.com/embed/'+encodeURIComponent(id)+'?autoplay=1&mute=1&playsinline=1" '
+    +'title="Live on YouTube (round-trip)" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+}
+function refreshEmbed(){ fetch('/api/mxl/embed').then(function(r){return r.json()}).then(function(j){paintEmbed(j.id||null)}).catch(function(){}); }
+$('em-set').onclick=function(){
+  var code=$('emcode').value.trim(), embed=$('embed').value.trim();
+  if(!code){$('emmsg').textContent='enter the director code';return;}
+  if(!embed){$('emmsg').textContent='paste the YouTube embed or link';return;}
+  $('emmsg').textContent='saving…';
+  post('/api/mxl/embed',{embed:embed},code).then(function(r){
+    if(!r.ok){$('emmsg').textContent=r.j.error||'failed';} else {$('emmsg').textContent='round-trip set ✓';setTimeout(refreshEmbed,300);}
+  });
+};
+$('em-clear').onclick=function(){var code=$('emcode').value.trim();post('/api/mxl/embed',{clear:true},code).then(function(){$('emmsg').textContent='cleared';setTimeout(refreshEmbed,300)});};
 refresh(); setInterval(refresh,5000);
+refreshEmbed(); setInterval(refreshEmbed,5000);
 </script>
 </body></html>
