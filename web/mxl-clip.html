@@ -182,17 +182,22 @@ function load(){
     $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min buffered';
     paintMarks();
   });
+  var landed=false;
   hls.on(Hls.Events.MANIFEST_PARSED,function(){
     $('loading').style.display='none';
-    setTimeout(function(){ if(isFinite(vid.duration)) vid.currentTime=Math.max(0,vid.duration-6); },500);
+    // Editor behavior: land PAUSED near the live edge, ONCE, and stay put.
+    // (muted <video> would otherwise autoplay and the playhead would crawl.)
+    setTimeout(function(){ if(landed)return; if(isFinite(vid.duration)){ vid.pause();
+      vid.currentTime=Math.max(0,vid.duration-6); landed=true; } },500);
   });
   hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now());
   hls.attachMedia(vid);
 }
 load();
-// keep the window current: refresh the playlist periodically so the ruler
-// follows the live edge even when idle (LEVEL_LOADED re-affirms "recording").
-setInterval(function(){ if(!dragging && vid.paused){ hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); } }, 20000);
+// NOTE: no periodic full reload. Rebuilding the source shifts winStart forward
+// while the paused playhead stays fixed → the playhead appears to jump BACKWARD.
+// hls.js already refreshes the live playlist on its own (updating frags/winDur)
+// without yanking the user's position, so the ruler follows the edge cleanly.
 
 // ── storyboard sprite scrub preview (instant, no video decode) ──
 var ov=null, ovOK=false, ovAt=0;
@@ -236,33 +241,40 @@ var seekPending=false, seekTarget=null;
 function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-0.1&&t<=b.end(i)+0.1)return true;}return false;}
 function liveSeek(fr){
   seekTarget=epochToMedia(fracToEpoch(fr));
-  if(inBuf(seekTarget)){ try{vid.currentTime=seekTarget;}catch(e){} return; }  // instant if buffered
+  if(inBuf(seekTarget)){ try{vid.currentTime=seekTarget;}catch(e){} hideFrameSoon(); return; }  // instant if buffered
   if(seekPending) return; seekPending=true;
   var go=function(){var t=seekTarget,done=false;
     var fin=function(){if(done)return;done=true;vid.removeEventListener('seeked',fin);clearTimeout(to);
+      hideFrameSoon();
       if(Math.abs(seekTarget-t)>0.3&&dragging){seekPending=true;go();}else seekPending=false;};
     var to=setTimeout(fin,500); vid.addEventListener('seeked',fin); try{vid.currentTime=t;}catch(e){fin();}};
   go();
 }
+// The REAL 720p video (seeked) is what you see while dragging — sharp. The
+// sprite #frame is only a sub-100ms placeholder shown at the instant of a move,
+// hidden the moment the video frame lands so you never stare at an upscaled tile.
+var _hideT=null;
+function hideFrameSoon(){ if(_hideT)clearTimeout(_hideT);
+  _hideT=setTimeout(function(){ if(!seekPending) frame.style.display='none'; },60); }
 function showTip(fr){
   var b=scrub.getBoundingClientRect(), x=fr*b.width, ep=fracToEpoch(fr);
   $('ghost').style.display='block'; $('ghost').style.left=x+'px';
   $('tip').style.display='block';
   $('tip').style.left=Math.min(b.width-150,Math.max(150,x))+'px';
   $('tipt').textContent=fmtE(ep);
-  showFrameAt(ep,false);
-  // big overlays on the stage while dragging
+  showFrameAt(ep,false);   // hover tip: sprite (a downscale → sharp)
   $('bigtime').textContent=fmtE(ep);
-  if(dragging){ frame.style.display='block'; showFrameAt(ep,true); updateDur(ep); }
+  if(dragging){ updateDur(ep); }
 }
 function endScrubView(){ frame.style.display='none'; $('bigdur').style.display='none'; }
-scrub.addEventListener('pointermove',function(e){ var fr=evFrac(e); showTip(fr); if(dragging)liveSeek(fr); });
+scrub.addEventListener('pointermove',function(e){ var fr=evFrac(e); showTip(fr);
+  if(dragging){ // paint the sprite placeholder instantly, then seek the real video over it
+    frame.style.display='block'; showFrameAt(fracToEpoch(fr),true); liveSeek(fr); } });
 scrub.addEventListener('pointerdown',function(e){ dragging=true; scrub.setPointerCapture(e.pointerId); vid.pause();
-  var fr=evFrac(e); showTip(fr); liveSeek(fr); });
+  var fr=evFrac(e); frame.style.display='block'; showFrameAt(fracToEpoch(fr),true); showTip(fr); liveSeek(fr); });
 scrub.addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
   var fr=evFrac(e); try{vid.currentTime=epochToMedia(fracToEpoch(fr));}catch(err){}
   $('tip').style.display='none'; $('ghost').style.display='none';
-  // let the real video frame settle in, then hide the sprite overlay
   var s=function(){vid.removeEventListener('seeked',s);clearTimeout(to);endScrubView();};
   var to=setTimeout(s,900); vid.addEventListener('seeked',s); });
 scrub.addEventListener('pointerleave',function(){ if(!dragging){$('tip').style.display='none';$('ghost').style.display='none';} });
