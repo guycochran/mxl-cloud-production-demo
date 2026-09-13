@@ -95,3 +95,10 @@ assembled (it's the live demo's actual cold-start):
 
 Read [FINDINGS.md](FINDINGS.md) *before* you debug anything. Every numbered
 section is an outage we already had so you don't have to.
+
+**Want the concepts, not just the facility?** The upstream
+[cbcrc/mxl-hands-on Exercises](https://github.com/cbcrc/mxl-hands-on/tree/main/Exercises)
+(single writer → multiple domains → GUI probing → "full open-source DMF") are
+the guided-learning track; this quickstart is the everything-running-now
+track. They compose well: do Exercise 1 once and the flow list above stops
+being magic.
