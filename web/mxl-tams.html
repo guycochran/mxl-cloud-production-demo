@@ -599,24 +599,40 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     })();
     return _ffLoading;
   }
+  function fragUrl(f){
+    // hls.js Fragment: prefer the fully-resolved absolute .url; fall back to
+    // baseurl+relurl. These are the presigned MinIO URLs from the playlist.
+    if(f.url) return f.url;
+    if(f.relurl) return (f.baseurl||location.origin)+f.relurl;
+    return null;
+  }
   function fragsForClip(inE,outE){
-    // fragList entries: {programDateTime(ms), duration(s), url}. Keep any segment
-    // whose [pdt, pdt+dur] overlaps [inE,outE]; return with the first seg's pdt.
+    // fragList entries are hls.js Fragments {programDateTime(ms), duration(s), url}.
+    // Keep any segment whose [pdt, pdt+dur] overlaps [inE,outE]; return with pdt.
     var out=[];
     for(var i=0;i<fragList.length;i++){var f=fragList[i];if(!f.programDateTime)continue;
-      var s=f.programDateTime/1000, e=s+(f.duration||1);
-      if(e>inE && s<outE) out.push({s:s,url:f.url});}
+      var s=f.programDateTime/1000, e=s+(f.duration||1), u=fragUrl(f);
+      if(e>inE && s<outE && u) out.push({s:s,url:u});}
     return out;
   }
   async function fastClip(setMsg){
     if(inE==null||outE==null||outE<=inE){setMsg('mark IN and OUT first');return;}
+    if(!fragList.length){setMsg('no segments loaded yet — scrub over the clip first');return;}
     var segs=fragsForClip(inE,outE);
-    if(!segs.length){setMsg('those segments aren’t in the loaded window — scrub over the clip first');return;}
+    if(!segs.length){
+      // window loaded but nothing overlaps: the clip is outside the current
+      // playlist window (common in Full-12h before you scrub near the marks).
+      var lo=fragList[0].programDateTime/1000, hi=(fragList[fragList.length-1].programDateTime/1000)+(fragList[fragList.length-1].duration||1);
+      setMsg('clip is outside the loaded window ('+fmtE(lo)+'–'+fmtE(hi)+') — scrub over it first');return;
+    }
     try{
       var ff=await loadFF(setMsg);
       setMsg('fetching '+segs.length+' segments…');
-      // fetch all overlapping segments in parallel, straight from MinIO
-      var bufs=await Promise.all(segs.map(function(x){return fetch(x.url).then(function(r){return r.arrayBuffer()})}));
+      // fetch all overlapping segments in parallel, straight from MinIO. Surface
+      // any HTTP failure (expired presign, 4xx) instead of failing silently.
+      var bufs=await Promise.all(segs.map(function(x){return fetch(x.url).then(function(r){
+        if(!r.ok) throw new Error('segment fetch '+r.status+' (presigned URL may have expired — re-scrub to refresh)');
+        return r.arrayBuffer();})}));
       var names=[];
       for(var i=0;i<bufs.length;i++){var n='s'+i+'.ts';await ff.writeFile(n,new Uint8Array(bufs[i]));names.push(n);}
       await ff.writeFile('list.txt',new TextEncoder().encode(names.map(function(n){return "file '"+n+"'"}).join('\n')));
@@ -695,10 +711,12 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   };
   dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE.toFixed(3)+'&out='+outE.toFixed(3)};
   document.getElementById('fastclip').onclick=function(){
-    var fc=document.getElementById('fastclip'), orig=ci.textContent;
-    fc.disabled=true; var t0=Date.now();
-    fastClip(function(m){ci.textContent='⚡ '+m;}).then(function(){ fc.disabled=false;
-      if(/ready/.test(ci.textContent)) ci.textContent+=' in '+((Date.now()-t0)/1000).toFixed(1)+'s'; });
+    var fc=document.getElementById('fastclip'); fc.disabled=true; var t0=Date.now();
+    // never let an error leave the button dead or the user without a message
+    Promise.resolve().then(function(){return fastClip(function(m){ci.textContent='⚡ '+m;});})
+      .catch(function(e){ci.textContent='⚡ instant clip failed: '+(e&&e.message||e);})
+      .then(function(){ fc.disabled=false;
+        if(/ready/.test(ci.textContent)) ci.textContent+=' in '+((Date.now()-t0)/1000).toFixed(1)+'s'; });
   };
 
   // ── "take it home": QR + mailto (no server email, no stored PII) ──
