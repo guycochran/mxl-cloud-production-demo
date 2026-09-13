@@ -22,8 +22,11 @@ header .live .dot{width:8px;height:8px;border-radius:50%;background:#28d17c;box-
 #sigpath{position:absolute;left:0;right:0;bottom:0;height:14px;display:flex;align-items:center;gap:0;padding:0 20px;pointer-events:none}
 #sigpath .seg{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8px;font-weight:600;letter-spacing:1px;color:var(--dim);opacity:.55;white-space:nowrap}
 #sigpath .wire{flex:1 1 auto;height:1px;background:var(--line);margin:0 7px;position:relative;overflow:hidden;min-width:14px}
-#sigpath .wire::after{content:"";position:absolute;top:0;bottom:0;left:-40px;width:40px;background:linear-gradient(90deg,transparent,var(--acc2));opacity:.6;animation:grain 7s linear infinite}
-@keyframes grain{to{left:100%}}
+/* transform-only sweep: animating `left` forced a layout pass EVERY FRAME on
+   7 elements and made the video stutter on weaker machines (9/13). translateX
+   runs on the compositor — costs nothing, video decode keeps its cycles. */
+#sigpath .wire::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 0 42%,var(--acc2) 50%,transparent 58% 100%);opacity:.55;transform:translateX(-100%);animation:grain 7s linear infinite;will-change:transform}
+@keyframes grain{to{transform:translateX(100%)}}
 @media (prefers-reduced-motion:reduce){#sigpath .wire::after{animation:none;display:none}header .live .dot{animation:none}}
 @media (max-width:760px){#sigpath .seg{display:none}#sigpath .wire{margin:0 2px}}
 main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
