@@ -93,7 +93,10 @@ echo "  ✓ clip: $CLIP · graphics on :8085"
 # ── 2. containers (exact wiring of the live mxlswitcher.com deployment) ─────
 step "Containers"
 docker rm -f $CONTAINERS >/dev/null 2>&1 || true
-for i in $IMAGES; do docker pull -q "$i" >/dev/null & done; wait
+# wait ONLY on the pulls — a bare `wait` also waits on the :8085 graphics
+# server backgrounded above, which never exits (hung the script; found 9/13)
+pull_pids=(); for i in $IMAGES; do docker pull -q "$i" >/dev/null & pull_pids+=($!); done
+wait "${pull_pids[@]}"
 docker run -d --name mediamtx --network host --restart unless-stopped \
   -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" bluenviron/mediamtx:latest >/dev/null
 run_mf(){ # name hostport image extra...
