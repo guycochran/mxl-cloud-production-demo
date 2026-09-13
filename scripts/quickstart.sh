@@ -23,7 +23,8 @@ DOMAIN_HOST=/dev/shm/mxl/domain_1          # shared-memory domain (volatile: gon
 BASE=/srv/mxl-quickstart                   # clips + graphics live here (persistent)
 IMAGES="bluenviron/mediamtx:latest ghcr.io/cbcrc/test-generator:latest ghcr.io/cbcrc/file-player:latest ghcr.io/cbcrc/input-selector:latest ghcr.io/cbcrc/html5-keyer:latest ghcr.io/cbcrc/mxl2webrtc:latest"
 CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc"
-CLIP_URL="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+# official Blender mirror, natively 1080p30 (the Google sample bucket 403s now)
+CLIP_URL="https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4"
 
 step(){ echo; echo "▶ $*"; }
 die(){ echo "✗ $*" >&2; exit 1; }
@@ -52,16 +53,26 @@ echo "  ✓ AVX ok · docker ok · public IP: $PUBLIC_IP"
 step "Media + graphics"
 mkdir -p "$DOMAIN_HOST" "$BASE/clips" "$BASE/graphics"
 chmod 777 "$DOMAIN_HOST"   # every container writes flows here
-if [ ! -s "$BASE/clips/sample.mp4" ]; then
-  echo "  downloading sample clip (Big Buck Bunny, ~150 MB)…"
-  curl -fsSL -o "$BASE/clips/sample.mp4" "$CLIP_URL" || die "clip download failed — put any H.264 mp4 at $BASE/clips/sample.mp4 and re-run"
-fi
-# Best cutting behaviour comes from a 1080p30 clip (the domain runs 30/1).
-# If ffmpeg is around and the conform hasn't been done, do it once.
-if command -v ffmpeg >/dev/null && [ ! -s "$BASE/clips/sample-1080p30.mp4" ]; then
-  echo "  conforming clip to 1080p30 (one-time, ~2 min)…"
+# Clip strategy (domain runs 30/1, so 1080p30 cuts cleanest):
+#   1. a file YOU dropped at clips/sample.mp4 wins (conformed if ffmpeg exists)
+#   2. else download Big Buck Bunny 1080p30 from the official Blender mirror
+#   3. else GENERATE a moving test clip with ffmpeg — no network needed, the
+#      script can't die on a dead sample-URL again (Google's bucket 403'd 9/13)
+if [ -s "$BASE/clips/sample.mp4" ] && command -v ffmpeg >/dev/null && [ ! -s "$BASE/clips/sample-1080p30.mp4" ]; then
+  echo "  conforming your clip to 1080p30 (one-time)…"
   ffmpeg -loglevel error -y -i "$BASE/clips/sample.mp4" -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30" \
     -c:v libx264 -preset fast -crf 20 -c:a aac -t 120 "$BASE/clips/sample-1080p30.mp4" || true
+fi
+if [ ! -s "$BASE/clips/sample-1080p30.mp4" ] && [ ! -s "$BASE/clips/sample.mp4" ]; then
+  echo "  downloading sample clip (Big Buck Bunny 1080p30, ~265 MB)…"
+  curl -fSL --progress-bar -o "$BASE/clips/sample-1080p30.mp4" "$CLIP_URL" || {
+    echo "  download failed — generating a local test clip instead (ffmpeg)…"
+    rm -f "$BASE/clips/sample-1080p30.mp4"
+    command -v ffmpeg >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null
+    ffmpeg -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=30" -f lavfi -i "sine=frequency=440:sample_rate=48000" \
+      -t 90 -c:v libx264 -preset fast -pix_fmt yuv420p -c:a aac "$BASE/clips/sample-1080p30.mp4" \
+      || die "could not download OR generate a clip — put any H.264 mp4 at $BASE/clips/sample.mp4 and re-run"
+  }
 fi
 CLIP=sample.mp4; [ -s "$BASE/clips/sample-1080p30.mp4" ] && CLIP=sample-1080p30.mp4
 # self-contained lower-third (replace with web/lower-third.html for the full OHG look)
