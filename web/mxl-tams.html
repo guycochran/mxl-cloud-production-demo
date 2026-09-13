@@ -56,7 +56,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
         <div style="position:absolute;left:0;right:0;top:12px;height:6px;background:#1a2338;border-radius:3px"></div>
         <!-- shaded IN→OUT clip selection -->
         <div id="clipsel" style="display:none;position:absolute;top:12px;height:6px;background:rgba(255,180,0,.28);border-left:1px solid #28d17c;border-right:1px solid #e5484d"></div>
-        <div id="played" style="position:absolute;left:0;top:12px;height:6px;width:0;background:#ffb400;border-radius:3px"></div>
+        <!-- gold "played" fill removed — implied playback-progress, confusing in an editor. Only the white playhead marks position. -->
+        <div id="played" style="display:none"></div>
         <!-- IN / OUT flag markers -->
         <div id="mkin" style="display:none;position:absolute;top:4px;width:2px;height:22px;background:#28d17c"><div style="position:absolute;top:-1px;left:0;width:9px;height:8px;background:#28d17c;border-radius:0 2px 2px 0"></div></div>
         <div id="mkout" style="display:none;position:absolute;top:4px;width:2px;height:22px;background:#e5484d"><div style="position:absolute;top:-1px;right:0;width:9px;height:8px;background:#e5484d;border-radius:2px 0 0 2px"></div></div>
@@ -233,7 +234,14 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // (~3MB m3u8) makes hls.js parse+manage 7000+ fragments on every seek = very
   // sluggish scrub. Default to the last ARCH_WIN seconds (snappy); the buttons
   // below can widen it on demand.
-  var ARCH_WIN=3600; // an hour to peruse (Guy) — still snappy; Shift-click Full for 12h
+  // Default scrub window = 10 min. WHY SMALL: scrubbing re-fetches 1s segments,
+  // and each one costs ~100ms through the Cloudflare tunnel (vs 0.9ms off VM3's
+  // disk — the tunnel, not the disk/MXL, is the scrub bottleneck). livecut feels
+  // instant because its whole window lives in browser memory with ZERO network
+  // during scrub. We match that by keeping the default window small enough to
+  // FULLY pre-fetch into the browser cache on load (600 segs), so scrubbing it
+  // hits cache, not the tunnel. Longer history: the 12h overview + on-demand load.
+  var ARCH_WIN=600; // 10 min — fully cacheable → livecut-smooth scrub; Full 12h still available
   // Round 'now' to 30s so repeated loads (and the background prefetch below)
   // build the SAME timerange → they hit the proxy's playlist cache instead of
   // re-triggering the ~11s gateway generation. Drop the &t= buster for archive
@@ -276,9 +284,29 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   var warmToken=0, warming=null;   // warming = the landing media-time while a sweep runs (else null)
   function buffAt(t){var b=v.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-0.1&&t<=b.end(i)+0.1)return true;}return false;}
   function stopWarm(){warmToken++;warming=null;}          // any user gesture calls this
+  // Parallel CACHE prefetch — the real tunnel fix. Each segment costs ~100ms
+  // through the tunnel; fetched serially that's minutes. Instead we pull the
+  // whole window's segments with bounded concurrency into the BROWSER HTTP CACHE
+  // up front, so every subsequent hls.js request (buffer-fill or a user seek)
+  // is served from cache in ~0ms — no tunnel round-trip during scrub. This is
+  // how we get livecut's zero-network-scrub feel over a tunnel.
+  function prefetchSegments(tok){
+    var urls=[]; for(var i=0;i<fragList.length;i++){var u=fragUrl(fragList[i]);if(u)urls.push(u);}
+    var idx=0, CONC=12;
+    function pull(){
+      if(tok!==warmToken)return;                          // superseded (user took over / mode change)
+      if(idx>=urls.length)return;
+      var u=urls[idx++];
+      // 'force-cache' → if already cached, no network; else fetch + cache it
+      fetch(u,{cache:'force-cache'}).then(function(r){return r.arrayBuffer();})
+        .catch(function(){}).then(function(){ if(tok===warmToken) pull(); });
+    }
+    for(var c=0;c<CONC;c++) pull();
+  }
   function preWarm(){
     if(mode!=='archive'||ARCH_WIN>3600||winDur<=0)return; // 12h view scrubs via the overview sheet
     var tok=++warmToken;
+    prefetchSegments(tok);                                // warm the browser cache in parallel (the tunnel fix)
     var landing=winMedia0+Math.max(0,winDur-8);           // where the user is parked
     warming=landing;                                      // pin the visible playhead here during the sweep
     var step=20, cur=winMedia0+winDur;                    // sweep from the end backward
