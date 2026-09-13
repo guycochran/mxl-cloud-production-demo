@@ -35,6 +35,9 @@ SOURCES = {  # name -> audio flow uuid
     'playout': '4a37a1ae-e0e1-59de-8354-c6884b25e551',
     'guest1':  'a1111e00-aaaa-4bbb-8ccc-000000000001',
     'guest2':  'a2222e00-aaaa-4bbb-8ccc-000000000001',
+    # remote commentator: browser mic -> WHIP -> webrtc2mxl "Commentary
+    # Audio" (UUID deterministic from that label/grouphint; commentary.html)
+    'voice':   '101fcb5f-8b42-5e92-a2c3-67542abedf6c',
 }
 
 Gst.init(None)

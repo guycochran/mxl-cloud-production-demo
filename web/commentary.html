@@ -1,0 +1,148 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Switcher — Commentary Booth</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#05070c;--panel:#0b1018;--line:#1d2940;--ink:#e8eeff;--dim:#7e8aa8;--acc:#5b8cff;--acc2:#9d6bff;--red:#e5484d;--grn:#23d97c}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:8px 16px;background:#0a0f1a;border-bottom:1px solid var(--line)}
+header .t{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase}
+header .t span{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+header .hint{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--dim)}
+main{flex:1 1 auto;display:flex;min-height:0}
+#wall{flex:1 1 auto;position:relative;background:#000}
+#wall iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+#booth{flex:0 0 300px;display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--panel);border-left:1px solid var(--line)}
+#booth h2{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase}
+select,button{font:inherit;font-size:13px;color:var(--ink);background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:9px 12px;cursor:pointer;width:100%}
+button:disabled{opacity:.4;cursor:not-allowed}
+#onair{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;letter-spacing:3px;padding:14px}
+#onair.live{background:var(--red);border-color:var(--red);color:#fff;box-shadow:0 0 18px rgba(229,72,77,.5);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 6px rgba(229,72,77,.3)}}
+#cough{font-weight:800}
+#cough.held{background:#ffb400;border-color:#ffb400;color:#08130c}
+#meterbox{height:14px;background:#080b14;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+#meter{height:100%;width:0%;background:linear-gradient(90deg,var(--grn),#ffb400 75%,var(--red) 92%);transition:width .06s linear}
+.stat{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);line-height:1.7}
+.stat b{color:var(--ink);font-weight:600}
+#err{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#ff8f92;display:none}
+.note{font-size:11px;color:var(--dim);line-height:1.55;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:820px){main{flex-direction:column}#wall{flex:1 1 55%}#booth{flex:1 1 auto;border-left:0;border-top:1px solid var(--line);overflow-y:auto}}
+</style></head><body>
+<header>
+  <div class="t"><span>MXL</span> Switcher &middot; Commentary Booth</div>
+  <div class="hint">watch the wall &middot; call the action &middot; your voice becomes a shared-memory flow</div>
+</header>
+<main>
+  <div id="wall"><iframe src="/mxlfeed/multiview/?muted=true&autoplay=true&controls=false" allow="autoplay" title="multiview return"></iframe></div>
+  <div id="booth">
+    <h2>&#127908; Your microphone</h2>
+    <select id="mics"><option>loading microphones…</option></select>
+    <button id="onair">GO ON AIR</button>
+    <button id="cough" disabled>&#129324; COUGH (hold to mute)</button>
+    <div id="meterbox"><div id="meter"></div></div>
+    <div id="err"></div>
+    <div class="stat" id="stat">engine: checking… · mix: —</div>
+    <div class="note">The return wall is video-only, so there's no echo — call it like a monitor stack. Your audio lands in the MXL domain as the <b style="color:#cfd8ef">Commentary Audio</b> flow; the producer's COM fader on the switcher sets your level in the program mix. Latency to program: ~1s.</div>
+  </div>
+</main>
+<script>
+(function(){
+  var WHIP='https://mxl-feed.cochran.cloud/webrtc2mxl/whip';
+  var mics=document.getElementById('mics'),onair=document.getElementById('onair'),
+      cough=document.getElementById('cough'),meter=document.getElementById('meter'),
+      stat=document.getElementById('stat'),err=document.getElementById('err');
+  var pc=null,stream=null,track=null,resource=null,actx=null,raf=0;
+
+  function fail(m){err.textContent=m;err.style.display='block'}
+  function clearfail(){err.style.display='none'}
+
+  // mic list (needs one permission grant to reveal labels)
+  async function listMics(sel){
+    try{
+      var devs=await navigator.mediaDevices.enumerateDevices();
+      var ins=devs.filter(function(d){return d.kind==='audioinput'});
+      mics.innerHTML='';
+      ins.forEach(function(d,i){var o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||('Microphone '+(i+1));mics.appendChild(o)});
+      if(sel)mics.value=sel;
+    }catch(e){fail('mic list: '+e.message)}
+  }
+  listMics();
+
+  function levelLoop(){
+    var an=actx._an,buf=new Uint8Array(an.frequencyBinCount);
+    (function tick(){
+      an.getByteTimeDomainData(buf);
+      var peak=0;for(var i=0;i<buf.length;i++){var v=Math.abs(buf[i]-128)/128;if(v>peak)peak=v}
+      meter.style.width=Math.min(100,Math.round(peak*140))+'%';
+      raf=requestAnimationFrame(tick);
+    })();
+  }
+
+  async function start(){
+    clearfail();
+    onair.disabled=true;onair.textContent='CONNECTING…';
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:mics.value?{exact:mics.value}:undefined,echoCancellation:true,noiseSuppression:true}});
+      track=stream.getAudioTracks()[0];
+      listMics(mics.value); // labels appear after grant
+      actx=new (window.AudioContext||window.webkitAudioContext)();
+      var an=actx.createAnalyser();an.fftSize=512;actx._an=an;
+      actx.createMediaStreamSource(stream).connect(an);
+      levelLoop();
+      pc=new RTCPeerConnection();
+      pc.addTransceiver(track,{direction:'sendonly'});
+      var offer=await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await new Promise(function(r){ // wait for ICE gather (non-trickle WHIP)
+        if(pc.iceGatheringState==='complete')return r();
+        var t=setTimeout(r,2000);
+        pc.addEventListener('icegatheringstatechange',function(){if(pc.iceGatheringState==='complete'){clearTimeout(t);r()}});
+      });
+      var resp=await fetch(WHIP,{method:'POST',headers:{'Content-Type':'application/sdp'},body:pc.localDescription.sdp});
+      if(!resp.ok)throw new Error('WHIP HTTP '+resp.status);
+      resource=resp.headers.get('Location');
+      await pc.setRemoteDescription({type:'answer',sdp:await resp.text()});
+      onair.textContent='&#9210;'.replace(/.*/,'')||'';
+      onair.innerHTML='&#9679; ON AIR — click to stop';
+      onair.classList.add('live');onair.disabled=false;
+      cough.disabled=false;
+    }catch(e){
+      fail('publish: '+e.message);stop(true);
+    }
+  }
+  function stop(silent){
+    cancelAnimationFrame(raf);meter.style.width='0%';
+    if(resource){try{fetch(new URL(resource,WHIP).href,{method:'DELETE'})}catch(e){}resource=null}
+    if(pc){try{pc.close()}catch(e){}pc=null}
+    if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
+    if(actx){try{actx.close()}catch(e){}actx=null}
+    track=null;
+    onair.classList.remove('live');onair.textContent='GO ON AIR';onair.disabled=false;
+    cough.disabled=true;cough.classList.remove('held');
+  }
+  onair.addEventListener('click',function(){pc?stop():start()});
+  // cough: hold-to-mute (mouse + touch)
+  function coughOn(){if(track){track.enabled=false;cough.classList.add('held')}}
+  function coughOff(){if(track){track.enabled=true;cough.classList.remove('held')}}
+  cough.addEventListener('mousedown',coughOn);cough.addEventListener('mouseup',coughOff);
+  cough.addEventListener('mouseleave',coughOff);
+  cough.addEventListener('touchstart',function(e){e.preventDefault();coughOn()});
+  cough.addEventListener('touchend',coughOff);
+
+  // engine + mix status
+  function poll(){
+    fetch('/api/mxl/voice-status').then(function(r){return r.json()}).then(function(s){
+      var eng=s.running?'<b style="color:#23d97c">running</b>':'<b style="color:#ff8f92">stopped</b>';
+      fetch('/api/mxl/audio-state').then(function(r){return r.json()}).then(function(a){
+        var v=a.voice||{};
+        stat.innerHTML='engine: '+eng+' · mix: COM fader <b>'+(v.vol!=null?v.vol:'—')+'</b>'+(v.mute?' <b style="color:#ff8f92">(muted by producer)</b>':'');
+      });
+    }).catch(function(){stat.textContent='engine: unreachable'});
+  }
+  poll();setInterval(poll,5000);
+})();
+</script>
+</body></html>
