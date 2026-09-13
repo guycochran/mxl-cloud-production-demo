@@ -118,6 +118,12 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-ro
 #fin .flag,#fout .flag{position:absolute;top:0;font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 4px;color:#04121a}
 #fin .flag{left:0;background:var(--in);border-radius:0 4px 4px 0}
 #fout .flag{right:0;background:var(--out);border-radius:4px 0 0 4px}
+/* waveform lane (PGM audio) — shares the detail time axis */
+#wavewrap{position:relative;height:46px;border-radius:6px;overflow:hidden;background:#05070c;border:1px solid var(--line)}
+#wave{position:absolute;inset:0;width:100%;height:100%;display:block}
+#wavewrap .wlbl{position:absolute;left:7px;top:5px;z-index:2;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--faint);pointer-events:none}
+#wband{position:absolute;top:0;bottom:0;display:none;background:rgba(0,229,199,.10);border-left:2px solid var(--in);border-right:2px solid var(--out);pointer-events:none}
+#wph{position:absolute;top:0;bottom:0;width:2px;background:var(--play);opacity:.85;pointer-events:none;z-index:3}
 #ph{position:absolute;top:0;bottom:0;width:2px;background:var(--play);box-shadow:0 0 6px rgba(255,255,255,.5);pointer-events:none;z-index:3}
 #ph::before{content:"";position:absolute;top:0;left:-4px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--play)}
 #hover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.4);display:none;pointer-events:none}
@@ -220,6 +226,8 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
       <div id="hover"></div>
       <div id="ph"></div>
     </div>
+    <div id="wavewrap"><span class="wlbl">PGM AUDIO</span><canvas id="wave"></canvas>
+      <div id="wband"></div><div id="wph"></div></div>
     <div id="htip"><div id="htipimg"></div><div id="htipt">--:--:--:--</div></div>
     <div class="tlctl">
       <span class="lbl">Zoom</span>
@@ -403,8 +411,51 @@ function renderStrip(){
     html+='<div class="frm" style="width:'+FRMW+'px;'+layers+';'+sizes+';'+poss+';background-repeat:no-repeat"></div>';
   }
   film.innerHTML=html;
-  renderRuler(v); renderMarks(v); renderPlayhead(v);
+  renderRuler(v); renderMarks(v); renderPlayhead(v); renderWave(v);
 }
+/* ═══ PGM AUDIO waveform ═══ */
+var peakCache=[], peakCacheAt=0, peakRange=null;
+function fetchPeaks(v){
+  // pull a slightly padded window; cache 800ms so scrub doesn't hammer the API
+  var lo=Math.floor(v.lo-2), hi=Math.ceil(v.hi+2), now=Date.now();
+  if(peakRange && lo>=peakRange[0] && hi<=peakRange[1] && now-peakCacheAt<800) return;
+  peakCacheAt=now; peakRange=[lo,hi];
+  fetch('/api/mxl/peaks?from='+lo+'&to='+hi).then(function(r){return r.json()})
+    .then(function(j){ peakCache=j.samples||[]; drawWave(viewRange()); }).catch(function(){});
+}
+function drawWave(v){
+  var c=$('wave'); if(!c)return; var wrap=$('wavewrap');
+  var W=wrap.clientWidth||900, H=wrap.clientHeight||46, dpr=Math.min(2,window.devicePixelRatio||1);
+  if(c.width!==W*dpr||c.height!==H*dpr){c.width=W*dpr;c.height=H*dpr;}
+  var g=c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  var mid=H/2+3;
+  // faint centre line
+  g.strokeStyle='rgba(137,148,168,.18)'; g.beginPath(); g.moveTo(0,mid); g.lineTo(W,mid); g.stroke();
+  if(!peakCache.length){ g.fillStyle='rgba(137,148,168,.4)'; g.font='11px ui-monospace,monospace';
+    g.fillText(peakRange? 'no audio in this range' : 'waiting for PGM audio…', 10, mid+4); return; }
+  // draw filled mirrored bars, one per screen column, max-pooling the samples in it
+  var sig=getComputedStyle(document.documentElement).getPropertyValue('--signal').trim()||'#00e5c7';
+  g.fillStyle=sig; g.globalAlpha=.9;
+  var cols=Math.floor(W), i0=0;
+  for(var x=0;x<cols;x++){
+    var t0=v.lo+(x/W)*v.span, t1=v.lo+((x+1)/W)*v.span, amp=0, hit=false;
+    for(var i=i0;i<peakCache.length;i++){ var pt=peakCache[i][0];
+      if(pt<t0){i0=i;continue;} if(pt>t1)break; if(peakCache[i][1]>amp)amp=peakCache[i][1]; hit=true; }
+    if(!hit)continue;
+    var h=Math.max(1,amp*(H/2-4));
+    g.fillRect(x,mid-h,1,h*2);
+  }
+  g.globalAlpha=1;
+  // sync waveform overlays with the strip
+  var wband=$('wband');
+  if(inE!=null&&outE!=null&&outE>inE){var a=Math.max(0,(inE-v.lo)/v.span),b=Math.min(1,(outE-v.lo)/v.span);
+    wband.style.display='block';wband.style.left=(a*100)+'%';wband.style.width=((b-a)*100)+'%';}
+  else wband.style.display='none';
+  var cur=curEpoch(), wph=$('wph');
+  if(cur!=null&&cur>=v.lo&&cur<=v.hi){wph.style.display='block';wph.style.left=(((cur-v.lo)/v.span)*100)+'%';}
+  else wph.style.display='none';
+}
+function renderWave(v){ fetchPeaks(v); drawWave(v); }
 function renderRuler(v){
   var r=$('ruler'), stripW=$('strip').clientWidth||900; r.innerHTML='';
   // choose a nice tick interval for the span
@@ -507,7 +558,9 @@ $('tc').onclick=function(){ stopShuttle(); vid.pause();
 (function tick(){ if(winDur>0){ var ep=curEpoch();
   if(ep!=null){ var t=tc(ep); if(t!=='--:--:--:--'){ $('tc').innerHTML=t.h+':'+t.m+':'+t.s+'<span class="ff">:'+t.f+'</span>';
     if(!dragging&&shuttle===0)$('tcbig').textContent=t.h+':'+t.m+':'+t.s+':'+t.f; }
-    renderPlayhead(viewRange()); $('ovplay').style.display='block';
+    var vr=viewRange(); renderPlayhead(vr); $('ovplay').style.display='block';
+    // waveform playhead tracks live too (cheap — just a div move, no redraw)
+    var wph=$('wph'); if(ep>=vr.lo&&ep<=vr.hi){wph.style.display='block';wph.style.left=(((ep-vr.lo)/vr.span)*100)+'%';}else wph.style.display='none';
     if(ov&&winDur){var span=ov.end-ov.start;$('ovplay').style.left=(((ep-ov.start)/span)*100)+'%';}
   } }
   requestAnimationFrame(tick); })();
