@@ -1,36 +1,55 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Office Hours × MXL — Live Cloud Production</title><style>
+<title>MXL Switcher — Live Cloud Production</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* ── MXL SWITCHER skin (2026-09-13). Visual only: every ID/class the JS
+   touches is unchanged. Amber = brand/controls, cyan = telemetry, tally
+   red/green = sacred. Fonts fall back to system if the CDN is unreachable. */
+:root{--bg:#05070c;--panel:#0b1018;--panel2:#101725;--line:#1d2940;--ink:#e8eeff;--dim:#7e8aa8;--amber:#ffb400;--cyan:#35e0ff;--acc:#5b8cff;--acc2:#9d6bff}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#080b14;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
-header{flex:0 0 auto;padding:11px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #1a2338;background:linear-gradient(90deg,#0c1220,#0a0e1a)}
-header .brand{font-size:16px;font-weight:750;letter-spacing:.2px;white-space:nowrap}
-header .brand span{color:#ffb400}
-header .tag{font-size:12px;color:#8b96b5;line-height:1.4;margin-top:2px}
-header .live{margin-left:auto;font-size:11px;color:#28d17c;white-space:nowrap;display:flex;align-items:center;gap:6px}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden}
+header{position:relative;flex:0 0 auto;padding:10px 20px 14px;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,#0a0f1a,#070b13)}
+header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,var(--acc),var(--acc2) 40%,transparent 75%);opacity:.55;pointer-events:none}
+header .brand{font-family:'Barlow Condensed',system-ui,sans-serif;font-size:26px;font-weight:700;letter-spacing:1.5px;white-space:nowrap;text-transform:uppercase;line-height:1}
+header .brand span{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+header .tag{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:var(--dim);line-height:1.5;margin-top:4px;letter-spacing:.2px}
+header .live{margin-left:auto;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:#28d17c;white-space:nowrap;display:flex;align-items:center;gap:6px}
 header .live .dot{width:8px;height:8px;border-radius:50%;background:#28d17c;box-shadow:0 0 8px #28d17c;animation:p 1.6s ease-in-out infinite}
 @keyframes p{50%{opacity:.35}}
+/* signature: the real signal chain as the masthead's only ornament */
+#sigpath{position:absolute;left:0;right:0;bottom:0;height:14px;display:flex;align-items:center;gap:0;padding:0 20px;pointer-events:none}
+#sigpath .seg{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8px;font-weight:600;letter-spacing:1px;color:var(--dim);opacity:.55;white-space:nowrap}
+#sigpath .wire{flex:1 1 auto;height:1px;background:var(--line);margin:0 7px;position:relative;overflow:hidden;min-width:14px}
+#sigpath .wire::after{content:"";position:absolute;top:0;bottom:0;left:-40px;width:40px;background:linear-gradient(90deg,transparent,var(--acc2));opacity:.6;animation:grain 7s linear infinite}
+@keyframes grain{to{left:100%}}
+@media (prefers-reduced-motion:reduce){#sigpath .wire::after{animation:none;display:none}header .live .dot{animation:none}}
+@media (max-width:760px){#sigpath .seg{display:none}#sigpath .wire{margin:0 2px}}
 main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 .pane{position:relative;min-height:0}
 .feed{background:#000;border-right:1px solid #1a2338}
 .feed iframe,.ctrl iframe{width:100%;height:100%;border:0;display:block}
-.badge{position:absolute;left:14px;bottom:12px;background:rgba(8,11,20,.74);backdrop-filter:blur(4px);padding:7px 12px;border-radius:8px;font-size:12px;color:#cfd8ef;border-left:3px solid #ffb400;pointer-events:none;z-index:3;max-width:80%}
+.badge{position:absolute;left:14px;bottom:12px;background:rgba(8,11,20,.74);backdrop-filter:blur(4px);padding:7px 12px;border-radius:8px;font-size:12px;color:#cfd8ef;border-left:3px solid var(--acc);pointer-events:none;z-index:3;max-width:80%}
 .feed{display:flex;flex-direction:column}
 .feedview{position:relative;flex:1 1 auto;min-height:0}
 .feedview iframe{width:100%;height:100%;border:0;display:block}
 .mxlbar{flex:0 0 auto;display:flex;align-items:stretch;gap:10px;padding:8px 14px;background:#0c1220;border-top:1px solid #1a2338;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
 .mxlbar::-webkit-scrollbar{display:none}
 .mxlbar .lbl{font-size:10px;font-weight:700;letter-spacing:.7px;color:#8b96b5;text-transform:uppercase}
-.mxlbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:6px 12px;cursor:pointer;transition:all .12s}
+/* backlit-key treatment: subtle top bevel + drop, like rubber keys on a desk */
+.mxlbar button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:linear-gradient(#151d31,#111828);border:1px solid #26314d;border-radius:6px;padding:6px 12px;cursor:pointer;transition:all .12s;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.5)}
 .mxlbar button:hover{border-color:#3c4a70;background:#182238}
+.mxlbar button:active{transform:translateY(1px);box-shadow:inset 0 1px 3px rgba(0,0,0,.5)}
+.mxlbar button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 .mxlbar button:disabled{opacity:.4;cursor:not-allowed}
 .mxlbar #keybtn.on{background:#28d17c;border-color:#28d17c;color:#08130c}
-.mxlbar select{font:inherit;font-size:12px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:7px;padding:6px 9px;cursor:pointer}
-.mxlbar #mxlmsg{font-size:11px;color:#8b96b5;white-space:nowrap;min-width:56px}
+.mxlbar select{font:inherit;font-size:12px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:6px 9px;cursor:pointer}
+.mxlbar #mxlmsg{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:#8b96b5;white-space:nowrap;min-width:56px}
 /* ── ATEM-style buses: red = PROGRAM (on air), green = PREVIEW (armed next) ── */
 .buses{display:flex;flex-direction:column;gap:5px;justify-content:center}
 .bus{display:flex;gap:5px;align-items:center}
-.bus .blbl{flex:0 0 32px;font-size:9px;font-weight:800;letter-spacing:.6px;text-align:right}
+.bus .blbl{flex:0 0 36px;font-family:'Barlow Condensed',system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;text-align:right}
 .bus.pgmrow .blbl{color:#e5484d}
 .bus.pvwrow .blbl{color:#28d17c}
 .bus .src{min-width:86px;white-space:nowrap;font-size:11px;padding:5px 9px}
@@ -40,17 +59,17 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 .bus.pgmrow .src.on{background:#e5484d;border-color:#e5484d;color:#fff;box-shadow:0 0 10px rgba(229,72,77,.55)}
 .bus.pvwrow .src.on{background:#28d17c;border-color:#28d17c;color:#08130c;box-shadow:0 0 10px rgba(40,209,124,.45)}
 .bus .src.nofeed{opacity:.35;cursor:not-allowed}
-#cutbtn{align-self:stretch;min-width:64px;font-size:14px;font-weight:800;letter-spacing:1px;background:#1a2338;border:1px solid #3c4a70;border-radius:9px;color:#eef2ff}
-#cutbtn:hover{background:#e5484d;border-color:#e5484d}
+#cutbtn{align-self:stretch;min-width:68px;font-family:'Barlow Condensed',system-ui,sans-serif;font-size:19px;font-weight:700;letter-spacing:2.5px;background:linear-gradient(#1d2740,#161f33);border:1px solid #3c4a70;border-radius:8px;color:#eef2ff;box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 2px 4px rgba(0,0,0,.5)}
+#cutbtn:hover{background:#e5484d;border-color:#e5484d;box-shadow:0 0 16px rgba(229,72,77,.4)}
 .sidecol{display:flex;flex-direction:column;gap:5px;justify-content:center}
 .sidecol .row{display:flex;gap:6px;align-items:center}
 .mixlbl{font-size:9px;font-weight:800;color:#8b96b5}
-.af{width:56px;accent-color:#0e6ad9}
+.af{width:56px;accent-color:var(--acc)}
 .am{font-size:10px;font-weight:800;padding:3px 7px !important;border-radius:5px !important}
 .am.on{background:#e5484d !important;border-color:#e5484d !important;color:#fff !important}
 /* contributor panel */
 #contrib{position:absolute;right:12px;bottom:76px;z-index:6;background:#0c1220;border:1px solid #26314d;border-radius:11px;padding:13px 15px;width:430px;max-width:92%;box-shadow:0 10px 32px rgba(0,0,0,.6);display:none}
-#contrib h3{font-size:13px;color:#ffb400;margin-bottom:6px}
+#contrib h3{font-size:13px;color:var(--acc2);margin-bottom:6px}
 #contrib .u{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:#080b14;border:1px solid #26314d;border-radius:7px;padding:7px 9px;color:#cfd8ef;word-break:break-all;margin:5px 0}
 #contrib p{font-size:11px;color:#8b96b5;line-height:1.5}
 #contrib .st{font-size:11px;font-weight:700;margin-top:6px}
@@ -70,7 +89,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
      never buried. */
   #mtabs{display:flex;flex:0 0 auto;gap:0;background:#0c1220;border-bottom:1px solid #1a2338}
   #mtabs button{flex:1 1 0;font-size:14px;font-weight:700;padding:12px 8px;background:transparent;border:0;border-bottom:3px solid transparent;color:#8b96b5;border-radius:0}
-  #mtabs button.on{color:#eef2ff;border-bottom-color:#ffb400}
+  #mtabs button.on{color:#eef2ff;border-bottom-color:var(--acc)}
   main{display:flex;flex-direction:column;min-height:0}
   .feed{border-right:0;min-height:0;flex-direction:column}
   .feedview{height:38vh;flex:0 0 auto;border-bottom:1px solid #1a2338}
@@ -89,13 +108,16 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 </style></head><body>
 <header>
   <div>
-    <div class="brand">Office Hours <span>×</span> MXL &mdash; Live Cloud Production</div>
-    <div class="tag">This camera feed is flowing through an <b style="color:#cfd8ef">MXL shared-memory domain in Microsoft Azure</b> &mdash; graphics keyed in the cloud. Drive the real camera on the right. &rarr;</div>
+    <div class="brand"><span>MXL</span> Switcher</div>
+    <div class="tag">an Office Hours Global production &middot; every frame you see crosses an <b style="color:#cfd8ef">MXL shared-memory domain in Azure</b> &mdash; cut it yourself, drive the real camera &rarr;</div>
   </div>
   <div class="live" style="gap:14px"><a id="vmhealth" href="/mxl-health.html" style="color:#8b96b5;white-space:nowrap;text-decoration:none" title="Azure VM running the MXL domain — click for the full health board">&#9679; VM &mdash;</a><span style="display:flex;align-items:center;gap:6px"><span class="dot"></span>LIVE &middot; camera in U.S. studio</span></div>
   <a class="live" href="/mxl-tams.html" title="Everything here is being recorded into a time-addressable store — scrub it, clip it" style="margin-left:14px;color:#ff8f92;text-decoration:none"><span class="dot" style="background:#e5484d;box-shadow:0 0 8px #e5484d"></span>REC</a>
   <a class="live" href="/mxl-stream.html" title="Push the program out — YouTube / RTMP / SRT" style="margin-left:12px;color:#8b96b5;text-decoration:none">&#128225; OUTPUT</a>
   <button id="v60" title="Swap the big view: produced MXL program (30p + cloud graphics) vs the camera&#39;s native 1080p60 straight off SRT — zero transcode anywhere" style="margin-left:14px;font:inherit;font-size:11px;font-weight:700;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:4px 10px;cursor:pointer;white-space:nowrap">&#127902; 60p direct</button>
+  <div id="sigpath" aria-hidden="true">
+    <span class="seg">CAM&middot;SRT</span><span class="wire"></span><span class="seg">INGEST</span><span class="wire"></span><span class="seg">SHM&nbsp;DOMAIN</span><span class="wire"></span><span class="seg">KEYER</span><span class="wire"></span><span class="seg">ENCODER</span><span class="wire"></span><span class="seg">WEBRTC</span><span class="wire"></span><span class="seg" style="color:#35e0ff;opacity:.8">YOU</span>
+  </div>
 </header>
 <!-- mobile-only tab bar: keeps the feed on top and puts the PTZ controls one
      clearly-labelled tap away at full width (they were cramped below the fold

@@ -1,12 +1,15 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MXL Multiview — 9-up</title><style>
+<title>MXL Switcher — Multiview</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#05070d;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
 header{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:6px 12px;background:#0c1220;border-bottom:1px solid #1a2338}
-header .t{font-size:12px;font-weight:750;letter-spacing:.4px}
-header .t span{color:#ffb400}
-header .hint{font-size:10px;color:#8b96b5}
+header .t{font-family:'Barlow Condensed',system-ui,sans-serif;font-size:17px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase}
+header .t span{background:linear-gradient(90deg,#5b8cff,#9d6bff);-webkit-background-clip:text;background-clip:text;color:transparent}
+header .hint{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9.5px;color:#8b96b5}
 header .leg{margin-left:auto;display:flex;gap:12px;font-size:10px;font-weight:700;color:#8b96b5;white-space:nowrap;align-items:center}
 header .leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 #modebtn{font:inherit;font-size:10px;font-weight:700;color:#8b96b5;background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:3px 9px;cursor:pointer}
@@ -46,7 +49,7 @@ body.tiles #wall{display:none}
 .tile.util{cursor:default;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
 </style></head><body>
 <header>
-  <div class="t">MXL <span>MULTIVIEW</span></div>
+  <div class="t"><span>MXL</span> Switcher &middot; Multiview</div>
   <div class="hint" id="hint">rendered out of MXL shared memory in Azure &middot; click a tile to arm PREVIEW</div>
   <div class="leg"><span><i style="background:#e5484d"></i>PROGRAM</span><span><i style="background:#28d17c"></i>PREVIEW</span><button id="modebtn" title="switch between the MXL-composited wall and per-source tiles">tiles view</button></div>
 </header>
