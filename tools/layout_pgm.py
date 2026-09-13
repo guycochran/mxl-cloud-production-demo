@@ -299,8 +299,17 @@ def run_fade(f, ctl):
         _post(DONE_URL, {'id': f['id']})
 
 
-def take_check(want):
-    time.sleep(2.5)
+def take_check(want, key, ctl):
+    # 9/13 respawn-storm fix (the "2-up takes forever" complaint): the 2.5s
+    # grace false-fired on branches still warming after a respawn (~3s for
+    # cam, longer for guests over the fabric), and rapid dropdown changes
+    # left STALE checkers alive that killed the engine for selections the
+    # user had already moved past. Each kill = ~10-15s rebuild = a storm.
+    # 7s grace covers real warm-up; the key guard retires stale checkers;
+    # a real wedge still dies here — just 4.5s later than before.
+    time.sleep(7.0)
+    if ctl['cur'] != key:
+        return  # user changed the layout since this checker was armed
     now = time.monotonic()
     dead = [i for i in set(want.values()) if now - last_buf[i] > 2.0]
     if not dead:
@@ -313,7 +322,7 @@ def take_check(want):
     except Exception:
         return  # can't verify — the slower guarded checks will handle it
     wedged = [SLOTS[i] for i in dead if live.get(SLOTS[i])]
-    if wedged:
+    if wedged and ctl['cur'] == key:
         print(f'take-check: newly selected {wedged} silent with LIVE writers — '
               f'immediate exit for fresh attach', flush=True)
         import os
@@ -374,7 +383,7 @@ def control():
                 # whole engine (9/12 evening, 'newly selected [cam] silent').
                 if ctl.get('applied_once'):
                     threading.Thread(target=take_check,
-                                     args=({k: active[k] for k in onkeys},), daemon=True).start()
+                                     args=({k: active[k] for k in onkeys}, key, ctl), daemon=True).start()
                 ctl['applied_once'] = True
                 print(f'layout -> {style} A={a} B={b} C={c} D={d}', flush=True)
         except Exception:
@@ -413,7 +422,7 @@ def wedge_watch():
         sel_keys = ('a', 'b', 'c', 'd') if cur_style['v'] == '4up' else ('a', 'b')
         for key in sel_keys:
             i = active[key]
-            if last_buf[i] > 0 and now - last_buf[i] > 8:
+            if last_buf[i] > 0 and now - last_buf[i] > 12:  # 8s false-fired during post-respawn warm-up (9/13)
                 # silence is only a WEDGE if the source writer is alive — a
                 # guest whose feed stopped is silent legitimately (the
                 # 43-respawn loop of 9/12: every guest churn respawned us,
@@ -446,7 +455,7 @@ def wedge_watch():
         # that needs them. When the layout is OFF air a respawn costs nothing
         # visible, so heal proactively; on air, leave it to the selected checks.
         onscreen = {active[k] for k in sel_keys}
-        stale = [i for i, t in last_buf.items() if t > 0 and now - t > 15 and i not in onscreen]
+        stale = [i for i, t in last_buf.items() if t > 0 and now - t > 30 and i not in onscreen]  # 15s churned during warm-up (9/13)
         if stale:
             try:
                 req = _rq.Request('https://prodbots.com/api/mxl/status',
