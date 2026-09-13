@@ -1,0 +1,399 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Clipper — Time-Addressable Media Store</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
+<script src="/vendor/ffmpeg/ffmpeg.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#080b14;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto;padding:11px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #1a2338;background:linear-gradient(90deg,#0c1220,#0a0e1a)}
+header .brand{font-size:16px;font-weight:750;white-space:nowrap}
+header .brand span{color:#35e0ff}
+header .tag{font-size:12px;color:#8b96b5;line-height:1.4;margin-top:2px}
+header .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+header .live{font-size:11px;color:#28d17c;white-space:nowrap;display:flex;align-items:center;gap:6px}
+header .live .dot{width:8px;height:8px;border-radius:50%;background:#28d17c;box-shadow:0 0 8px #28d17c;animation:p 1.6s ease-in-out infinite}
+@keyframes p{50%{opacity:.35}}
+main{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+/* the viewer: shows the current scrub frame (sprite while dragging, video on pause/preview) */
+#stage{flex:1 1 auto;position:relative;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#vid{max-width:100%;max-height:100%;width:auto;height:auto;background:#000;object-fit:contain}
+#frame{position:absolute;inset:0;display:none;background:#000 center/contain no-repeat}
+#bigtime{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font:700 clamp(18px,3.2vw,30px) ui-monospace,Menlo,monospace;color:#ffb400;background:rgba(8,11,20,.82);padding:4px 16px;border-radius:9px;letter-spacing:1px;pointer-events:none}
+#bigdur{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:none;font:800 clamp(24px,4.4vw,44px) ui-monospace,Menlo,monospace;color:#28d17c;background:rgba(8,11,20,.85);padding:6px 22px;border-radius:11px;box-shadow:0 4px 18px rgba(0,0,0,.5);letter-spacing:1px;pointer-events:none}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5b6885;font-size:13px;background:#000}
+/* the scrub track */
+.tl{flex:0 0 auto;padding:12px 18px 6px;background:#0c1220;border-top:1px solid #1a2338}
+#scrub{position:relative;height:34px;cursor:pointer;touch-action:none;user-select:none}
+#scrub .rail{position:absolute;left:0;right:0;top:14px;height:6px;background:#1a2338;border-radius:3px}
+#clipband{display:none;position:absolute;top:14px;height:6px;background:rgba(255,180,0,.28);border-left:2px solid #28d17c;border-right:2px solid #e5484d}
+#mkin,#mkout{display:none;position:absolute;top:6px;width:2px;height:22px}
+#mkin{background:#28d17c}#mkout{background:#e5484d}
+#mkin>i{position:absolute;top:-1px;left:0;width:9px;height:8px;background:#28d17c;border-radius:0 2px 2px 0}
+#mkout>i{position:absolute;top:-1px;right:0;width:9px;height:8px;background:#e5484d;border-radius:2px 0 0 2px}
+#playhead{position:absolute;top:10px;left:0;width:3px;height:14px;background:#fff;border-radius:2px;box-shadow:0 0 5px rgba(0,0,0,.7);pointer-events:none}
+#ghost{display:none;position:absolute;top:8px;width:1px;height:18px;background:rgba(238,242,255,.55);pointer-events:none}
+/* hover preview thumb */
+#tip{display:none;position:absolute;bottom:40px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:10px;padding:5px;text-align:center;pointer-events:none;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.55)}
+#tipimg{width:288px;height:162px;border-radius:6px;background:#000 center/cover no-repeat}
+#tipt{font-size:12px;font-weight:600;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:4px}
+.hint{font-size:10px;color:#5b6885;margin-top:5px}
+.hint b{color:#8b96b5}
+/* control bar */
+.bar{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 18px 14px;background:#0c1220}
+.bar .grp{font-size:10px;font-weight:800;letter-spacing:.6px;color:#8b96b5;text-transform:uppercase}
+.bar .grp.q{color:#35e0ff}
+.bar .sep{width:1px;height:20px;background:#26314d;margin:0 3px}
+button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:8px;padding:8px 13px;cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){border-color:#3c4a70}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.q{border-color:#35e0ff;color:#35e0ff}
+button.go{border-color:#ffb400;color:#ffb400}
+button.mk{border-color:#3c4a70}
+kbd{font-size:9px;opacity:.55;border:1px solid currentColor;border-radius:3px;padding:0 3px;margin-left:3px}
+#info{font-size:12px;color:#8b96b5;font-variant-numeric:tabular-nums;margin-left:4px}
+#dur{display:none;font:800 22px ui-monospace,Menlo,monospace;color:#28d17c;font-variant-numeric:tabular-nums;margin-left:2px}
+#msg{font-size:12px;color:#35e0ff;margin-left:auto;min-height:16px}
+/* clip bin */
+#bin{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 12px;background:#0c1220}
+.chip{display:flex;align-items:center;gap:7px;background:#131b2e;border:1px solid #26314d;border-radius:8px;padding:5px 8px;font-size:12px}
+.chip .t{color:#cfd8ef}.chip .d{color:#7de8ad;font-variant-numeric:tabular-nums}
+.chip button{padding:3px 7px;font-size:11px}
+/* QR modal */
+#qr{display:none;position:fixed;inset:0;background:rgba(8,11,20,.86);z-index:20;align-items:center;justify-content:center}
+#qrcard{background:#0c1220;border:1px solid #26314d;border-radius:14px;padding:22px;text-align:center;max-width:320px}
+#qrbox{background:#fff;padding:12px;border-radius:10px;display:inline-block}
+#qrcard h3{font-size:14px;margin-bottom:4px}#qrcard .s{font-size:12px;color:#8b96b5;margin-bottom:14px}
+@media(max-width:640px){#tipimg{width:200px;height:112px}.bar{padding:8px 12px 12px}}
+</style></head><body>
+<header>
+  <div>
+    <div class="brand">MXL <span>Clipper</span></div>
+    <div class="tag">Scrub the recorded show by <b style="color:#cfd8ef">time address</b> &middot; mark in/out &middot; grab a clip in your browser</div>
+  </div>
+  <div class="right">
+    <div class="live"><span class="dot"></span><span id="reclbl">connecting…</span></div>
+  </div>
+</header>
+<main>
+  <div id="stage">
+    <video id="vid" muted playsinline></video>
+    <div id="frame"></div>
+    <div id="bigtime">--:--:--</div>
+    <div id="bigdur">0.0s</div>
+    <div id="loading">loading recorder feed…</div>
+  </div>
+  <div class="tl">
+    <div id="scrub">
+      <div class="rail"></div>
+      <div id="clipband"></div>
+      <div id="mkin"><i></i></div>
+      <div id="mkout"><i></i></div>
+      <div id="ghost"></div>
+      <div id="playhead"></div>
+      <div id="tip"><div id="tipimg"></div><div id="tipt">--:--:--</div></div>
+    </div>
+    <div class="hint">drag to scrub &middot; <b>I</b>/<b>O</b> mark in/out &middot; <b>X</b> clear &middot; <b>,</b>/<b>.</b> nudge &plusmn;1s &middot; <b>space</b> play</div>
+  </div>
+  <div class="bar">
+    <span class="grp q">Quick grab</span>
+    <button class="q" id="g10" title="clip the last 10s up to the playhead">&#9889; last 10s</button>
+    <button class="q" id="g30" title="last 30s">30s</button>
+    <button class="q" id="g60" title="last 60s">60s</button>
+    <span class="sep"></span>
+    <span class="grp">Clip</span>
+    <button class="mk" id="in">&#10218; IN<kbd>I</kbd></button>
+    <button class="mk" id="out">OUT<kbd>O</kbd> &#10219;</button>
+    <button id="clr">&#10005; Clear<kbd>X</kbd></button>
+    <button class="go" id="grab" disabled>&#9889; Grab clip</button>
+    <button id="save" disabled>&#128190; Save</button>
+    <button id="qrbtn" disabled>&#128241; Take home</button>
+    <span id="info">no in/out</span>
+    <span id="dur">0.0s</span>
+    <span id="msg"></span>
+  </div>
+  <div id="bin"></div>
+</main>
+<div id="qr"><div id="qrcard"><h3>Scan to take your clip</h3><div class="s" id="qrsub"></div><div id="qrbox"></div><button style="margin-top:14px" id="qrclose">Close</button></div></div>
+
+<script>
+"use strict";
+// ── MXL CLIPPER v2 — a PURE clipper. One pane, one job: scrub the TAMS record,
+// mark in/out, grab a clip in the browser. No live-PGM side, no DVR mode flags.
+// SCRUB uses the low-res proxy flow (cheap decode); the CLIP is cut FULL-res.
+// Thumbnail scrub is storyboard-sprite-based (instant, zero video decode while
+// dragging) — video only moves when you release/preview.
+var $=function(s){return document.getElementById(s)};
+var FLOW_FULL ='7a350001-aaaa-4bbb-8ccc-000000000001';   // full-res → the clip
+var FLOW_PROXY='7a350002-aaaa-4bbb-8ccc-000000000002';   // 480p → the scrub player
+var PROXY_BASE='/tamsapi/flows/'+FLOW_PROXY+'/output.m3u8';
+var FULL_BASE ='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
+var SPRITE='/tamsobj/tams-media/sprites/';   // sprites/<minute>.jpg = 10x6 sec tiles
+var THUMB ='/tamsobj/tams-media/thumbs/';    // thumbs/<epoch>.jpg (fallback)
+var WIN=600;                                 // 10-min scrub window (fully cacheable, snappy)
+
+var vid=$('vid'), frame=$('frame'), scrub=$('scrub');
+var winStart=0, winDur=0, winMedia0=0, frags=[];   // loaded HLS window
+var dragging=false, inE=null, outE=null;
+
+// ── time helpers ──
+function fmtE(e){return e?new Date(e*1000).toISOString().substr(11,8)+'Z':'--:--:--'}
+function fmtDur(s){s=Math.max(0,s);return s<60?s.toFixed(1)+'s':(Math.floor(s/60)+':'+((s%60)<10?'0':'')+(s%60).toFixed(1))}
+function trPart(ep){var s=Math.floor(ep);return s+':'+String(Math.round((ep-s)*1e9)).padStart(9,'0')}
+// media-time (video.currentTime) → wall-clock epoch, gap-accurate via frags
+function mediaToEpoch(m){
+  if(!frags.length) return winStart? winStart+m : null;
+  var lo=0,hi=frags.length-1;
+  while(lo<hi){var mid=(lo+hi+1)>>1; if(frags[mid].start<=m)lo=mid; else hi=mid-1}
+  var f=frags[lo]; return f.programDateTime/1000 + (m-f.start);
+}
+function epochToMedia(ep){
+  for(var i=0;i<frags.length;i++){var f=frags[i], s=f.programDateTime/1000, e=s+(f.duration||1);
+    if(ep>=s && ep<e+0.001) return f.start+(ep-s);}
+  return winMedia0 + (ep-winStart);   // best effort
+}
+function curEpoch(){ if(isFinite(vid.currentTime)){var e=mediaToEpoch(vid.currentTime); if(e!=null)return e;} return null; }
+function fracToEpoch(fr){ return winStart + fr*winDur; }
+function epochToFrac(ep){ return winDur? Math.min(1,Math.max(0,(ep-winStart)/winDur)) : 0; }
+
+// ── HLS scrub player (the PROXY flow) ──
+var hls=null, windowReady=false;
+function load(){
+  if(hls) hls.destroy();
+  windowReady=false;
+  hls=new Hls({lowLatencyMode:false, maxBufferLength:60, backBufferLength:WIN, maxBufferSize:300*1000*1000, maxBufferHole:1.0});
+  hls.on(Hls.Events.ERROR,function(e,d){
+    if(!d.fatal) return;
+    // recover from BOTH network and media fatals; only show a transient notice
+    // (the ruler stays usable — it runs off the parsed playlist, not decode).
+    if(!windowReady) $('reclbl').textContent='connecting…';
+    if(d.type==='networkError'){ hls.startLoad(); }
+    else if(d.type==='mediaError'){ try{hls.recoverMediaError();}catch(x){} }
+    else { setTimeout(load,1500); }
+  });
+  hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
+    if(dragging) return;                       // don't rescale the ruler mid-drag
+    var d=data.details, f=d.fragments;
+    if(!f.length) return;
+    winStart=f[0].programDateTime/1000;
+    winDur=d.totalduration; winMedia0=f[0].start; frags=f;
+    windowReady=true;
+    $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min buffered';
+    paintMarks();
+  });
+  hls.on(Hls.Events.MANIFEST_PARSED,function(){
+    $('loading').style.display='none';
+    setTimeout(function(){ if(isFinite(vid.duration)) vid.currentTime=Math.max(0,vid.duration-6); },500);
+  });
+  hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now());
+  hls.attachMedia(vid);
+}
+load();
+// keep the window current: refresh the playlist periodically so the ruler
+// follows the live edge even when idle (LEVEL_LOADED re-affirms "recording").
+setInterval(function(){ if(!dragging && vid.paused){ hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); } }, 20000);
+
+// ── storyboard sprite scrub preview (instant, no video decode) ──
+var ov=null, ovOK=false, ovAt=0;
+function loadOverview(){
+  if(Date.now()-ovAt<30000) return; ovAt=Date.now();
+  fetch(SPRITE+'overview-12h.json?t='+Date.now()).then(function(r){return r.json()})
+    .then(function(j){ov=j; var im=new Image(); im.onload=function(){ovOK=true}; im.src=SPRITE+'overview-12h.jpg?b='+j.built;})
+    .catch(function(){});
+}
+loadOverview(); setInterval(loadOverview,30000);
+// per-minute sprite: 10x6 grid of 1s tiles, keyed by minute-start epoch
+function spriteFor(ep,el,w,h){
+  var m=ep-(ep%60), i=Math.floor(ep-m);
+  el.style.backgroundImage='url('+SPRITE+m+'.jpg)';
+  el.style.backgroundSize=(w*10)+'px '+(h*6)+'px';
+  el.style.backgroundPosition=(-(i%10)*w)+'px '+(-Math.floor(i/10)*h)+'px';
+}
+// show the frame under the cursor: prefer the per-minute sprite; overview as coarse fallback
+function showFrameAt(ep,big){
+  var el=big?frame:$('tipimg');
+  var w=big?el.clientWidth:288, h=big?el.clientHeight:162;
+  if(!w){w=big?640:288;h=big?360:162;}
+  // try the per-minute sprite (sharp, 1s granularity)
+  var img=new Image();
+  var m=ep-(ep%60);
+  img.onload=function(){ spriteFor(ep,el,w,h); };
+  img.onerror=function(){ // fall back to the coarse 12h overview tile
+    if(ov&&ovOK){ var idx=Math.floor((ep-ov.start)/ov.tileSec); idx=Math.max(0,Math.min(ov.tiles-1,idx));
+      var c=idx%ov.cols, r=Math.floor(idx/ov.cols);
+      el.style.backgroundImage='url('+SPRITE+'overview-12h.jpg)';
+      el.style.backgroundSize=(w*ov.cols)+'px '+(h*ov.rows)+'px';
+      el.style.backgroundPosition=(-c*w)+'px '+(-r*h)+'px';
+    }
+  };
+  img.src=SPRITE+m+'.jpg';
+}
+
+// ── scrub interaction ──
+function evFrac(e){var b=scrub.getBoundingClientRect(); return Math.min(1,Math.max(0,(e.clientX-b.left)/b.width));}
+var seekPending=false, seekTarget=null;
+function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-0.1&&t<=b.end(i)+0.1)return true;}return false;}
+function liveSeek(fr){
+  seekTarget=epochToMedia(fracToEpoch(fr));
+  if(inBuf(seekTarget)){ try{vid.currentTime=seekTarget;}catch(e){} return; }  // instant if buffered
+  if(seekPending) return; seekPending=true;
+  var go=function(){var t=seekTarget,done=false;
+    var fin=function(){if(done)return;done=true;vid.removeEventListener('seeked',fin);clearTimeout(to);
+      if(Math.abs(seekTarget-t)>0.3&&dragging){seekPending=true;go();}else seekPending=false;};
+    var to=setTimeout(fin,500); vid.addEventListener('seeked',fin); try{vid.currentTime=t;}catch(e){fin();}};
+  go();
+}
+function showTip(fr){
+  var b=scrub.getBoundingClientRect(), x=fr*b.width, ep=fracToEpoch(fr);
+  $('ghost').style.display='block'; $('ghost').style.left=x+'px';
+  $('tip').style.display='block';
+  $('tip').style.left=Math.min(b.width-150,Math.max(150,x))+'px';
+  $('tipt').textContent=fmtE(ep);
+  showFrameAt(ep,false);
+  // big overlays on the stage while dragging
+  $('bigtime').textContent=fmtE(ep);
+  if(dragging){ frame.style.display='block'; showFrameAt(ep,true); updateDur(ep); }
+}
+function endScrubView(){ frame.style.display='none'; $('bigdur').style.display='none'; }
+scrub.addEventListener('pointermove',function(e){ var fr=evFrac(e); showTip(fr); if(dragging)liveSeek(fr); });
+scrub.addEventListener('pointerdown',function(e){ dragging=true; scrub.setPointerCapture(e.pointerId); vid.pause();
+  var fr=evFrac(e); showTip(fr); liveSeek(fr); });
+scrub.addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
+  var fr=evFrac(e); try{vid.currentTime=epochToMedia(fracToEpoch(fr));}catch(err){}
+  $('tip').style.display='none'; $('ghost').style.display='none';
+  // let the real video frame settle in, then hide the sprite overlay
+  var s=function(){vid.removeEventListener('seeked',s);clearTimeout(to);endScrubView();};
+  var to=setTimeout(s,900); vid.addEventListener('seeked',s); });
+scrub.addEventListener('pointerleave',function(){ if(!dragging){$('tip').style.display='none';$('ghost').style.display='none';} });
+// playhead + big timecode track the real position
+(function tick(){ if(winDur>0){ var ep=curEpoch();
+  if(ep!=null){ var fr=epochToFrac(ep); $('playhead').style.left='calc('+(fr*100)+'% - 1px)';
+    if(!dragging) $('bigtime').textContent=fmtE(ep); } }
+  requestAnimationFrame(tick); })();
+
+// ── marking ──
+function updateDur(cursorEp){
+  if(inE==null){$('bigdur').style.display='none';return;}
+  var end=(outE!=null?outE:cursorEp), d=end-inE;
+  if(d<=0){$('bigdur').style.display='none';return;}
+  $('bigdur').textContent=fmtDur(d); $('bigdur').style.color=(outE!=null?'#ffb400':'#28d17c'); $('bigdur').style.display='block';
+}
+function paintMarks(){
+  var mkin=$('mkin'),mkout=$('mkout'),band=$('clipband');
+  function place(el,ep){ if(ep==null){el.style.display='none';return;} el.style.left='calc('+(epochToFrac(ep)*100)+'% - 1px)'; el.style.display='block'; }
+  place(mkin,inE); place(mkout,outE);
+  if(inE!=null&&outE!=null&&outE>inE){ var a=epochToFrac(inE),b=epochToFrac(outE);
+    band.style.display='block'; band.style.left=(a*100)+'%'; band.style.width=((b-a)*100)+'%'; }
+  else band.style.display='none';
+}
+function paintClip(){
+  var ok=inE!=null&&outE!=null&&outE>inE;
+  $('info').textContent=(inE!=null?'IN '+fmtE(inE):'no IN')+' · '+(outE!=null?'OUT '+fmtE(outE):'no OUT');
+  if(ok){$('dur').textContent=fmtDur(outE-inE);$('dur').style.display='';}else $('dur').style.display='none';
+  $('grab').disabled=!ok; $('save').disabled=!ok; $('qrbtn').disabled=!ok;
+  paintMarks();
+}
+$('in').onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip();};
+$('out').onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip();};
+$('clr').onclick=function(){inE=outE=null;paintClip();};
+
+// ── ffmpeg.wasm clip engine (self-hosted same-origin; core+wasm blobs, no classWorkerURL) ──
+var _ff=null,_ffL=null;
+function loadFF(msg){
+  if(_ff)return Promise.resolve(_ff); if(_ffL)return _ffL;
+  msg&&msg('loading clip engine (first time)…');
+  var toBlob=function(u,t){return fetch(u).then(function(r){return r.arrayBuffer()}).then(function(b){return URL.createObjectURL(new Blob([b],{type:t}))})};
+  _ffL=(async function(){var v='/vendor/ffmpeg';var ff=new FFmpegWASM.FFmpeg();
+    await ff.load({coreURL:await toBlob(v+'/ffmpeg-core.js','text/javascript'),wasmURL:await toBlob(v+'/ffmpeg-core.wasm','application/wasm')});
+    _ff=ff;return ff;})();
+  return _ffL;
+}
+// fetch the FULL-res playlist for [inE,outE] and take its segment URLs (clip = full quality)
+async function fullSegs(a,b){
+  var pad=2, tr='['+Math.floor(a-pad)+':0_'+Math.ceil(b+pad)+':0)';
+  var txt=await (await fetch(FULL_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+Math.ceil(b-a+2*pad+10))).text();
+  var out=[]; txt.split('\n').forEach(function(l){l=l.trim(); if(l.charAt(0)==='/'||/^https?:/.test(l))out.push(l);});
+  return {urls:out, segStart:Math.floor(a-pad)};
+}
+var CLIP_WARN=240, CLIP_MAX=480, _warned=0;
+async function doClip(a,b,msg){
+  var dur=b-a;
+  if(dur<=0){msg('mark IN then OUT');return;}
+  if(dur>CLIP_MAX){msg('clip is '+fmtDur(dur)+' — too long for in-browser (max '+fmtDur(CLIP_MAX)+'). Use a shorter range.');return;}
+  if(dur>CLIP_WARN&&_warned!==Math.round(dur)){_warned=Math.round(dur);msg('heads up: '+fmtDur(dur)+' is big in-browser — click again to proceed.');return;}
+  var ff=await loadFF(msg);
+  msg('fetching full-res segments…');
+  var fs=await fullSegs(a,b);
+  if(!fs.urls.length){msg('no segments for that range — scrub over the clip first');return;}
+  var bufs=await Promise.all(fs.urls.map(function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error('segment '+r.status);return r.arrayBuffer();});}));
+  var names=[]; for(var i=0;i<bufs.length;i++){var n='s'+i+'.ts';await ff.writeFile(n,new Uint8Array(bufs[i]));names.push(n);}
+  await ff.writeFile('list.txt',new TextEncoder().encode(names.map(function(n){return "file '"+n+"'"}).join('\n')));
+  var ss=Math.max(0,a-fs.segStart);
+  msg('assembling clip…');
+  await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),'-c','copy','-movflags','+faststart','-y','out.mp4']);
+  var data=await ff.readFile('out.mp4');
+  var blob=new Blob([data.buffer],{type:'video/mp4'});
+  var el=document.createElement('a'); el.href=URL.createObjectURL(blob);
+  el.download='mxl-clip-'+Math.floor(a)+'-'+dur.toFixed(0)+'s.mp4';
+  document.body.appendChild(el); el.click(); el.remove();
+  for(var j=0;j<names.length;j++){try{await ff.deleteFile(names[j])}catch(e){}}
+  try{await ff.deleteFile('out.mp4');await ff.deleteFile('list.txt')}catch(e){}
+  msg('⚡ clip ready ('+(data.length/1e6).toFixed(1)+' MB) — downloaded');
+}
+function runClip(a,b,btns){
+  btns.forEach(function(x){if(x)x.disabled=true;}); var t0=Date.now();
+  Promise.resolve().then(function(){return doClip(a,b,function(m){$('msg').textContent=m;});})
+    .catch(function(e){$('msg').textContent='clip failed: '+(e&&e.message||e);})
+    .then(function(){ btns.forEach(function(x){if(x)x.disabled=false;}); paintClip();
+      if(/ready/.test($('msg').textContent)) $('msg').textContent+=' in '+((Date.now()-t0)/1000).toFixed(1)+'s'; });
+}
+$('grab').onclick=function(){ if(inE!=null&&outE!=null) runClip(inE,outE,[$('grab')]); };
+// quick-grab: last N seconds up to the playhead → mark + fire instantly
+function quick(n){ var now=curEpoch(); if(now==null){$('msg').textContent='no playhead yet — scrub first';return;}
+  outE=now; inE=now-n; paintClip(); runClip(inE,outE,[$('g10'),$('g30'),$('g60'),$('grab')]); }
+$('g10').onclick=function(){quick(10)}; $('g30').onclick=function(){quick(30)}; $('g60').onclick=function(){quick(60)};
+
+// ── clip bin (in-memory list; each row re-grabs or downloads) ──
+var bin=[];
+$('save').onclick=function(){ if(inE==null||outE==null)return;
+  var label=prompt('Clip name?','Clip '+fmtE(inE))||('Clip '+fmtE(inE));
+  bin.push({in:inE,out:outE,label:label}); renderBin(); };
+function renderBin(){ var el=$('bin'); el.innerHTML='';
+  bin.forEach(function(c,idx){ var d=document.createElement('div'); d.className='chip';
+    d.innerHTML='<span class="t"></span> <span class="d"></span>';
+    d.querySelector('.t').textContent=c.label; d.querySelector('.d').textContent=fmtDur(c.out-c.in);
+    var g=document.createElement('button'); g.textContent='⚡'; g.title='grab'; g.onclick=function(){runClip(c.in,c.out,[g]);};
+    var q=document.createElement('button'); q.textContent='📱'; q.title='take home'; q.onclick=function(){showQR(c.in,c.out,c.label);};
+    var x=document.createElement('button'); x.textContent='✕'; x.onclick=function(){bin.splice(idx,1);renderBin();};
+    d.appendChild(g); d.appendChild(q); d.appendChild(x); el.appendChild(d); });
+}
+
+// ── take-home QR (client-only; a shareable deep link back to this clipper) ──
+var qr=null;
+function shareUrl(a,b){return location.origin+location.pathname+'?clip='+a+'_'+b;}
+function showQR(a,b,label){ var url=shareUrl(a,b); $('qrbox').innerHTML='';
+  qr=new QRCode($('qrbox'),{text:url,width:200,height:200,correctLevel:QRCode.CorrectLevel.M});
+  $('qrsub').textContent=(label||'Your clip')+' · '+fmtDur(b-a); $('qr').style.display='flex'; }
+$('qrbtn').onclick=function(){ if(inE!=null&&outE!=null)showQR(inE,outE,'Your clip'); };
+$('qrclose').onclick=function(){$('qr').style.display='none'};
+$('qr').onclick=function(e){if(e.target===$('qr'))$('qr').style.display='none'};
+
+// ── keyboard ──
+document.addEventListener('keydown',function(e){ if(/input|textarea/i.test((e.target.tagName||'')))return;
+  var k=e.key.toLowerCase();
+  if(k==='i'){$('in').onclick();}
+  else if(k==='o'){$('out').onclick();}
+  else if(k==='x'){$('clr').onclick();}
+  else if(k===' '){e.preventDefault(); vid.paused?vid.play():vid.pause();}
+  else if(k===','){var t=curEpoch(); if(t!=null){try{vid.currentTime=epochToMedia(t-1);}catch(x){}}}
+  else if(k==='.'){var t2=curEpoch(); if(t2!=null){try{vid.currentTime=epochToMedia(t2+1);}catch(x){}}}
+});
+
+// ── deep link: ?clip=IN_OUT preloads marks ──
+(function(){var m=/[?&]clip=(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)/.exec(location.search);
+  if(m){ setTimeout(function(){inE=parseFloat(m[1]);outE=parseFloat(m[2]);paintClip();
+    try{vid.currentTime=epochToMedia(inE);}catch(e){}},1500); }})();
+paintClip();
+</script>
+</body></html>
