@@ -272,7 +272,11 @@ payloads (`mpegtsmux alignment=7` is mandatory).
 
 ## Build one yourself
 
-Could you stand up your own MXL switcher from this repo? Yes — here's the
+**Fastest path: [docs/QUICKSTART.md](docs/QUICKSTART.md)** — one script,
+fresh Ubuntu VM → cuttable, keyed, browser-watchable MXL switcher in ~10
+minutes (`sudo scripts/quickstart.sh`). Then come back here for the map.
+
+Could you stand up the *full* facility from this repo? Yes — here's the
 honest map of what's here, what's external, and what you'd bring.
 
 **The path:** (1) one Ubuntu VM (AVX required — see FINDINGS §11), Docker,
