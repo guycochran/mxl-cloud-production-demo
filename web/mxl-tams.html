@@ -167,10 +167,20 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       liveMaxLatencyDurationCount:12, // if >12s behind, resync to edge (no permanent stall)
       maxBufferLength:20,backBufferLength:10
     } : {
-      // SCRUB (archive/clip): a long VOD; give hls.js room to seek anywhere
-      // (tight buffers made far seeks clamp back to the start).
+      // SCRUB (archive/clip): the smoothness trick (same as chrissabato/livecut,
+      // which caps ~400MB of segments in memory). Seeks feel instant only when
+      // the frames are ALREADY buffered — a thin buffer means every scrub past it
+      // fetches + decodes and stalls. So hold a big forward+back window in memory
+      // and let hls.js keep up to ~500MB resident; recent history then scrubs with
+      // no network round-trip. maxBufferHole loosened so 1s-segment gaps don't stall.
       lowLatencyMode:false,
-      maxBufferLength:30, backBufferLength:90, maxBufferHole:1.0
+      maxBufferLength:120,            // ~2min ahead kept decoded
+      backBufferLength:600,           // ~10min behind stays resident (scrub back = instant)
+      maxBufferSize:500*1000*1000,    // ~500MB byte cap (livecut uses 400MB) — the real lever
+      maxMaxBufferLength:1200,        // allow growth toward the byte cap on a fast disk
+      maxBufferHole:1.0,
+      highBufferWatchdogPeriod:1,
+      nudgeMaxRetry:8
     });
     hls.on(Hls.Events.ERROR,function(e,d){if(d.fatal)console.log('hls fatal',d.details)});
     hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
@@ -496,11 +506,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // frame under your cursor like a real editor. The big hover thumbnail is the
   // guaranteed feedback; this video-seek is the enhancement on top.
   var seekPending=false, seekTarget=null;
+  // is media-time t already decoded in the video's buffer? (in-buffer seeks are
+  // ~1 frame; out-of-buffer seeks fetch+decode and stall — the old slow feel)
+  function inBuffer(t){var b=v.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-0.1&&t<=b.end(i)+0.1)return true;}return false;}
   function liveScrub(fr){
     if(swapping)return;                                  // source mid-swap — tooltip only
     if(!mseReady())return;                               // MSE still establishing
     seekTarget=fracToMedia(fr);
-    if(seekPending)return;                               // coalesce — one seek in flight
+    // FAST PATH: target already buffered (the big scrub buffer keeps ~10min
+    // resident) → set currentTime NOW, no 'seeked' round-trip. This is what
+    // makes drag-scrub feel native/instant like livecut's fully-buffered player.
+    if(inBuffer(seekTarget)){ try{v.currentTime=seekTarget;}catch(e){} return; }
+    if(seekPending)return;                               // coalesce out-of-buffer seeks
     seekPending=true;
     var doSeek=function(){
       var t=seekTarget, cleared=false;
@@ -642,9 +659,21 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       if(e>inE && s<outE && u) out.push({s:s,url:u});}
     return out;
   }
+  // In-browser assembly holds every segment's bytes in wasm memory at once, so a
+  // very long clip can exhaust the tab (OOM). Warn past ~4min (livecut's ceiling),
+  // hard-stop past ~8min and steer to the server "MP4 (exact)" path which streams.
+  var CLIP_WARN_SEC=240, CLIP_MAX_SEC=480, _clipWarned=0;
   async function fastClip(setMsg){
     if(inE==null||outE==null||outE<=inE){setMsg('mark IN and OUT first');return;}
     if(!fragList.length){setMsg('no segments loaded yet — scrub over the clip first');return;}
+    var dur=outE-inE;
+    if(dur>CLIP_MAX_SEC){
+      setMsg('clip is '+fmtDur(dur)+' — too long for in-browser assembly (max '+fmtDur(CLIP_MAX_SEC)+'). Use ⬇ MP4 (exact) for long clips.');return;
+    }
+    if(dur>CLIP_WARN_SEC && _clipWarned!==Math.round(dur)){
+      _clipWarned=Math.round(dur);   // arm once per length; a second click proceeds
+      setMsg('heads up: '+fmtDur(dur)+' is a big in-browser clip (may be slow / use lots of memory). Click ⚡ again to proceed, or use ⬇ MP4 (exact).');return;
+    }
     var segs=fragsForClip(inE,outE);
     if(!segs.length){
       // window loaded but nothing overlaps: the clip is outside the current
