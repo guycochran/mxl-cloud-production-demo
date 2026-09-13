@@ -47,6 +47,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <div id="scrubview" style="display:none;position:absolute;inset:0;background:#000;z-index:4;opacity:1;transition:opacity .15s">
         <div id="svimg" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#000 no-repeat"></div>
         <div id="svtime" style="position:absolute;left:50%;bottom:16px;transform:translateX(-50%);font:700 26px ui-monospace,Menlo,monospace;color:#ffb400;background:rgba(8,11,20,.82);padding:4px 16px;border-radius:8px">--:--:--</div>
+        <!-- live clip-length badge: grows/shrinks in real time while you scrub with an IN set -->
+        <div id="svdur" style="display:none;position:absolute;left:50%;top:16px;transform:translateX(-50%);font:800 40px ui-monospace,Menlo,monospace;color:#28d17c;background:rgba(8,11,20,.85);padding:6px 22px;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.5);letter-spacing:1px">0.0s</div>
       </div>
     </div>
     <div style="flex:0 0 auto;padding:10px 14px 4px;background:#0c1220;border-top:1px solid #1a2338">
@@ -97,6 +99,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <button id="dlclip" disabled style="border-color:#ffb400;color:#ffb400">&#11015; MP4 (exact)</button>
       <button id="fastclip" disabled style="border-color:#35e0ff;color:#35e0ff" title="Instant clip assembled in your browser from the segments already loaded — no server render">&#9889; Grab clip</button>
       <span id="clipinfo" style="font-size:12px;color:#cfd8ef;font-variant-numeric:tabular-nums">no in/out set</span>
+      <!-- big, always-visible clip length once IN/OUT are set -->
+      <span id="clipdur" style="display:none;font:800 22px ui-monospace,Menlo,monospace;color:#28d17c;font-variant-numeric:tabular-nums;margin-left:6px">0.0s</span>
     </div>
     <div style="flex:0 0 auto;border-top:1px solid #1a2338;background:#0c1220;padding:8px 14px;max-height:150px;overflow-y:auto">
       <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5;margin-bottom:6px">BIN <span id="binempty" style="font-weight:400;text-transform:none;letter-spacing:0">&mdash; no saved clips yet, mark IN/OUT and hit Save</span></div>
@@ -355,7 +359,22 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // frame full-size (instant), like every real editor's seek preview; the
   // video swaps back in once its seek lands after release.
   var svw=document.getElementById('scrubview'),svimg=document.getElementById('svimg'),
-      svt=document.getElementById('svtime'),svActive=false;
+      svt=document.getElementById('svtime'),svd=document.getElementById('svdur'),svActive=false;
+  // fmt a duration in seconds as a big readable clip length (e.g. "1:23.4" or "8.5s")
+  function fmtDur(sec){sec=Math.max(0,sec);
+    if(sec<60)return sec.toFixed(1)+'s';
+    var m=Math.floor(sec/60),s=sec-m*60;return m+':'+(s<10?'0':'')+s.toFixed(1);}
+  // live clip-length badge during a drag: IN→cursor (or IN→OUT once OUT is set)
+  function updateDur(cursorEp){
+    if(inE==null){svd.style.display='none';return;}
+    var end=(outE!=null?outE:cursorEp);
+    var d=end-inE;
+    if(d<=0){svd.style.display='none';return;}
+    svd.textContent=fmtDur(d);
+    // green while building from IN toward the cursor; gold once OUT is locked
+    svd.style.color=(outE!=null?'#ffb400':'#28d17c');
+    svd.style.display='block';
+  }
   function svDims(){var W=svw.clientWidth,H=svw.clientHeight;var w=Math.min(W,H*16/9),h=w*9/16;return{w:w,h:h}}
   function svSprite(ep){var m=ep-ep%60,i=ep-m,d=svDims();
     svimg.style.width=d.w+'px';svimg.style.height=d.h+'px';
@@ -367,7 +386,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     svimg.style.backgroundImage='url('+url+')';
     svimg.style.backgroundSize='contain';svimg.style.backgroundPosition='center';}
   function svShow(){svActive=true;svw.style.display='block';svw.style.opacity=1;}
-  function svHide(){svActive=false;svw.style.opacity=0;setTimeout(function(){if(!svActive)svw.style.display='none';},170);}
+  function svHide(){svActive=false;svd.style.display='none';svw.style.opacity=0;setTimeout(function(){if(!svActive)svw.style.display='none';},170);}
   function svSettleAfterSeek(){
     var done=function(){v.removeEventListener('seeked',done);clearTimeout(to);svHide();};
     var to=setTimeout(done,1500);
@@ -457,6 +476,9 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       : fracToEpoch(fr);
     hovt.textContent=ep?fmtE(ep):'--:--:--';
     if(svActive)svt.textContent=hovt.textContent;
+    // LIVE clip length: once an IN is set, the big green badge shows the clip
+    // duration (IN→cursor, or IN→OUT if OUT is also set) and updates every move.
+    if(svActive && ep!=null) updateDur(ep);
     if(ep){
       if(hovimg.dataset.ep!==String(ep)){
         hovimg.dataset.ep=ep;
@@ -552,7 +574,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // ── clipping ──
   var inE=null,outE=null;
   var si=document.getElementById('setin'),so=document.getElementById('setout'),
-      ci=document.getElementById('clipinfo'),pv=document.getElementById('prevclip'),
+      ci=document.getElementById('clipinfo'),cd=document.getElementById('clipdur'),pv=document.getElementById('prevclip'),
       cl=document.getElementById('copylink'),dl=document.getElementById('dlclip'),
       sv=document.getElementById('saveclip');
   // Mark from the PLAYHEAD (v.currentTime), not hls.playingDate — the latter is
@@ -654,7 +676,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   }
   function paintClip(){
     var ok=inE!=null&&outE!=null&&outE>inE;
-    ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT')+(ok?(' · '+(outE-inE).toFixed(1)+'s'):'');
+    ci.textContent=(inE!=null?('IN '+fmtE(inE)):'no IN')+' · '+(outE!=null?('OUT '+fmtE(outE)):'no OUT');
+    // big always-visible clip length beside the IN/OUT readout
+    if(ok){cd.textContent=fmtDur(outE-inE);cd.style.display='';}
+    else{cd.style.display='none';}
     pv.disabled=cl.disabled=dl.disabled=sv.disabled=!ok;
     document.getElementById('qrclip').disabled=!ok;
     document.getElementById('fastclip').disabled=!ok;
