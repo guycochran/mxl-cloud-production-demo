@@ -105,6 +105,9 @@ button:disabled{opacity:.4;cursor:not-allowed}
       if(!resp.ok)throw new Error('WHIP HTTP '+resp.status);
       resource=resp.headers.get('Location');
       await pc.setRemoteDescription({type:'answer',sdp:await resp.text()});
+      // self-heal: if the MXL consumer started before any publisher existed
+      // it never subscribes — this bounces it only when the flow is missing
+      setTimeout(function(){fetch('/api/mxl/voice-kick',{method:'POST'}).catch(function(){})},2500);
       onair.textContent='&#9210;'.replace(/.*/,'')||'';
       onair.innerHTML='&#9679; ON AIR — click to stop';
       onair.classList.add('live');onair.disabled=false;
