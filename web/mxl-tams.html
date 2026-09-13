@@ -133,8 +133,15 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
 <div class="foot"><b>Keys:</b> <b>I</b>/<b>O</b> mark in/out &middot; <b>space</b> play/pause &middot; <b>&larr;/&rarr;</b> &plusmn;1s (shift &plusmn;10s) &middot; <b>J/K/L</b> shuttle &middot; <b>S</b> save clip &nbsp;|&nbsp; <b>What you're seeing:</b> the program is produced in shared memory on one Azure VM, crosses to a second VM through the MXL Fabrics API, is segmented each second and registered &mdash; with capture-accurate timeranges &mdash; into a TAMS store on a third VM. The scrubber addresses the show by <b>time</b>, not by file. Whole cluster &approx; $1.15/hr.</div>
 <script>
 (function(){
-  var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';
-  var BASE='/tamsapi/flows/'+FLOW+'/output.m3u8';
+  // Two renditions of the SAME program (identical timeranges, NTP-aligned):
+  //  • FULL  — 1080p, ~780KB/s segments — used for the FINAL clip (quality).
+  //  • PROXY — 480x270 ~45KB segments — used for the SCRUB PLAYER only. Tiny
+  //    segments decode ~16x cheaper and a long window fits in cache, so
+  //    scrubbing the proxy is fluid; the clip is still cut from the full flow.
+  var FLOW='7a350001-aaaa-4bbb-8ccc-000000000001';        // full-res (clips)
+  var FLOW_PROXY='7a350002-aaaa-4bbb-8ccc-000000000002';  // low-res scrub proxy
+  var FULL_BASE='/tamsapi/flows/'+FLOW+'/output.m3u8';     // clip assembly reads this
+  var BASE='/tamsapi/flows/'+FLOW_PROXY+'/output.m3u8';    // the SCRUB PLAYER loads this
   var v=document.getElementById('tmv'),at=document.getElementById('attime'),rng=document.getElementById('range'),sc=document.getElementById('segcount');
   var hls=null,mode='live',pinned=false,editHold=false,swapping=false,pendingReleaseFr=null;
   // any actual playback (space, L, native controls) also cancels a pre-warm sweep
@@ -730,6 +737,29 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       if(e>inE && s<outE && u) out.push({s:s,url:u});}
     return out;
   }
+  // The SCRUB player runs the low-res PROXY, but a clip must be FULL quality.
+  // So fetch the FULL-res playlist for exactly the marked timerange and parse
+  // its segment list (PROGRAM-DATE-TIME + URL) — same shape fragsForClip returns.
+  async function fullResSegsForClip(inE,outE){
+    // Ask the gateway for the FULL-res playlist covering exactly [inE,outE] (a
+    // small pad each side for the trim). The gateway already filters to the
+    // timerange, so we just take its segment URLs in order — no PDT parsing
+    // (the gateway's PDT strings don't share the timerange epoch axis, so
+    // matching against them dropped everything). ffmpeg's -ss/-t does the
+    // exact trim against the concatenated run; segStart = inE-pad.
+    var pad=2, segStart=Math.floor(inE-pad);
+    var tr='['+segStart+':0_'+Math.ceil(outE+pad)+':0)';
+    var url=FULL_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+Math.ceil(outE-inE+2*pad+10);
+    var txt=await (await fetch(url)).text();
+    var out=[], lines=txt.split('\n');
+    for(var i=0;i<lines.length;i++){
+      var l=lines[i].trim();
+      if(l.charAt(0)==='/'||/^https?:/.test(l)) out.push({url:l});
+    }
+    // first segment's start ≈ segStart; the ss offset in fastClip uses this.
+    if(out.length) out[0].s=segStart;
+    return out;
+  }
   // In-browser assembly holds every segment's bytes in wasm memory at once, so a
   // very long clip can exhaust the tab (OOM). Warn past ~4min (livecut's ceiling),
   // hard-stop past ~8min and steer to the server "MP4 (exact)" path which streams.
@@ -745,15 +775,15 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       _clipWarned=Math.round(dur);   // arm once per length; a second click proceeds
       setMsg('heads up: '+fmtDur(dur)+' is a big in-browser clip (may be slow / use lots of memory). Click ⚡ again to proceed, or use ⬇ MP4 (exact).');return;
     }
-    var segs=fragsForClip(inE,outE);
-    if(!segs.length){
-      // window loaded but nothing overlaps: the clip is outside the current
-      // playlist window (common in Full-12h before you scrub near the marks).
-      var lo=fragList[0].programDateTime/1000, hi=(fragList[fragList.length-1].programDateTime/1000)+(fragList[fragList.length-1].duration||1);
-      setMsg('clip is outside the loaded window ('+fmtE(lo)+'–'+fmtE(hi)+') — scrub over it first');return;
-    }
     try{
       var ff=await loadFF(setMsg);
+      setMsg('fetching full-res segments…');
+      // Clip is cut from the FULL-res flow (the scrub player is the proxy).
+      var segs=await fullResSegsForClip(inE,outE);
+      if(!segs.length){
+        var lo=fragList.length?fragList[0].programDateTime/1000:inE, hi=fragList.length?(fragList[fragList.length-1].programDateTime/1000)+1:outE;
+        setMsg('no full-res segments for that range — scrub over the clip first (loaded '+fmtE(lo)+'–'+fmtE(hi)+')');return;
+      }
       setMsg('fetching '+segs.length+' segments…');
       // fetch all overlapping segments in parallel, straight from MinIO. Surface
       // any HTTP failure (expired presign, 4xx) instead of failing silently.
