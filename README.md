@@ -1,16 +1,26 @@
-# MXL Cloud Production Demo
+# MXL Switcher
 
-**A complete live broadcast production — real PTZ camera, file playout, test patterns,
-graphics keyer, program audio — running through an [EBU MXL](https://github.com/dmf-mxl/dmf-mxl)
-shared-memory domain on a small Azure cluster (production VM ~$0.77/hr), controllable by anyone with a browser.**
+**A complete live broadcast production — two real cameras, open guest contribution,
+file playout, layouts, graphics keyer, program audio, a native multiview — running
+through an [EBU MXL](https://github.com/dmf-mxl/dmf-mxl) shared-memory domain on a
+small Azure cluster, controllable by anyone with a browser.**
 
 Built by [Office Hours Global](https://officehours.global) ahead of IBC 2026 to show that
 the Dynamic Media Facility vision isn't just for broadcasters with NVIDIA partnerships —
 one person can stand up cloud shared-memory production in a weekend with the open tooling.
 
-**🔴 Try it live: [prodbots.com/mxl.html](https://prodbots.com/mxl.html)** — cut the
-program, change patterns, and pan the *real* camera in the studio. No login. (Running
-through IBC 2026; be kind, it's one VM.)
+**🔴 Try it live: [mxlswitcher.com](https://mxlswitcher.com)** — cut the
+program, build layouts, and pan the *real* camera in the studio. No login. (Running
+through IBC 2026; be kind, it's one VM. The original
+[prodbots.com/mxl.html](https://prodbots.com/mxl.html) URL still works.)
+
+**What it actually costs** (pay-as-you-go, deallocate when idle): the full three-VM
+facility below is **≈ $2.11/hr** — production D32s_v5 $1.54 + contribution D8s_v5
+$0.38 + TAMS island D4s_v5 $0.19. The production VM runs the *entire* switcher
+(both cams, guests, layouts, keyer, encoder, multiview wall, thumbnails) at a
+steady **load ~10–11 of 32 cores**; a D16 ran it before the multiview and second
+camera existed, at ~14/16 — tight. Sizing details in
+[Build one yourself](#build-one-yourself).
 
 ![Live camera through MXL](docs/images/demo-camera.png)
 *Live PTZ camera (US studio) → SRT → MXL domain in Azure → HTML5 graphics keyed in-cloud →
@@ -97,9 +107,11 @@ Measured: **30 grains/s sustained (1080p30 v210, ~1.3 Gbps), zero drops over
 100k+ grains, initiator ~10% of one core, receiving host ~0% CPU** — remote
 writes really do land without target CPU involvement. With both hosts on NTP,
 the remote flow's head index matched the locally-generated flows, so the stock
-input selector briefly cut the *fabric-delivered* flow on air. Whole cluster:
-~$0.95/hr. Details and gotchas (libfabric ≥ 2.x required, TargetInfo sockaddr
-patching for non-routed networks) in [docs/FINDINGS.md](docs/FINDINGS.md).
+input selector briefly cut the *fabric-delivered* flow on air. Whole cluster
+at the time: ~$0.95/hr (the production VM has since grown to a D32 as the
+facility did — current numbers at the top). Details and gotchas (libfabric
+≥ 2.x required, TargetInfo sockaddr patching for non-routed networks) in
+[docs/FINDINGS.md](docs/FINDINGS.md).
 
 ## Update 2: live MXL → TAMS record (EBU's two flagship projects, united)
 
@@ -113,7 +125,7 @@ timerange of the show **while it's still being recorded** — we pulled a frame
 from 11½ minutes in the past whose in-picture cloud-keyed clock matched its
 TAMS timerange to the second. Capture timing preserved from camera → fabric →
 store → playback: live production into time-addressable storage, on the same
-~$1/hr cluster. Bridge code: a ~90-line shipper (segment → presigned PUT →
+then-$1/hr cluster. Bridge code: a ~90-line shipper (segment → presigned PUT →
 `POST /flows/{id}/segments`) plus one ffmpeg segmenter. **Full replication
 recipe — architecture, grain→segment mapping, and eight earned gotchas — in
 [docs/TAMS.md](docs/TAMS.md).**
@@ -146,7 +158,10 @@ This repo adds the glue that made it a *usable remote production*:
 | [`tools/layout_pgm.py`](tools/layout_pgm.py) | **2-up / PiP compositor as a switcher input**: all six sources behind two selectors feeding a compositor; every layout change is a live pad-property flip, so the output flow is never recreated (wedge-proof). Five timestamp iterations documented in-file. |
 | [`tools/guest_ingest.py`](tools/guest_ingest.py) | Open contribution: anyone's SRT (phone/OBS/vMix, any res/fps) conformed to 1080p30 v210, self-announcing so the slot goes live hands-off. |
 | [`tools/guest_audio.py`](tools/guest_audio.py) | Contributor audio companion — pulls the guest's audio across the VNet into its own MXL flow for the mixer. |
-| [`tools/mxl_thumbs.py`](tools/mxl_thumbs.py) | Multiview: per-input JPEG thumbnails rendered from raw grains (no decode), with content-hash detection of repeat-wedged readers. |
+| [`tools/mxl_thumbs.py`](tools/mxl_thumbs.py) | Per-input JPEG thumbnails rendered from raw grains (no decode), with content-hash detection of repeat-wedged readers. |
+| [`tools/mxl_multiview.py`](tools/mxl_multiview.py) | **The multiview wall as an MXL flow**: 8 domain sources → CPU compositor (3×3, v210) → new "Multiview PGM" flow. Hardware-multiviewer architecture in software. |
+| [`tools/mv_encode.py`](tools/mv_encode.py) | The wall's single browser encoder: one x264 leg serves every viewer 8 sources. Pipeline is proven-verbatim — the header explains which parts are load-bearing. |
+| [`tools/grain_probe.py`](tools/grain_probe.py) | Health board: persistent readers on every flow reporting bps + unique-fps — the probe that catches repeat-last-grain wedges. |
 | [`tools/pgm_lite.py`](tools/pgm_lite.py) | 960×540 program copy (~0.33 Gbps) for fabric receivers behind GigE. |
 | [`tools/patch-target-ip.py`](tools/patch-target-ip.py) | The dmf-mxl#714 NAT workaround as a tool: rewrites the sockaddr inside a fabric TargetInfo to a public IP. |
 | [`tools/guest-leg-doctor.sh`](tools/guest-leg-doctor.sh) | 15s two-end healer for the guest fabric legs (initiator wedges *and* the target frozen-slices state). |
@@ -175,7 +190,7 @@ real phone contributors, real visitors, and one full machine crash produced a
 production facility that self-heals around contributor churn:
 
 ```
-        CONTRIBUTION (anyone)                    PRODUCTION (VM1, D16s_v5, 16 cores)
+        CONTRIBUTION (anyone)                    PRODUCTION (VM1, D32s_v5, 32 cores)
 ┌────────────────────────────────┐      ┌───────────────────────────────────────────────┐
 │ Studio PTZ cam  1080p60 H.264 ─┼─SRT──┼─► cam_ingest (frame-threaded decode, 60→30)   │
 │  (camera-native, ZERO local    │ copy │                                               │
@@ -236,6 +251,71 @@ What changed since the diagrams above:
   *today* via `srt://<vm>:8890?streamid=read:mxl2webrtc` — or go MXL-native
   and receive raw grains over the fabric:
   **[docs/JONAS-FABRIC-HANDOFF.md](docs/JONAS-FABRIC-HANDOFF.md)**.
+
+## Update 5: it has a name — MXL Switcher — and an MXL-native multiview
+
+The demo grew a front door (**[mxlswitcher.com](https://mxlswitcher.com)**, a
+fresh control-room UI) and the piece every real switcher has: a **multiview
+wall built the way hardware does it**. [`tools/mxl_multiview.py`](tools/mxl_multiview.py)
+reads all seven inputs *plus the keyed program* straight out of the domain,
+composites a 3×3 wall on the CPU (v210 end-to-end, no source ever decoded),
+and writes it back as a new flow — which
+[`tools/mv_encode.py`](tools/mv_encode.py) encodes **once** for every browser
+viewer. Compose in the domain, encode once: eight sources cost one encoder.
+The wall is itself a peer flow — probeable, recordable, even cuttable.
+Cost: ~2 cores at 15 fps (~3.5 at 30, but see FINDINGS §10 for why the
+production setting is 15: **the multiview is the first thing to de-rate; the
+program is the product**). §10 also documents the three integration
+landmines: aggregator EOS on `ignore-inactive-pads`, tsmux latency handling
+outside `gst-launch`, and MediaMTX silently discarding non-1316-byte SRT
+payloads (`mpegtsmux alignment=7` is mandatory).
+
+## Build one yourself
+
+Could you stand up your own MXL switcher from this repo? Yes — here's the
+honest map of what's here, what's external, and what you'd bring.
+
+**The path:** (1) one Ubuntu VM (AVX required — see FINDINGS §11), Docker,
+the stock [cbcrc/mxl-hands-on](https://github.com/cbcrc/mxl-hands-on)
+containers and [easy-mxl](https://github.com/CLOUDflex-broadcast/easy-mxl)
+give you a working domain with test generator, file player, selector, keyer,
+and WebRTC out — that alone is a cuttable "switcher" with zero code from us.
+(2) Add our tools in this order as you need them: `cam_ingest.py` (a real
+camera as an instantly-cuttable input — the cadence re-stamp in it is the
+single most load-bearing idea in the repo), `mxl_thumbs.py` (preview
+thumbnails), `audio_pgm.py`, `guest_ingest.py` + `guest_audio.py` (open
+contribution), `layout_pgm.py` (2-up/PiP as an input), `mxl_multiview.py` +
+`mv_encode.py` (the wall). (3) [`scripts/bring-up-mxl.sh`](scripts/bring-up-mxl.sh)
+shows the exact assembly order, every pipeline body, and the supervisor
+pattern that keeps it alive; [`backend/mxl-routes.js`](backend/mxl-routes.js)
+is the browser→pipeline control layer; [`web/`](web/) is the UI.
+Read [docs/FINDINGS.md](docs/FINDINGS.md) *before* debugging anything — every
+multi-hour hole we fell into is labeled.
+
+**VM sizing, from measured load** (1080p30 chain):
+
+| Setup | VM | Steady load |
+|---|---|---|
+| Core switcher (1 cam, playout, TG, keyer, encoder) | D8s_v5 (8c) | ~4–6/8 |
+| + 2nd cam, guests, layouts, audio mixer | D16s_v5 (16c) | ~14/16 — works, no headroom |
+| Everything incl. multiview wall + visitors | D32s_v5 (32c) | ~10–11/32 |
+
+Rules of thumb from FINDINGS §9: every `mxlsrc` reader busy-spins toward a
+core even on silence; software HEVC decode is 2–3× H.264 (codec choice is a
+scheduling decision); the CEF keyer needs protected headroom or the program
+freezes first.
+
+**What is NOT in this repo** (you bring your own): the general web backend
+that hosts the routes (any Express app works — `mxl-routes.js` is the MXL
+part); MediaMTX config (near-stock: SRT + WebRTC + RTSP enabled,
+`MTX_WEBRTCADDITIONALHOSTS=<public-ip>`); Cloudflare tunnel / TLS fronting
+(any reverse proxy works — one gotcha: CNAMEs to `cfargotunnel.com` must be
+proxied or CNAME-flattening returns NODATA); API tokens and per-site IPs
+(grep the scripts for obvious placeholders); and the cameras themselves —
+any RTSP or SRT source works, the Makito/PTZ specifics are just our studio.
+Multi-VM (fabric contribution, TAMS recording) is optional and documented in
+[docs/JONAS-FABRIC-HANDOFF.md](docs/JONAS-FABRIC-HANDOFF.md) and
+[docs/TAMS.md](docs/TAMS.md) — start with one VM.
 
 ## The hard-won lessons
 

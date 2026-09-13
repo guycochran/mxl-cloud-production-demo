@@ -211,7 +211,10 @@ Lessons:
   at 1080p30 (fine for graphics) or use a GPU instance.
 - **hls2mxl silently stops at VOD EOS** (status still `running`) and stalls on
   some live-HLS streams; live **RTSP** input works well.
-- **Selector caps at 3 inputs** (hard limit in the Rust backend).
+- **Selector defaults to 3 inputs** — it looked like a hard limit, but it's the
+  container's `MAX_INPUTS` env (we run 7: recreate the input-selector container
+  with `-e MAX_INPUTS=7`; a from-scratch recreation without it silently rejects
+  slots ≥ 3).
 - **Any NAT/cloud WebRTC deployment needs** `MTX_WEBRTCADDITIONALHOSTS=<public-ip>`
   on MediaMTX, or viewers get only private ICE candidates (black video).
 - **Prebuilt images assume AVX.** On a QEMU VM with the default virtual CPU
