@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 # local working copy with live tokens — NEVER commit (public repo)
 backend/server-enhanced.js
+web/vendor/ffmpeg/ffmpeg-core.wasm
