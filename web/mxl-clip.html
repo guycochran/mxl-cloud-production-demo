@@ -1,411 +1,631 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MXL Clipper — Time-Addressable Media Store</title>
+<title>MXL Clipper — the first TAMS non-linear editor</title>
+<meta name="description" content="Browser-native clipper for BBC TAMS / EBU MXL. Scrub a live recording by time address, mark in/out, cut a frame-accurate clip — no server render.">
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs/qrcode.min.js"></script>
 <script src="/vendor/ffmpeg/ffmpeg.js"></script>
 <style>
+/* ============================================================================
+   MXL CLIPPER — broadcast-NLE identity
+   Palette: graded-monitor near-black, cool bias; one "on-air signal" teal
+   accent; reserved editor semantics (IN green / OUT red / playhead white).
+   Type: system grotesque for UI, true monospace for all timecode/data.
+   Layout: source-monitor viewer on top · transport deck · dual timeline
+   (12h overview ribbon + zoomed filmstrip) · clip bin rail.
+   ========================================================================== */
+:root{
+  --void:#0a0e14; --panel:#12161f; --panel2:#1a1f2b; --raise:#20263400;
+  --line:#252c3a; --line2:#323b4d;
+  --ink:#e8ecf4; --dim:#8994a8; --faint:#5a6376;
+  --signal:#00e5c7; --signal-dim:#0b7f72;
+  --in:#3ddc84; --out:#ff5b6a; --play:#ffffff; --rec:#ff3b3b; --warm:#ffb43a;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --r:8px;
+}
+@media (prefers-color-scheme: light){:root{
+  --void:#eef1f6;--panel:#f7f9fc;--panel2:#eaeef5;--line:#d3dae6;--line2:#c0c9d8;
+  --ink:#14202f;--dim:#4b5568;--faint:#7a8496;--signal:#008b7a;--signal-dim:#6fe6d6;
+}}
+:root[data-theme="dark"]{--void:#0a0e14;--panel:#12161f;--panel2:#1a1f2b;--line:#252c3a;--line2:#323b4d;--ink:#e8ecf4;--dim:#8994a8;--faint:#5a6376;--signal:#00e5c7;--signal-dim:#0b7f72;}
+:root[data-theme="light"]{--void:#eef1f6;--panel:#f7f9fc;--panel2:#eaeef5;--line:#d3dae6;--line2:#c0c9d8;--ink:#14202f;--dim:#4b5568;--faint:#7a8496;--signal:#008b7a;--signal-dim:#6fe6d6;}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#080b14;color:#eef2ff;display:flex;flex-direction:column;overflow:hidden}
-header{flex:0 0 auto;padding:11px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #1a2338;background:linear-gradient(90deg,#0c1220,#0a0e1a)}
-header .brand{font-size:16px;font-weight:750;white-space:nowrap}
-header .brand span{color:#35e0ff}
-header .tag{font-size:12px;color:#8b96b5;line-height:1.4;margin-top:2px}
-header .right{margin-left:auto;display:flex;align-items:center;gap:14px}
-header .live{font-size:11px;color:#28d17c;white-space:nowrap;display:flex;align-items:center;gap:6px}
-header .live .dot{width:8px;height:8px;border-radius:50%;background:#28d17c;box-shadow:0 0 8px #28d17c;animation:p 1.6s ease-in-out infinite}
-@keyframes p{50%{opacity:.35}}
-main{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
-/* the viewer: shows the current scrub frame (sprite while dragging, video on pause/preview) */
-#stage{flex:1 1 auto;position:relative;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
-#vid{max-width:100%;max-height:100%;width:auto;height:auto;background:#000;object-fit:contain}
-#frame{position:absolute;inset:0;display:none;background:#000 center/contain no-repeat}
-#bigtime{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font:700 clamp(18px,3.2vw,30px) ui-monospace,Menlo,monospace;color:#ffb400;background:rgba(8,11,20,.82);padding:4px 16px;border-radius:9px;letter-spacing:1px;pointer-events:none}
-#bigdur{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:none;font:800 clamp(24px,4.4vw,44px) ui-monospace,Menlo,monospace;color:#28d17c;background:rgba(8,11,20,.85);padding:6px 22px;border-radius:11px;box-shadow:0 4px 18px rgba(0,0,0,.5);letter-spacing:1px;pointer-events:none}
-#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5b6885;font-size:13px;background:#000}
-/* the scrub track */
-.tl{flex:0 0 auto;padding:12px 18px 6px;background:#0c1220;border-top:1px solid #1a2338}
-#scrub{position:relative;height:34px;cursor:pointer;touch-action:none;user-select:none}
-#scrub .rail{position:absolute;left:0;right:0;top:14px;height:6px;background:#1a2338;border-radius:3px}
-#clipband{display:none;position:absolute;top:14px;height:6px;background:rgba(255,180,0,.28);border-left:2px solid #28d17c;border-right:2px solid #e5484d}
-#mkin,#mkout{display:none;position:absolute;top:6px;width:2px;height:22px}
-#mkin{background:#28d17c}#mkout{background:#e5484d}
-#mkin>i{position:absolute;top:-1px;left:0;width:9px;height:8px;background:#28d17c;border-radius:0 2px 2px 0}
-#mkout>i{position:absolute;top:-1px;right:0;width:9px;height:8px;background:#e5484d;border-radius:2px 0 0 2px}
-#playhead{position:absolute;top:10px;left:0;width:3px;height:14px;background:#fff;border-radius:2px;box-shadow:0 0 5px rgba(0,0,0,.7);pointer-events:none}
-#ghost{display:none;position:absolute;top:8px;width:1px;height:18px;background:rgba(238,242,255,.55);pointer-events:none}
-/* hover preview thumb */
-#tip{display:none;position:absolute;bottom:40px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:10px;padding:5px;text-align:center;pointer-events:none;z-index:6;box-shadow:0 8px 24px rgba(0,0,0,.55)}
-#tipimg{width:288px;height:162px;border-radius:6px;background:#000 center/cover no-repeat}
-#tipt{font-size:12px;font-weight:600;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:4px}
-.hint{font-size:10px;color:#5b6885;margin-top:5px}
-.hint b{color:#8b96b5}
-/* control bar */
-.bar{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 18px 14px;background:#0c1220}
-.bar .grp{font-size:10px;font-weight:800;letter-spacing:.6px;color:#8b96b5;text-transform:uppercase}
-.bar .grp.q{color:#35e0ff}
-.bar .sep{width:1px;height:20px;background:#26314d;margin:0 3px}
-button{font:inherit;font-size:12px;font-weight:600;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:8px;padding:8px 13px;cursor:pointer;white-space:nowrap}
-button:hover:not(:disabled){border-color:#3c4a70}
-button:disabled{opacity:.45;cursor:not-allowed}
-button.q{border-color:#35e0ff;color:#35e0ff}
-button.go{border-color:#ffb400;color:#ffb400}
-button.mk{border-color:#3c4a70}
-kbd{font-size:9px;opacity:.55;border:1px solid currentColor;border-radius:3px;padding:0 3px;margin-left:3px}
-#info{font-size:12px;color:#8b96b5;font-variant-numeric:tabular-nums;margin-left:4px}
-#dur{display:none;font:800 22px ui-monospace,Menlo,monospace;color:#28d17c;font-variant-numeric:tabular-nums;margin-left:2px}
-#msg{font-size:12px;color:#35e0ff;margin-left:auto;min-height:16px}
-/* clip bin */
-#bin{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 12px;background:#0c1220}
-.chip{display:flex;align-items:center;gap:7px;background:#131b2e;border:1px solid #26314d;border-radius:8px;padding:5px 8px;font-size:12px}
-.chip .t{color:#cfd8ef}.chip .d{color:#7de8ad;font-variant-numeric:tabular-nums}
-.chip button{padding:3px 7px;font-size:11px}
+body{font-family:var(--sans);background:var(--void);color:var(--ink);display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font-family:var(--sans);cursor:pointer}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.lbl{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+
+/* ── header / title bar ── */
+header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:9px 16px;background:linear-gradient(180deg,var(--panel2),var(--panel));border-bottom:1px solid var(--line)}
+.mark{display:flex;align-items:center;gap:10px}
+.mark .glyph{width:26px;height:26px;border-radius:6px;background:radial-gradient(circle at 30% 30%,var(--signal),var(--signal-dim));display:grid;place-items:center;box-shadow:0 0 14px -2px var(--signal)}
+.mark .glyph::after{content:"";width:0;height:0;border-left:8px solid var(--void);border-top:5px solid transparent;border-bottom:5px solid transparent;margin-left:2px}
+.mark h1{font-size:14px;font-weight:750;letter-spacing:.01em}
+.mark h1 b{color:var(--signal);font-weight:750}
+.mark .sub{font-size:10.5px;color:var(--dim);margin-top:1px}
+header .spacer{flex:1}
+.badge{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim);padding:5px 11px;border:1px solid var(--line);border-radius:20px;background:var(--panel)}
+.badge .rdot{width:8px;height:8px;border-radius:50%;background:var(--rec);box-shadow:0 0 8px var(--rec);animation:pulse 1.7s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+.ghosts{display:flex;gap:6px}
+.ghost{font-size:11px;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 10px;text-decoration:none}
+.ghost:hover{border-color:var(--line2);color:var(--ink)}
+
+/* ── workspace grid: viewer+bin over transport over timelines ── */
+main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-rows:1fr auto auto;min-height:0;gap:1px;background:var(--line)}
+.viewer{grid-column:1;grid-row:1;position:relative;background:#000;min-height:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#vid{max-width:100%;max-height:100%;width:auto;height:auto;background:#000}
+#placeholder{position:absolute;inset:0;background:#000 center/contain no-repeat;display:none}
+/* overlays */
+.ov{position:absolute;pointer-events:none;font-family:var(--mono);font-variant-numeric:tabular-nums}
+#tcbig{left:50%;bottom:14px;transform:translateX(-50%);font-size:clamp(15px,2.4vw,26px);font-weight:700;color:var(--warm);background:rgba(8,11,20,.78);padding:3px 14px;border-radius:7px;letter-spacing:.06em}
+#durbig{left:50%;top:14px;transform:translateX(-50%);display:none;font-size:clamp(20px,3.6vw,40px);font-weight:800;color:var(--in);background:rgba(8,11,20,.82);padding:5px 20px;border-radius:10px;letter-spacing:.05em;box-shadow:0 6px 22px rgba(0,0,0,.55)}
+#viewstate{left:14px;top:14px;font-size:10px;font-weight:700;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+#spinner{position:absolute;inset:0;display:none;place-items:center;background:#000;color:var(--dim);font-size:12px}
+/* safe-area frame lines (broadcast feel) */
+.viewer::after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)}
+
+/* ── clip bin rail ── */
+.bin{grid-column:2;grid-row:1 / span 2;background:var(--panel);display:flex;flex-direction:column;min-height:0}
+.bin .binhd{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--line)}
+.bin .binhd .n{font-size:11px;color:var(--dim)}
+.bin .list{flex:1 1 auto;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:9px}
+.bin .empty{color:var(--faint);font-size:12px;text-align:center;padding:26px 12px;line-height:1.6}
+.clip{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.clip .th{aspect-ratio:16/9;background:#000 center/cover no-repeat;position:relative}
+.clip .th .d{position:absolute;right:5px;bottom:5px;font-family:var(--mono);font-size:11px;font-weight:700;color:#fff;background:rgba(8,11,20,.8);padding:1px 6px;border-radius:4px}
+.clip .meta{display:flex;align-items:center;gap:6px;padding:7px 8px}
+.clip .meta .t{flex:1;font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clip .meta button{padding:4px 7px;font-size:11px;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--dim)}
+.clip .meta button:hover{border-color:var(--signal);color:var(--signal)}
+
+/* ── transport deck ── */
+.deck{grid-column:1;grid-row:2;background:var(--panel);border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:8px 14px}
+.tbtn{width:40px;height:36px;display:grid;place-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:7px;color:var(--ink);font-size:15px}
+.tbtn:hover:not(:disabled){border-color:var(--line2)}
+.tbtn.wide{width:auto;padding:0 12px;gap:6px;font-size:12px;font-weight:600}
+.tbtn.armed{border-color:var(--signal);color:var(--signal);box-shadow:0 0 0 1px var(--signal) inset}
+.tbtn svg{width:16px;height:16px;fill:currentColor}
+.deck .tc{margin:0 auto;display:flex;align-items:baseline;gap:14px}
+#tc{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:.04em;color:var(--ink);font-variant-numeric:tabular-nums}
+#tc .ff{color:var(--signal)}
+.deck .rate{font-family:var(--mono);font-size:12px;color:var(--faint);min-width:44px;text-align:left}
+.deck .rate.on{color:var(--signal)}
+.deck .io{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px}
+.deck .io .i{color:var(--in)}.deck .io .o{color:var(--out)}.deck .io .sep{color:var(--faint)}
+
+/* ── timelines ── */
+.tls{grid-column:1 / span 2;grid-row:3;background:var(--panel);border-top:1px solid var(--line);padding:8px 14px 12px;display:flex;flex-direction:column;gap:7px;user-select:none}
+/* overview ribbon (full 12h record) */
+#ovwrap{position:relative;height:34px;border-radius:6px;overflow:hidden;background:#05070c;cursor:pointer;border:1px solid var(--line)}
+#ovimg{position:absolute;inset:0;display:flex;overflow:hidden;image-rendering:auto;opacity:.7}
+#ovport{position:absolute;top:0;bottom:0;border:1.5px solid var(--signal);background:rgba(0,229,199,.10);box-shadow:0 0 0 100vmax rgba(5,7,12,.45);pointer-events:none}
+#ovplay{position:absolute;top:0;bottom:0;width:2px;background:var(--play);pointer-events:none}
+.ovlbls{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--faint);padding:0 1px}
+/* detail filmstrip (the zoomed scrub) */
+#strip{position:relative;height:76px;border-radius:6px;overflow:hidden;background:#05070c;cursor:ew-resize;touch-action:none;border:1px solid var(--line)}
+#film{position:absolute;inset:0;display:flex;overflow:hidden}
+#film .frm{flex:0 0 auto;height:100%;background:#000 center/cover no-repeat}
+#film .frm+.frm{box-shadow:inset 1px 0 0 rgba(255,255,255,.04)}
+#ruler{position:absolute;left:0;right:0;top:0;height:15px;pointer-events:none}
+#ruler .tick{position:absolute;top:0;width:1px;height:6px;background:var(--line2)}
+#ruler .tk{position:absolute;top:1px;font-family:var(--mono);font-size:9px;color:var(--faint);transform:translateX(3px)}
+#band{position:absolute;top:0;bottom:0;display:none;background:rgba(0,229,199,.12);border-left:2px solid var(--in);border-right:2px solid var(--out)}
+#fin,#fout{position:absolute;top:0;bottom:0;width:2px;display:none}
+#fin{background:var(--in)}#fout{background:var(--out)}
+#fin .flag,#fout .flag{position:absolute;top:0;font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 4px;color:#04121a}
+#fin .flag{left:0;background:var(--in);border-radius:0 4px 4px 0}
+#fout .flag{right:0;background:var(--out);border-radius:4px 0 0 4px}
+#ph{position:absolute;top:0;bottom:0;width:2px;background:var(--play);box-shadow:0 0 6px rgba(255,255,255,.5);pointer-events:none;z-index:3}
+#ph::before{content:"";position:absolute;top:0;left:-4px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--play)}
+#hover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.4);display:none;pointer-events:none}
+#htip{position:absolute;bottom:82px;transform:translateX(-50%);display:none;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:4px;pointer-events:none;z-index:6;box-shadow:0 10px 28px rgba(0,0,0,.6)}
+#htipimg{width:240px;height:135px;border-radius:5px;background:#000 center/cover no-repeat}
+#htipt{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--warm);text-align:center;margin-top:3px}
+/* zoom + scale row */
+.tlctl{display:flex;align-items:center;gap:8px}
+.tlctl .z{display:flex;gap:1px}
+.tlctl .z button{width:30px;height:26px;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:14px;border-radius:0}
+.tlctl .z button:first-child{border-radius:6px 0 0 6px}.tlctl .z button:last-child{border-radius:0 6px 6px 0}
+.tlctl .z button:hover{color:var(--ink)}
+.tlctl .zlbl{font-family:var(--mono);font-size:11px;color:var(--faint);min-width:96px}
+.tlctl .hint{margin-left:auto;font-size:10.5px;color:var(--faint)}
+.tlctl .hint b{color:var(--dim)}
+
+/* ── action bar ── */
+.actions{grid-column:1 / span 2;grid-row:4;background:linear-gradient(180deg,var(--panel),var(--panel2));border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px}
+.actions .grp{display:flex;align-items:center;gap:7px}
+.actions .divider{width:1px;height:24px;background:var(--line);margin:0 4px}
+.mk{font-size:12px;font-weight:600;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 12px}
+.mk:hover:not(:disabled){border-color:var(--line2)}
+.mk.in{border-color:var(--signal-dim)}.mk.in:hover{border-color:var(--in);color:var(--in)}
+.mk.out:hover{border-color:var(--out);color:var(--out)}
+.mk.q{border-color:var(--signal-dim);color:var(--signal)}
+.mk.go{background:var(--signal);border-color:var(--signal);color:#04121a;font-weight:750}
+.mk.go:hover:not(:disabled){filter:brightness(1.08)}
+.mk:disabled{opacity:.4;cursor:not-allowed}
+kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentColor;border-radius:3px;padding:0 3px;margin-left:5px}
+#msg{margin-left:auto;font-size:12px;color:var(--signal);font-family:var(--mono);min-height:16px;max-width:40%;text-align:right}
+#prog{display:none;height:3px;background:var(--line);border-radius:2px;width:120px;overflow:hidden}
+#prog b{display:block;height:100%;width:30%;background:var(--signal);border-radius:2px;transition:width .2s}
+
 /* QR modal */
-#qr{display:none;position:fixed;inset:0;background:rgba(8,11,20,.86);z-index:20;align-items:center;justify-content:center}
-#qrcard{background:#0c1220;border:1px solid #26314d;border-radius:14px;padding:22px;text-align:center;max-width:320px}
+#qr{position:fixed;inset:0;background:rgba(5,7,12,.9);z-index:40;display:none;align-items:center;justify-content:center}
+#qrcard{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:24px;text-align:center;max-width:320px}
+#qrcard h3{font-size:15px;margin-bottom:3px}#qrcard .s{font-size:12px;color:var(--dim);margin-bottom:16px}
 #qrbox{background:#fff;padding:12px;border-radius:10px;display:inline-block}
-#qrcard h3{font-size:14px;margin-bottom:4px}#qrcard .s{font-size:12px;color:#8b96b5;margin-bottom:14px}
-@media(max-width:640px){#tipimg{width:200px;height:112px}.bar{padding:8px 12px 12px}}
+#qrcard button{margin-top:16px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 16px;color:var(--ink);font-size:12px}
+
+@media(max-width:900px){
+  main{grid-template-columns:1fr;grid-template-rows:1fr auto auto auto}
+  .bin{grid-column:1;grid-row:auto;max-height:180px}
+  .bin .list{flex-direction:row;overflow-x:auto;overflow-y:hidden}
+  .clip{flex:0 0 180px}
+  .tls{grid-column:1}.actions{grid-column:1}
+}
 </style></head><body>
 <header>
-  <div>
-    <div class="brand">MXL <span>Clipper</span></div>
-    <div class="tag">Scrub the recorded show by <b style="color:#cfd8ef">time address</b> &middot; mark in/out &middot; grab a clip in your browser</div>
+  <div class="mark"><div class="glyph"></div>
+    <div><h1>MXL <b>Clipper</b></h1><div class="sub">First non-linear editor for BBC&nbsp;TAMS &middot; EBU&nbsp;MXL</div></div>
   </div>
-  <div class="right">
-    <div class="live"><span class="dot"></span><span id="reclbl">connecting…</span></div>
+  <div class="spacer"></div>
+  <div class="badge"><span class="rdot"></span><span id="reclbl" class="mono">connecting…</span></div>
+  <div class="ghosts">
+    <a class="ghost" href="#" id="themebtn" title="toggle theme">◐</a>
+    <a class="ghost" href="/mxl.html">Switcher</a>
   </div>
 </header>
+
 <main>
-  <div id="stage">
+  <section class="viewer">
     <video id="vid" muted playsinline></video>
-    <div id="frame"></div>
-    <div id="bigtime">--:--:--</div>
-    <div id="bigdur">0.0s</div>
-    <div id="loading">loading recorder feed…</div>
-  </div>
-  <div class="tl">
-    <div id="scrub">
-      <div class="rail"></div>
-      <div id="clipband"></div>
-      <div id="mkin"><i></i></div>
-      <div id="mkout"><i></i></div>
-      <div id="ghost"></div>
-      <div id="playhead"></div>
-      <div id="tip"><div id="tipimg"></div><div id="tipt">--:--:--</div></div>
+    <div id="placeholder"></div>
+    <div class="ov" id="viewstate">source</div>
+    <div class="ov" id="tcbig">00:00:00:00</div>
+    <div class="ov" id="durbig">0:00</div>
+    <div id="spinner">loading recorder…</div>
+  </section>
+
+  <aside class="bin">
+    <div class="binhd"><span class="lbl">Clip bin</span><span class="n" id="binn">0 clips</span></div>
+    <div class="list" id="binlist"><div class="empty">Mark <b style="color:var(--in)">IN</b> and <b style="color:var(--out)">OUT</b>, then <b style="color:var(--signal)">Save</b> to stack clips here.<br>Each exports a frame-accurate MP4 in your browser.</div></div>
+  </aside>
+
+  <div class="deck">
+    <button class="tbtn" id="tHome" title="Go to start (Home)"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zm3 7l9-7v14z"/></svg></button>
+    <button class="tbtn" id="tBack" title="Step back 1 frame (←)"><svg viewBox="0 0 24 24"><path d="M15 5v14l-9-7zM17 5h2v14h-2z"/></svg></button>
+    <button class="tbtn" id="tJ" title="Shuttle reverse (J)"><svg viewBox="0 0 24 24"><path d="M11 5v14l-9-7zM22 5v14l-9-7z"/></svg></button>
+    <button class="tbtn" id="tPlay" title="Play / pause (Space or K)"><svg viewBox="0 0 24 24"><path id="playicon" d="M7 5v14l11-7z"/></svg></button>
+    <button class="tbtn" id="tL" title="Shuttle forward (L)"><svg viewBox="0 0 24 24"><path d="M2 5l9 7-9 7zM13 5l9 7-9 7z"/></svg></button>
+    <button class="tbtn" id="tFwd" title="Step forward 1 frame (→)"><svg viewBox="0 0 24 24"><path d="M9 5l9 7-9 7zM16 5h2v14h-2z"/></svg></button>
+    <button class="tbtn" id="tEnd" title="Go to live edge (End)"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM6 5l9 7-9 7z"/></svg></button>
+    <div class="tc">
+      <span class="rate" id="rate"></span>
+      <span id="tc" class="mono">00:00:00<span class="ff">:00</span></span>
+      <span class="io"><span class="i" id="iotc">IN --:--:--:--</span><span class="sep">→</span><span class="o" id="ootc">OUT --:--:--:--</span><span id="dlen" style="display:none;color:var(--warm)"></span></span>
     </div>
-    <div class="hint">drag to scrub &middot; <b>I</b>/<b>O</b> mark in/out &middot; <b>X</b> clear &middot; <b>,</b>/<b>.</b> nudge &plusmn;1s &middot; <b>space</b> play</div>
   </div>
-  <div class="bar">
-    <span class="grp q">Quick grab</span>
-    <button class="q" id="g10" title="clip the last 10s up to the playhead">&#9889; last 10s</button>
-    <button class="q" id="g30" title="last 30s">30s</button>
-    <button class="q" id="g60" title="last 60s">60s</button>
-    <span class="sep"></span>
-    <span class="grp">Clip</span>
-    <button class="mk" id="in">&#10218; IN<kbd>I</kbd></button>
-    <button class="mk" id="out">OUT<kbd>O</kbd> &#10219;</button>
-    <button id="clr">&#10005; Clear<kbd>X</kbd></button>
-    <button class="go" id="grab" disabled>&#9889; Grab clip</button>
-    <button id="save" disabled>&#128190; Save</button>
-    <button id="qrbtn" disabled>&#128241; Take home</button>
-    <span id="info">no in/out</span>
-    <span id="dur">0.0s</span>
+
+  <div class="tls">
+    <div class="ovlbls"><span id="ovL">--:--</span><span class="lbl" style="letter-spacing:.14em">12-hour record</span><span id="ovR">--:--</span></div>
+    <div id="ovwrap"><div id="ovimg"></div><div id="ovport"></div><div id="ovplay"></div></div>
+    <div id="strip">
+      <div id="film"></div>
+      <div id="ruler"></div>
+      <div id="band"></div>
+      <div id="fin"><span class="flag" id="finf">IN</span></div>
+      <div id="fout"><span class="flag" id="foutf">OUT</span></div>
+      <div id="hover"></div>
+      <div id="ph"></div>
+    </div>
+    <div id="htip"><div id="htipimg"></div><div id="htipt">--:--:--:--</div></div>
+    <div class="tlctl">
+      <span class="lbl">Zoom</span>
+      <div class="z"><button id="zout" title="zoom out (-)">–</button><button id="zin" title="zoom in (+)">+</button></div>
+      <span class="zlbl" id="zlbl">2 min view</span>
+      <span class="hint"><b>J K L</b> shuttle &middot; <b>I</b>/<b>O</b> mark &middot; <b>←/→</b> frame &middot; <b>⇧←/→</b> 1s &middot; <b>Space</b> play</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <div class="grp"><span class="lbl">Quick&nbsp;grab</span>
+      <button class="mk q" id="g10">⚡ last 10s</button>
+      <button class="mk q" id="g30">30s</button>
+      <button class="mk q" id="g60">60s</button>
+    </div>
+    <div class="divider"></div>
+    <div class="grp"><span class="lbl">Clip</span>
+      <button class="mk in" id="bIn">⟪ IN<kbd>I</kbd></button>
+      <button class="mk out" id="bOut">OUT<kbd>O</kbd> ⟫</button>
+      <button class="mk" id="bClr">✕ Clear<kbd>X</kbd></button>
+      <button class="mk go" id="bGrab" disabled>⚡ Grab clip<kbd>↵</kbd></button>
+      <button class="mk" id="bSave" disabled>💾 Save to bin<kbd>S</kbd></button>
+      <button class="mk" id="bQR" disabled>📱 Take home</button>
+    </div>
+    <div id="prog"><b></b></div>
     <span id="msg"></span>
   </div>
-  <div id="bin"></div>
 </main>
-<div id="qr"><div id="qrcard"><h3>Scan to take your clip</h3><div class="s" id="qrsub"></div><div id="qrbox"></div><button style="margin-top:14px" id="qrclose">Close</button></div></div>
+
+<div id="qr"><div id="qrcard"><h3>Scan to take your clip</h3><div class="s" id="qrsub"></div><div id="qrbox"></div><button id="qrclose">Close</button></div></div>
 
 <script>
 "use strict";
-// ── MXL CLIPPER v2 — a PURE clipper. One pane, one job: scrub the TAMS record,
-// mark in/out, grab a clip in the browser. No live-PGM side, no DVR mode flags.
-// SCRUB uses the low-res proxy flow (cheap decode); the CLIP is cut FULL-res.
-// Thumbnail scrub is storyboard-sprite-based (instant, zero video decode while
-// dragging) — video only moves when you release/preview.
+/* ═══════════════════════════════════════════════════════════════════════════
+   MXL CLIPPER — the first TAMS non-linear editor.
+   Scrub the low-res PROXY flow (cheap decode); cut FULL-res clips in-browser
+   with ffmpeg.wasm (stream copy). 30fps → SMPTE HH:MM:SS:FF timecode.
+   ═════════════════════════════════════════════════════════════════════════ */
 var $=function(s){return document.getElementById(s)};
-var FLOW_FULL ='7a350001-aaaa-4bbb-8ccc-000000000001';   // full-res → the clip
-var FLOW_PROXY='7a350002-aaaa-4bbb-8ccc-000000000002';   // 480p → the scrub player
+var FLOW_FULL ='7a350001-aaaa-4bbb-8ccc-000000000001';
+var FLOW_PROXY='7a350002-aaaa-4bbb-8ccc-000000000002';
 var PROXY_BASE='/tamsapi/flows/'+FLOW_PROXY+'/output.m3u8';
 var FULL_BASE ='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
-var SPRITE='/tamsobj/tams-media/sprites/';   // sprites/<minute>.jpg = 10x6 sec tiles
-var THUMB ='/tamsobj/tams-media/thumbs/';    // thumbs/<epoch>.jpg (fallback)
-var WIN=600;                                 // 10-min scrub window (fully cacheable, snappy)
+var SPRITE='/tamsobj/tams-media/sprites/';
+var THUMB ='/tamsobj/tams-media/thumbs/';
+var FPS=30, SEG=1, WIN=900;                 // 30fps, 1s segs, 15-min scrub buffer
 
-var vid=$('vid'), frame=$('frame'), scrub=$('scrub');
-var winStart=0, winDur=0, winMedia0=0, frags=[];   // loaded HLS window
-var dragging=false, inE=null, outE=null;
+var vid=$('vid');
+var winStart=0, winDur=0, winMedia0=0, frags=[];
+var dragging=false, scrubbing=false, inE=null, outE=null;
+var zoomSec=120;                            // detail view span (seconds); zoom changes this
+var ZOOMS=[30,60,120,300,600,1800];
 
-// ── time helpers ──
-function fmtE(e){return e?new Date(e*1000).toISOString().substr(11,8)+'Z':'--:--:--'}
-function fmtDur(s){s=Math.max(0,s);return s<60?s.toFixed(1)+'s':(Math.floor(s/60)+':'+((s%60)<10?'0':'')+(s%60).toFixed(1))}
-function trPart(ep){var s=Math.floor(ep);return s+':'+String(Math.round((ep-s)*1e9)).padStart(9,'0')}
-// media-time (video.currentTime) → wall-clock epoch, gap-accurate via frags
-function mediaToEpoch(m){
-  if(!frags.length) return winStart? winStart+m : null;
-  var lo=0,hi=frags.length-1;
-  while(lo<hi){var mid=(lo+hi+1)>>1; if(frags[mid].start<=m)lo=mid; else hi=mid-1}
-  var f=frags[lo]; return f.programDateTime/1000 + (m-f.start);
+/* ── theme toggle ── */
+(function(){var t=localStorage.getItem('mxlclip-theme'); if(t)document.documentElement.setAttribute('data-theme',t);
+  $('themebtn').onclick=function(e){e.preventDefault();var d=document.documentElement;
+    var cur=d.getAttribute('data-theme')|| (matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+    var nx=cur==='dark'?'light':'dark'; d.setAttribute('data-theme',nx); localStorage.setItem('mxlclip-theme',nx);};})();
+
+/* ── timecode (SMPTE 30fps) ── */
+function tc(ep){ if(ep==null||!isFinite(ep)) return '--:--:--:--';
+  var d=new Date(ep*1000); var h=d.getUTCHours(),m=d.getUTCMinutes(),s=d.getUTCSeconds();
+  var f=Math.floor((ep-Math.floor(ep))*FPS);
+  var p=function(n){return (n<10?'0':'')+n};
+  return {h:p(h),m:p(m),s:p(s),f:p(f)};
 }
-function epochToMedia(ep){
-  for(var i=0;i<frags.length;i++){var f=frags[i], s=f.programDateTime/1000, e=s+(f.duration||1);
-    if(ep>=s && ep<e+0.001) return f.start+(ep-s);}
-  return winMedia0 + (ep-winStart);   // best effort
-}
+function tcStr(ep){var t=tc(ep); return t==='--:--:--:--'?t:(t.h+':'+t.m+':'+t.s+':'+t.f)}
+// DURATION the broadcast way: HH:MM:SS:FF, INCLUSIVE (Out−In +1 frame — marking
+// In and Out on the same frame is a 1-frame clip, never zero). Editors check this.
+function durTC(sec){ var frames=Math.round(Math.max(0,sec)*FPS)+1;   // inclusive
+  var f=frames%FPS, rest=Math.floor(frames/FPS), s=rest%60, m=Math.floor(rest/60)%60, h=Math.floor(rest/3600);
+  var p=function(n){return (n<10?'0':'')+n};
+  return (h>0?p(h)+':':'')+p(m)+':'+p(s)+':'+p(f); }
+// short human duration for chips/messages
+function fmtDur(sec){sec=Math.max(0,sec);var m=Math.floor(sec/60),s=sec-m*60;
+  return m>0?(m+':'+(s<10?'0':'')+s.toFixed(0)):(s.toFixed(1)+'s')}
+
+/* ── time mapping (gap-accurate via frags) ── */
+function mediaToEpoch(md){ if(!frags.length) return winStart?winStart+md:null;
+  var lo=0,hi=frags.length-1; while(lo<hi){var mid=(lo+hi+1)>>1; if(frags[mid].start<=md)lo=mid; else hi=mid-1;}
+  var f=frags[lo]; return f.programDateTime/1000+(md-f.start); }
+function epochToMedia(ep){ for(var i=0;i<frags.length;i++){var f=frags[i],s=f.programDateTime/1000,e=s+(f.duration||1);
+  if(ep>=s&&ep<e+0.001) return f.start+(ep-s);} return winMedia0+(ep-winStart); }
 function curEpoch(){ if(isFinite(vid.currentTime)){var e=mediaToEpoch(vid.currentTime); if(e!=null)return e;} return null; }
-function fracToEpoch(fr){ return winStart + fr*winDur; }
-function epochToFrac(ep){ return winDur? Math.min(1,Math.max(0,(ep-winStart)/winDur)) : 0; }
+function edgeEpoch(){ return winStart+winDur; }
 
-// ── HLS scrub player (the PROXY flow) ──
-var hls=null, windowReady=false;
-function load(){
-  if(hls) hls.destroy();
-  windowReady=false;
-  hls=new Hls({lowLatencyMode:false, maxBufferLength:60, backBufferLength:WIN, maxBufferSize:300*1000*1000, maxBufferHole:1.0});
-  hls.on(Hls.Events.ERROR,function(e,d){
-    if(!d.fatal) return;
-    // recover from BOTH network and media fatals; only show a transient notice
-    // (the ruler stays usable — it runs off the parsed playlist, not decode).
-    if(!windowReady) $('reclbl').textContent='connecting…';
-    if(d.type==='networkError'){ hls.startLoad(); }
-    else if(d.type==='mediaError'){ try{hls.recoverMediaError();}catch(x){} }
-    else { setTimeout(load,1500); }
-  });
-  hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
-    if(dragging) return;                       // don't rescale the ruler mid-drag
-    var d=data.details, f=d.fragments;
-    if(!f.length) return;
-    winStart=f[0].programDateTime/1000;
-    winDur=d.totalduration; winMedia0=f[0].start; frags=f;
-    windowReady=true;
-    $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min buffered';
-    paintMarks();
-  });
-  var landed=false;
-  hls.on(Hls.Events.MANIFEST_PARSED,function(){
-    $('loading').style.display='none';
-    // Editor behavior: land PAUSED near the live edge, ONCE, and stay put.
-    // (muted <video> would otherwise autoplay and the playhead would crawl.)
-    setTimeout(function(){ if(landed)return; if(isFinite(vid.duration)){ vid.pause();
-      vid.currentTime=Math.max(0,vid.duration-6); landed=true; } },500);
-  });
-  hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now());
-  hls.attachMedia(vid);
+/* ── detail-view window: centered on playhead, zoomSec wide, clamped to record ── */
+function viewRange(){
+  var c=curEpoch(); if(c==null)c=edgeEpoch();
+  var half=zoomSec/2, lo=c-half, hi=c+half;
+  var recLo=winStart, recHi=edgeEpoch();
+  if(hi>recHi){hi=recHi;lo=hi-zoomSec;} if(lo<recLo){lo=recLo;hi=Math.min(recHi,lo+zoomSec);}
+  return {lo:lo,hi:hi,span:hi-lo};
 }
-load();
-// NOTE: no periodic full reload. Rebuilding the source shifts winStart forward
-// while the paused playhead stays fixed → the playhead appears to jump BACKWARD.
-// hls.js already refreshes the live playlist on its own (updating frags/winDur)
-// without yanking the user's position, so the ruler follows the edge cleanly.
 
-// ── storyboard sprite scrub preview (instant, no video decode) ──
+/* ═══ HLS scrub player (proxy) ═══ */
+var hls=null, windowReady=false, landed=false;
+function loadHls(){
+  if(hls)hls.destroy(); windowReady=false;
+  hls=new Hls({lowLatencyMode:false,maxBufferLength:90,backBufferLength:WIN,maxBufferSize:400*1000*1000,maxBufferHole:1.0});
+  hls.on(Hls.Events.ERROR,function(e,d){ if(!d.fatal)return;
+    if(d.type==='networkError')hls.startLoad();
+    else if(d.type==='mediaError'){try{hls.recoverMediaError();}catch(x){}}
+    else setTimeout(loadHls,1500); });
+  hls.on(Hls.Events.LEVEL_LOADED,function(e,data){ if(dragging)return;
+    var d=data.details,f=d.fragments; if(!f.length)return;
+    winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start; frags=f; windowReady=true;
+    $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min in store';
+    renderOverview(); });
+  hls.on(Hls.Events.MANIFEST_PARSED,function(){ $('spinner').style.display='none';
+    setTimeout(function(){ if(landed)return; if(isFinite(vid.duration)){vid.pause(); vid.currentTime=Math.max(0,vid.duration-6); landed=true;} },500); });
+  hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); hls.attachMedia(vid);
+}
+loadHls();
+
+/* ═══ 12h OVERVIEW ribbon ═══ */
 var ov=null, ovOK=false, ovAt=0;
-function loadOverview(){
-  if(Date.now()-ovAt<30000) return; ovAt=Date.now();
+function loadOverviewSheet(){ if(Date.now()-ovAt<30000)return; ovAt=Date.now();
   fetch(SPRITE+'overview-12h.json?t='+Date.now()).then(function(r){return r.json()})
-    .then(function(j){ov=j; var im=new Image(); im.onload=function(){ovOK=true}; im.src=SPRITE+'overview-12h.jpg?b='+j.built;})
-    .catch(function(){});
-}
-loadOverview(); setInterval(loadOverview,30000);
-// per-minute sprite: 10x6 grid of 1s tiles, keyed by minute-start epoch
-function spriteFor(ep,el,w,h){
-  var m=ep-(ep%60), i=Math.floor(ep-m);
-  el.style.backgroundImage='url('+SPRITE+m+'.jpg)';
-  el.style.backgroundSize=(w*10)+'px '+(h*6)+'px';
-  el.style.backgroundPosition=(-(i%10)*w)+'px '+(-Math.floor(i/10)*h)+'px';
-}
-// show the frame under the cursor: prefer the per-minute sprite; overview as coarse fallback
-function showFrameAt(ep,big){
-  var el=big?frame:$('tipimg');
-  var w=big?el.clientWidth:288, h=big?el.clientHeight:162;
-  if(!w){w=big?640:288;h=big?360:162;}
-  // try the per-minute sprite (sharp, 1s granularity)
-  var img=new Image();
-  var m=ep-(ep%60);
-  img.onload=function(){ spriteFor(ep,el,w,h); };
-  img.onerror=function(){ // fall back to the coarse 12h overview tile
-    if(ov&&ovOK){ var idx=Math.floor((ep-ov.start)/ov.tileSec); idx=Math.max(0,Math.min(ov.tiles-1,idx));
-      var c=idx%ov.cols, r=Math.floor(idx/ov.cols);
-      el.style.backgroundImage='url('+SPRITE+'overview-12h.jpg)';
-      el.style.backgroundSize=(w*ov.cols)+'px '+(h*ov.rows)+'px';
-      el.style.backgroundPosition=(-c*w)+'px '+(-r*h)+'px';
+    .then(function(j){ ov=j; var im=new Image(); im.onload=function(){ovOK=true;renderOverview();}; im.src=SPRITE+'overview-12h.jpg?b='+j.built; })
+    .catch(function(){}); }
+loadOverviewSheet(); setInterval(loadOverviewSheet,30000);
+var _ovBuilt=0;
+function renderOverview(){
+  if(!ov||!ovOK||!winDur) return;
+  var wrap=$('ovwrap'), img=$('ovimg'); var W=wrap.clientWidth||900, H=wrap.clientHeight||34;
+  // Build a true left→right RIBBON: one thumbnail cell per screen-column, each
+  // sampling the correct tile from the cols×rows overview sheet by time. Rebuild
+  // only when the sheet changes or width changes (cheap; cells are CSS bg-position).
+  var key=ov.built+'x'+W;
+  if(_ovBuilt!==key){ _ovBuilt=key;
+    var cellW=6, n=Math.ceil(W/cellW), sheetUrl=SPRITE+'overview-12h.jpg?b='+ov.built;
+    var tileAR=ov.th/ov.tw;                       // e.g. 54/96
+    var cellH=H, tileDrawW=cellH/tileAR;          // draw each tile to fill cell height
+    var html='';
+    for(var i=0;i<n;i++){
+      var frac=i/(n-1||1), idx=Math.min(ov.tiles-1,Math.floor(frac*ov.tiles));
+      var cx=idx%ov.cols, cy=Math.floor(idx/ov.cols);
+      html+='<span style="flex:0 0 '+cellW+'px;height:100%;background-image:url('+sheetUrl+');'
+        +'background-size:'+(tileDrawW*ov.cols)+'px '+(cellH*ov.rows)+'px;'
+        +'background-position:'+(-cx*tileDrawW)+'px '+(-cy*cellH)+'px"></span>';
     }
-  };
-  img.src=SPRITE+m+'.jpg';
+    img.innerHTML=html; img.style.display='flex'; img.style.opacity='.7';
+    img.style.background='none';
+  }
+  var span=ov.end-ov.start, v=viewRange();
+  var a=(v.lo-ov.start)/span, b=(v.hi-ov.start)/span;
+  $('ovport').style.left=(a*100)+'%'; $('ovport').style.width=Math.max(0.6,(b-a)*100)+'%';
+  var c=curEpoch(); if(c!=null){ $('ovplay').style.display='block'; $('ovplay').style.left=(((c-ov.start)/span)*100)+'%'; }
+  $('ovL').textContent=tcStr(ov.start).slice(0,8); $('ovR').textContent=tcStr(ov.end).slice(0,8);
 }
+$('ovwrap').addEventListener('pointerdown',function(e){
+  if(!ov)return; var b=$('ovwrap').getBoundingClientRect(); var fr=(e.clientX-b.left)/b.width;
+  var ep=ov.start+fr*(ov.end-ov.start); seekEpoch(ep); });
 
-// ── scrub interaction ──
-function evFrac(e){var b=scrub.getBoundingClientRect(); return Math.min(1,Math.max(0,(e.clientX-b.left)/b.width));}
-var seekPending=false, seekTarget=null;
-function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-0.1&&t<=b.end(i)+0.1)return true;}return false;}
-function liveSeek(fr){
-  seekTarget=epochToMedia(fracToEpoch(fr));
-  if(inBuf(seekTarget)){ try{vid.currentTime=seekTarget;}catch(e){} hideFrameSoon(); return; }  // instant if buffered
-  if(seekPending) return; seekPending=true;
-  var go=function(){var t=seekTarget,done=false;
-    var fin=function(){if(done)return;done=true;vid.removeEventListener('seeked',fin);clearTimeout(to);
-      hideFrameSoon();
-      if(Math.abs(seekTarget-t)>0.3&&dragging){seekPending=true;go();}else seekPending=false;};
-    var to=setTimeout(fin,500); vid.addEventListener('seeked',fin); try{vid.currentTime=t;}catch(e){fin();}};
-  go();
+/* ═══ DETAIL filmstrip ═══ */
+var FRMW=96;                                // px width of each filmstrip frame cell
+function renderStrip(){
+  if(!winDur)return;
+  var v=viewRange(), film=$('film'), stripW=$('strip').clientWidth||900;
+  var cells=Math.ceil(stripW/FRMW)+1;
+  var secPerCell=v.span/(stripW/FRMW);
+  var html='';
+  var cellH=$('strip').clientHeight||76;
+  for(var i=0;i<cells;i++){
+    var ep=v.lo+i*secPerCell;
+    var m=Math.floor(ep/60)*60, idx=Math.floor(ep-m);            // per-minute sprite: 1s tile
+    var bw=FRMW*10, bh=(FRMW*9/16)*6, px=-(idx%10)*FRMW, py=-Math.floor(idx/10)*(FRMW*9/16);
+    // GUARANTEED fallback layer: the 12h overview tile for this instant (always
+    // exists for any in-range time). The sharp minute sprite draws OVER it; if
+    // that minute's sheet 404s, the overview shows through — never a black gap.
+    var layers='background-image:url('+SPRITE+m+'.jpg)';
+    var sizes='background-size:'+bw+'px '+bh+'px';
+    var poss ='background-position:'+px+'px '+py+'px';
+    if(ov&&ovOK){ var span=ov.end-ov.start, oi=Math.min(ov.tiles-1,Math.max(0,Math.floor((ep-ov.start)/span*ov.tiles)));
+      var ocx=oi%ov.cols, ocy=Math.floor(oi/ov.cols); var otw=cellH*(ov.tw/ov.th);
+      layers+=',url('+SPRITE+'overview-12h.jpg?b='+ov.built+')';
+      sizes +=','+(otw*ov.cols)+'px '+(cellH*ov.rows)+'px';
+      poss  +=','+(-ocx*otw)+'px '+(-ocy*cellH)+'px';
+    }
+    html+='<div class="frm" style="width:'+FRMW+'px;'+layers+';'+sizes+';'+poss+';background-repeat:no-repeat"></div>';
+  }
+  film.innerHTML=html;
+  renderRuler(v); renderMarks(v); renderPlayhead(v);
 }
-// The REAL 720p video (seeked) is what you see while dragging — sharp. The
-// sprite #frame is only a sub-100ms placeholder shown at the instant of a move,
-// hidden the moment the video frame lands so you never stare at an upscaled tile.
-var _hideT=null;
-function hideFrameSoon(){ if(_hideT)clearTimeout(_hideT);
-  _hideT=setTimeout(function(){ if(!seekPending) frame.style.display='none'; },60); }
-function showTip(fr){
-  var b=scrub.getBoundingClientRect(), x=fr*b.width, ep=fracToEpoch(fr);
-  $('ghost').style.display='block'; $('ghost').style.left=x+'px';
-  $('tip').style.display='block';
-  $('tip').style.left=Math.min(b.width-150,Math.max(150,x))+'px';
-  $('tipt').textContent=fmtE(ep);
-  showFrameAt(ep,false);   // hover tip: sprite (a downscale → sharp)
-  $('bigtime').textContent=fmtE(ep);
-  if(dragging){ updateDur(ep); }
+function renderRuler(v){
+  var r=$('ruler'), stripW=$('strip').clientWidth||900; r.innerHTML='';
+  // choose a nice tick interval for the span
+  var target=stripW/90;                                 // ~one label per 90px
+  var ivals=[1,2,5,10,15,30,60,120,300,600]; var iv=ivals[0];
+  for(var k=0;k<ivals.length;k++){ if(v.span/ivals[k]<=target){iv=ivals[k];break;} iv=ivals[k]; }
+  var first=Math.ceil(v.lo/iv)*iv, html='';
+  for(var t=first;t<=v.hi;t+=iv){ var fr=(t-v.lo)/v.span;
+    html+='<div class="tick" style="left:'+(fr*100)+'%"></div><div class="tk" style="left:'+(fr*100)+'%">'+tcStr(t).slice(0,8)+'</div>'; }
+  r.innerHTML=html;
 }
-function endScrubView(){ frame.style.display='none'; $('bigdur').style.display='none'; }
-scrub.addEventListener('pointermove',function(e){ var fr=evFrac(e); showTip(fr);
-  if(dragging){ // paint the sprite placeholder instantly, then seek the real video over it
-    frame.style.display='block'; showFrameAt(fracToEpoch(fr),true); liveSeek(fr); } });
-scrub.addEventListener('pointerdown',function(e){ dragging=true; scrub.setPointerCapture(e.pointerId); vid.pause();
-  var fr=evFrac(e); frame.style.display='block'; showFrameAt(fracToEpoch(fr),true); showTip(fr); liveSeek(fr); });
-scrub.addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
-  var fr=evFrac(e); try{vid.currentTime=epochToMedia(fracToEpoch(fr));}catch(err){}
-  $('tip').style.display='none'; $('ghost').style.display='none';
-  var s=function(){vid.removeEventListener('seeked',s);clearTimeout(to);endScrubView();};
-  var to=setTimeout(s,900); vid.addEventListener('seeked',s); });
-scrub.addEventListener('pointerleave',function(){ if(!dragging){$('tip').style.display='none';$('ghost').style.display='none';} });
-// playhead + big timecode track the real position
-(function tick(){ if(winDur>0){ var ep=curEpoch();
-  if(ep!=null){ var fr=epochToFrac(ep); $('playhead').style.left='calc('+(fr*100)+'% - 1px)';
-    if(!dragging) $('bigtime').textContent=fmtE(ep); } }
-  requestAnimationFrame(tick); })();
-
-// ── marking ──
-function updateDur(cursorEp){
-  if(inE==null){$('bigdur').style.display='none';return;}
-  var end=(outE!=null?outE:cursorEp), d=end-inE;
-  if(d<=0){$('bigdur').style.display='none';return;}
-  $('bigdur').textContent=fmtDur(d); $('bigdur').style.color=(outE!=null?'#ffb400':'#28d17c'); $('bigdur').style.display='block';
-}
-function paintMarks(){
-  var mkin=$('mkin'),mkout=$('mkout'),band=$('clipband');
-  function place(el,ep){ if(ep==null){el.style.display='none';return;} el.style.left='calc('+(epochToFrac(ep)*100)+'% - 1px)'; el.style.display='block'; }
-  place(mkin,inE); place(mkout,outE);
-  if(inE!=null&&outE!=null&&outE>inE){ var a=epochToFrac(inE),b=epochToFrac(outE);
+function renderMarks(v){
+  function place(el,ep){ if(ep==null||ep<v.lo||ep>v.hi){el.style.display='none';return;}
+    el.style.left=(((ep-v.lo)/v.span)*100)+'%'; el.style.display='block'; }
+  place($('fin'),inE); place($('fout'),outE);
+  var band=$('band');
+  if(inE!=null&&outE!=null&&outE>inE){ var a=Math.max(0,(inE-v.lo)/v.span), b=Math.min(1,(outE-v.lo)/v.span);
     band.style.display='block'; band.style.left=(a*100)+'%'; band.style.width=((b-a)*100)+'%'; }
   else band.style.display='none';
 }
+function renderPlayhead(v){ var c=curEpoch(); if(c==null){$('ph').style.display='none';return;}
+  if(c<v.lo||c>v.hi){$('ph').style.display='none';return;}
+  $('ph').style.display='block'; $('ph').style.left=(((c-v.lo)/v.span)*100)+'%'; }
+
+/* strip interaction */
+function stripFrac(e){var b=$('strip').getBoundingClientRect();return Math.min(1,Math.max(0,(e.clientX-b.left)/b.width));}
+function fracToEpochStrip(fr){var v=viewRange();return v.lo+fr*v.span;}
+var _hideTip=null;
+function showHover(e){
+  var fr=stripFrac(e), ep=fracToEpochStrip(fr), b=$('strip').getBoundingClientRect(), x=fr*b.width;
+  $('hover').style.display='block'; $('hover').style.left=x+'px';
+  var tip=$('htip'); tip.style.display='block'; tip.style.left=Math.min(b.width-130,Math.max(130,x))+'px';
+  $('htipt').textContent=tcStr(ep);
+  // per-second thumb in the hover tip (a downscale → crisp); fall back to sprite tile
+  var t=$('htipimg'); var whole=Math.floor(ep);
+  var pi=new Image(); pi.onload=function(){t.style.backgroundImage='url('+THUMB+whole+'.jpg)';t.style.backgroundSize='cover';};
+  pi.onerror=function(){ var m=Math.floor(ep/60)*60,idx=Math.floor(ep-m); var bw=240*10,bh=135*6;
+    t.style.backgroundImage='url('+SPRITE+m+'.jpg)'; t.style.backgroundSize=bw+'px '+bh+'px';
+    t.style.backgroundPosition=(-(idx%10)*240)+'px '+(-Math.floor(idx/10)*135)+'px'; };
+  pi.src=THUMB+whole+'.jpg';
+}
+function seekEpoch(ep){ try{vid.currentTime=epochToMedia(ep);}catch(e){} renderStrip(); renderOverview(); }
+var seekPending=false, seekTarget=null;
+function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-.1&&t<=b.end(i)+.1)return true;}return false;}
+function liveSeek(ep){ seekTarget=epochToMedia(ep);
+  if(inBuf(seekTarget)){try{vid.currentTime=seekTarget;}catch(e){}return;}
+  if(seekPending)return; seekPending=true;
+  var go=function(){var t=seekTarget,done=false; var fin=function(){if(done)return;done=true;vid.removeEventListener('seeked',fin);clearTimeout(to);
+    if(Math.abs(seekTarget-t)>.3&&dragging){seekPending=true;go();}else seekPending=false;};
+    var to=setTimeout(fin,500);vid.addEventListener('seeked',fin);try{vid.currentTime=t;}catch(e){fin();}}; go(); }
+$('strip').addEventListener('pointermove',function(e){ showHover(e); if(dragging){var ep=fracToEpochStrip(stripFrac(e)); liveSeek(ep); $('tcbig').textContent=tcStr(ep); updateDurOverlay(ep); renderStrip();} });
+$('strip').addEventListener('pointerdown',function(e){ stopShuttle(); dragging=true; $('strip').setPointerCapture(e.pointerId); vid.pause();
+  var ep=fracToEpochStrip(stripFrac(e)); liveSeek(ep); showHover(e); });
+$('strip').addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
+  var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep); $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none'; });
+$('strip').addEventListener('pointerleave',function(){ if(!dragging){$('hover').style.display='none';$('htip').style.display='none';} });
+
+/* ═══ transport: JKL shuttle + frame stepping ═══ */
+var shuttle=0, shuttleRAF=null, lastT=0;
+var SPEEDS=[1,2,4,8,16];                    // J/L multi-tap speeds
+function setRate(){ var r=$('rate'); if(shuttle===0){r.textContent='';r.classList.remove('on');$('tJ').classList.remove('armed');$('tL').classList.remove('armed');return;}
+  r.textContent=(shuttle>0?'▶ ':'◀ ')+Math.abs(shuttle)+'×'; r.classList.add('on');
+  $('tL').classList.toggle('armed',shuttle>0); $('tJ').classList.toggle('armed',shuttle<0); }
+function shuttleLoop(ts){ if(shuttle===0){shuttleRAF=null;return;}
+  if(lastT){ var dt=(ts-lastT)/1000; var e=curEpoch();
+    if(e!=null){ var ne=e+shuttle*dt; ne=Math.max(winStart,Math.min(edgeEpoch()-0.05,ne)); seekEpoch(ne); $('tcbig').textContent=tcStr(ne); } }
+  lastT=ts; shuttleRAF=requestAnimationFrame(shuttleLoop); }
+function startShuttle(){ if(!shuttleRAF){lastT=0;shuttleRAF=requestAnimationFrame(shuttleLoop);} setRate(); }
+function stopShuttle(){ shuttle=0; if(shuttleRAF){cancelAnimationFrame(shuttleRAF);shuttleRAF=null;} setRate(); }
+function bumpShuttle(dir){ vid.pause();
+  // Editor convention: tapping the OPPOSITE direction while shuttling flips
+  // direction but KEEPS the current speed tier (J while L-4× → reverse 4×).
+  // Same direction escalates the tier. From a stop → 1×.
+  if(shuttle===0){ shuttle=dir*SPEEDS[0]; }
+  else if(Math.sign(shuttle)!==dir){ shuttle=dir*Math.abs(shuttle); }   // flip, keep tier
+  else { var i=SPEEDS.indexOf(Math.abs(shuttle)); shuttle=dir*SPEEDS[Math.min(SPEEDS.length-1,i+1)]; }
+  startShuttle(); }
+function stepFrame(n){ stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n/FPS); $('tcbig').textContent=tcStr(curEpoch()); }
+function stepSec(n){ stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n); $('tcbig').textContent=tcStr(curEpoch()); }
+function togglePlay(){ stopShuttle(); if(vid.paused){vid.play().catch(function(){});} else vid.pause(); }
+function goStart(){ stopShuttle(); vid.pause(); seekEpoch(winStart+0.05); }
+function goEnd(){ stopShuttle(); vid.pause(); seekEpoch(edgeEpoch()-6); }
+$('tJ').onclick=function(){bumpShuttle(-1)}; $('tL').onclick=function(){bumpShuttle(1)};
+$('tPlay').onclick=togglePlay; $('tBack').onclick=function(){stepFrame(-1)}; $('tFwd').onclick=function(){stepFrame(1)};
+$('tHome').onclick=goStart; $('tEnd').onclick=goEnd;
+vid.addEventListener('play',function(){stopShuttle();$('playicon').setAttribute('d','M6 5h4v14H6zm8 0h4v14h-4z');$('viewstate').textContent='playing';});
+vid.addEventListener('pause',function(){$('playicon').setAttribute('d','M7 5v14l11-7z');$('viewstate').textContent='paused';});
+// click-to-type timecode: click the readout, type HH:MM:SS:FF, Enter to jump.
+$('tc').style.cursor='text'; $('tc').title='click to type a timecode';
+$('tc').onclick=function(){ stopShuttle(); vid.pause();
+  var cur=tcStr(curEpoch()); var v=prompt('Go to timecode (HH:MM:SS:FF)',cur===('--:--:--:--')?'':cur);
+  if(!v)return; var p=v.split(':').map(Number); if(p.some(isNaN))return;
+  var h=p[0]||0,m=p[1]||0,s=p[2]||0,f=p[3]||0;
+  // interpret as wall-clock time on the record's day (the store is UTC-stamped)
+  var base=new Date((winStart)*1000); base.setUTCHours(h,m,s,0);
+  var ep=base.getTime()/1000 + f/FPS;
+  if(ep>=winStart&&ep<=edgeEpoch()) seekEpoch(ep); else $('msg').textContent='that timecode is outside the 12h record'; };
+
+/* ═══ live tick: timecode + playhead + overview ═══ */
+(function tick(){ if(winDur>0){ var ep=curEpoch();
+  if(ep!=null){ var t=tc(ep); if(t!=='--:--:--:--'){ $('tc').innerHTML=t.h+':'+t.m+':'+t.s+'<span class="ff">:'+t.f+'</span>';
+    if(!dragging&&shuttle===0)$('tcbig').textContent=t.h+':'+t.m+':'+t.s+':'+t.f; }
+    renderPlayhead(viewRange()); $('ovplay').style.display='block';
+    if(ov&&winDur){var span=ov.end-ov.start;$('ovplay').style.left=(((ep-ov.start)/span)*100)+'%';}
+  } }
+  requestAnimationFrame(tick); })();
+// keep the strip/overview fresh even when idle
+setInterval(function(){ if(!dragging){renderStrip();renderOverview();} }, 1000);
+window.addEventListener('resize',function(){renderStrip();renderOverview();});
+
+/* ═══ marking + duration ═══ */
+function updateDurOverlay(cursorEp){ if(inE==null){$('durbig').style.display='none';return;}
+  var end=(outE!=null?outE:cursorEp), d=end-inE; if(d<=0){$('durbig').style.display='none';return;}
+  $('durbig').textContent=fmtDur(d); $('durbig').style.color=(outE!=null?'var(--warm)':'var(--in)'); $('durbig').style.display='block'; }
 function paintClip(){
   var ok=inE!=null&&outE!=null&&outE>inE;
-  $('info').textContent=(inE!=null?'IN '+fmtE(inE):'no IN')+' · '+(outE!=null?'OUT '+fmtE(outE):'no OUT');
-  if(ok){$('dur').textContent=fmtDur(outE-inE);$('dur').style.display='';}else $('dur').style.display='none';
-  $('grab').disabled=!ok; $('save').disabled=!ok; $('qrbtn').disabled=!ok;
-  paintMarks();
+  $('iotc').textContent='IN '+tcStr(inE); $('ootc').textContent='OUT '+tcStr(outE);
+  var dl=$('dlen'); if(ok){dl.textContent='['+durTC(outE-inE)+']';dl.style.display='';}else dl.style.display='none';
+  $('bGrab').disabled=!ok; $('bSave').disabled=!ok; $('bQR').disabled=!ok;
+  renderMarks(viewRange());
 }
-$('in').onclick=function(){var e=curEpoch();if(e==null)return;inE=e;if(outE!=null&&outE<=inE)outE=null;paintClip();};
-$('out').onclick=function(){var e=curEpoch();if(e==null)return;outE=e;if(inE!=null&&inE>=outE)inE=null;paintClip();};
-$('clr').onclick=function(){inE=outE=null;paintClip();};
+function markIn(){ var e=curEpoch(); if(e==null)return; inE=e; if(outE!=null&&outE<=inE)outE=null; paintClip(); $('viewstate').textContent='in set'; }
+function markOut(){ var e=curEpoch(); if(e==null)return; outE=e; if(inE!=null&&inE>=outE)inE=null; paintClip(); $('viewstate').textContent='out set'; }
+$('bIn').onclick=markIn; $('bOut').onclick=markOut; $('bClr').onclick=function(){inE=outE=null;paintClip();};
 
-// ── ffmpeg.wasm clip engine (self-hosted same-origin; core+wasm blobs, no classWorkerURL) ──
+/* ═══ zoom ═══ */
+function setZoom(sec){ zoomSec=Math.max(30,Math.min(1800,sec));
+  $('zlbl').textContent=(zoomSec<60?zoomSec+' sec view':(zoomSec/60)+' min view'); renderStrip(); renderOverview(); }
+$('zin').onclick=function(){var i=ZOOMS.indexOf(zoomSec);setZoom(ZOOMS[Math.max(0,i-1)]);};
+$('zout').onclick=function(){var i=ZOOMS.indexOf(zoomSec);setZoom(ZOOMS[Math.min(ZOOMS.length-1,i+1)]);};
+
+/* ═══ ffmpeg.wasm clip engine (full-res) ═══ */
 var _ff=null,_ffL=null;
-function loadFF(msg){
-  if(_ff)return Promise.resolve(_ff); if(_ffL)return _ffL;
-  msg&&msg('loading clip engine (first time)…');
+function loadFF(msg){ if(_ff)return Promise.resolve(_ff); if(_ffL)return _ffL;
+  msg&&msg('loading clip engine…');
   var toBlob=function(u,t){return fetch(u).then(function(r){return r.arrayBuffer()}).then(function(b){return URL.createObjectURL(new Blob([b],{type:t}))})};
   _ffL=(async function(){var v='/vendor/ffmpeg';var ff=new FFmpegWASM.FFmpeg();
     await ff.load({coreURL:await toBlob(v+'/ffmpeg-core.js','text/javascript'),wasmURL:await toBlob(v+'/ffmpeg-core.wasm','application/wasm')});
-    _ff=ff;return ff;})();
-  return _ffL;
-}
-// fetch the FULL-res playlist for [inE,outE] and take its segment URLs (clip = full quality)
-async function fullSegs(a,b){
-  var pad=2, tr='['+Math.floor(a-pad)+':0_'+Math.ceil(b+pad)+':0)';
+    _ff=ff;return ff;})(); return _ffL; }
+async function fullSegs(a,b){ var pad=2,segStart=Math.floor(a-pad);
+  var tr='['+segStart+':0_'+Math.ceil(b+pad)+':0)';
   var txt=await (await fetch(FULL_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+Math.ceil(b-a+2*pad+10))).text();
   var out=[]; txt.split('\n').forEach(function(l){l=l.trim(); if(l.charAt(0)==='/'||/^https?:/.test(l))out.push(l);});
-  return {urls:out, segStart:Math.floor(a-pad)};
-}
-var CLIP_WARN=240, CLIP_MAX=480, _warned=0;
+  return {urls:out,segStart:segStart}; }
+var CLIP_WARN=240,CLIP_MAX=480,_warned=0;
+function prog(p){var el=$('prog');if(p==null){el.style.display='none';return;}el.style.display='inline-block';el.firstElementChild.style.width=Math.round(p*100)+'%';}
 async function doClip(a,b,msg){
-  var dur=b-a;
-  if(dur<=0){msg('mark IN then OUT');return;}
-  if(dur>CLIP_MAX){msg('clip is '+fmtDur(dur)+' — too long for in-browser (max '+fmtDur(CLIP_MAX)+'). Use a shorter range.');return;}
-  if(dur>CLIP_WARN&&_warned!==Math.round(dur)){_warned=Math.round(dur);msg('heads up: '+fmtDur(dur)+' is big in-browser — click again to proceed.');return;}
-  var ff=await loadFF(msg);
-  msg('fetching full-res segments…');
-  var fs=await fullSegs(a,b);
-  if(!fs.urls.length){msg('no segments for that range — scrub over the clip first');return;}
-  var bufs=await Promise.all(fs.urls.map(function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error('segment '+r.status);return r.arrayBuffer();});}));
-  var names=[]; for(var i=0;i<bufs.length;i++){var n='s'+i+'.ts';await ff.writeFile(n,new Uint8Array(bufs[i]));names.push(n);}
+  var dur=b-a; if(dur<=0){msg('mark IN then OUT');return;}
+  if(dur>CLIP_MAX){msg('clip is '+fmtDur(dur)+' — over the '+fmtDur(CLIP_MAX)+' in-browser limit');return;}
+  if(dur>CLIP_WARN&&_warned!==Math.round(dur)){_warned=Math.round(dur);msg(fmtDur(dur)+' is a big clip — click again to proceed');return;}
+  var ff=await loadFF(msg); prog(0.1); msg('fetching full-res segments…');
+  var fs=await fullSegs(a,b); if(!fs.urls.length){prog(null);msg('no segments for that range — scrub over it first');return;}
+  var bufs=[]; for(var i=0;i<fs.urls.length;i++){ var r=await fetch(fs.urls[i]); if(!r.ok)throw new Error('segment '+r.status);
+    bufs.push(new Uint8Array(await r.arrayBuffer())); prog(0.1+0.6*(i+1)/fs.urls.length); }
+  var names=[]; for(var j=0;j<bufs.length;j++){var n='s'+j+'.ts';await ff.writeFile(n,bufs[j]);names.push(n);}
   await ff.writeFile('list.txt',new TextEncoder().encode(names.map(function(n){return "file '"+n+"'"}).join('\n')));
-  var ss=Math.max(0,a-fs.segStart);
-  msg('assembling clip…');
+  var ss=Math.max(0,a-fs.segStart); prog(0.8); msg('assembling clip…');
   await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),'-c','copy','-movflags','+faststart','-y','out.mp4']);
-  var data=await ff.readFile('out.mp4');
-  var blob=new Blob([data.buffer],{type:'video/mp4'});
-  var el=document.createElement('a'); el.href=URL.createObjectURL(blob);
-  el.download='mxl-clip-'+Math.floor(a)+'-'+dur.toFixed(0)+'s.mp4';
+  var data=await ff.readFile('out.mp4'); prog(0.98);
+  var blob=new Blob([data.buffer],{type:'video/mp4'}); var el=document.createElement('a');
+  el.href=URL.createObjectURL(blob); el.download='mxl-clip-'+tcStr(a).replace(/:/g,'')+'-'+dur.toFixed(0)+'s.mp4';
   document.body.appendChild(el); el.click(); el.remove();
-  for(var j=0;j<names.length;j++){try{await ff.deleteFile(names[j])}catch(e){}}
-  try{await ff.deleteFile('out.mp4');await ff.deleteFile('list.txt')}catch(e){}
-  msg('⚡ clip ready ('+(data.length/1e6).toFixed(1)+' MB) — downloaded');
+  for(var k=0;k<names.length;k++){try{await ff.deleteFile(names[k])}catch(e){}} try{await ff.deleteFile('out.mp4');await ff.deleteFile('list.txt')}catch(e){}
+  prog(null); msg('✓ '+fmtDur(dur)+' clip exported ('+(data.length/1e6).toFixed(1)+' MB)');
 }
-function runClip(a,b,btns){
-  btns.forEach(function(x){if(x)x.disabled=true;}); var t0=Date.now();
+function runClip(a,b,btns){ btns.forEach(function(x){if(x)x.disabled=true;}); var t0=Date.now();
   Promise.resolve().then(function(){return doClip(a,b,function(m){$('msg').textContent=m;});})
-    .catch(function(e){$('msg').textContent='clip failed: '+(e&&e.message||e);})
+    .catch(function(e){prog(null);$('msg').textContent='export failed: '+(e&&e.message||e);})
     .then(function(){ btns.forEach(function(x){if(x)x.disabled=false;}); paintClip();
-      if(/ready/.test($('msg').textContent)) $('msg').textContent+=' in '+((Date.now()-t0)/1000).toFixed(1)+'s'; });
-}
-$('grab').onclick=function(){ if(inE!=null&&outE!=null) runClip(inE,outE,[$('grab')]); };
-// quick-grab: last N seconds up to the playhead → mark + fire instantly
-function quick(n){ var now=curEpoch(); if(now==null){$('msg').textContent='no playhead yet — scrub first';return;}
-  outE=now; inE=now-n; paintClip(); runClip(inE,outE,[$('g10'),$('g30'),$('g60'),$('grab')]); }
-$('g10').onclick=function(){quick(10)}; $('g30').onclick=function(){quick(30)}; $('g60').onclick=function(){quick(60)};
+      if(/exported/.test($('msg').textContent))$('msg').textContent+=' · '+((Date.now()-t0)/1000).toFixed(1)+'s'; }); }
+$('bGrab').onclick=function(){ if(inE!=null&&outE!=null)runClip(inE,outE,[$('bGrab')]); };
+function quick(n){ var now=curEpoch(); if(now==null){$('msg').textContent='no playhead yet';return;} outE=now; inE=now-n; paintClip(); runClip(inE,outE,[$('g10'),$('g30'),$('g60'),$('bGrab')]); }
+$('g10').onclick=function(){quick(10)};$('g30').onclick=function(){quick(30)};$('g60').onclick=function(){quick(60)};
 
-// ── clip bin (in-memory list; each row re-grabs or downloads) ──
+/* ═══ clip bin ═══ */
 var bin=[];
-$('save').onclick=function(){ if(inE==null||outE==null)return;
-  var label=prompt('Clip name?','Clip '+fmtE(inE))||('Clip '+fmtE(inE));
-  bin.push({in:inE,out:outE,label:label}); renderBin(); };
-function renderBin(){ var el=$('bin'); el.innerHTML='';
-  bin.forEach(function(c,idx){ var d=document.createElement('div'); d.className='chip';
-    d.innerHTML='<span class="t"></span> <span class="d"></span>';
-    d.querySelector('.t').textContent=c.label; d.querySelector('.d').textContent=fmtDur(c.out-c.in);
-    var g=document.createElement('button'); g.textContent='⚡'; g.title='grab'; g.onclick=function(){runClip(c.in,c.out,[g]);};
-    var q=document.createElement('button'); q.textContent='📱'; q.title='take home'; q.onclick=function(){showQR(c.in,c.out,c.label);};
-    var x=document.createElement('button'); x.textContent='✕'; x.onclick=function(){bin.splice(idx,1);renderBin();};
-    d.appendChild(g); d.appendChild(q); d.appendChild(x); el.appendChild(d); });
-}
+$('bSave').onclick=function(){ if(inE==null||outE==null)return;
+  var label=prompt('Clip name?','Clip '+tcStr(inE).slice(0,8))||('Clip '+tcStr(inE).slice(0,8));
+  var thumbEp=Math.floor(inE); bin.push({in:inE,out:outE,label:label,ep:thumbEp}); renderBin(); };
+function renderBin(){ var el=$('binlist'); $('binn').textContent=bin.length+' clip'+(bin.length===1?'':'s');
+  if(!bin.length){el.innerHTML='<div class="empty">Mark <b style="color:var(--in)">IN</b> and <b style="color:var(--out)">OUT</b>, then <b style="color:var(--signal)">Save</b> to stack clips here.<br>Each exports a frame-accurate MP4 in your browser.</div>';return;}
+  el.innerHTML='';
+  bin.forEach(function(c,idx){ var d=document.createElement('div'); d.className='clip';
+    d.innerHTML='<div class="th" style="background-image:url('+THUMB+c.ep+'.jpg)"><span class="d mono">'+durTC(c.out-c.in)+'</span></div>'+
+      '<div class="meta"><span class="t"></span></div>';
+    d.querySelector('.t').textContent=c.label;
+    var mk=d.querySelector('.meta');
+    ['⚡','📱','✕'].forEach(function(g,gi){ var bt=document.createElement('button'); bt.textContent=g;
+      bt.onclick=function(){ if(gi===0)runClip(c.in,c.out,[bt]); else if(gi===1)showQR(c.in,c.out,c.label); else{bin.splice(idx,1);renderBin();} }; mk.appendChild(bt); });
+    el.appendChild(d); }); }
 
-// ── take-home QR (client-only; a shareable deep link back to this clipper) ──
+/* ═══ take-home QR ═══ */
 var qr=null;
 function shareUrl(a,b){return location.origin+location.pathname+'?clip='+a+'_'+b;}
-function showQR(a,b,label){ var url=shareUrl(a,b); $('qrbox').innerHTML='';
-  qr=new QRCode($('qrbox'),{text:url,width:200,height:200,correctLevel:QRCode.CorrectLevel.M});
+function showQR(a,b,label){ var url=shareUrl(a,b); $('qrbox').innerHTML=''; qr=new QRCode($('qrbox'),{text:url,width:200,height:200,correctLevel:QRCode.CorrectLevel.M});
   $('qrsub').textContent=(label||'Your clip')+' · '+fmtDur(b-a); $('qr').style.display='flex'; }
-$('qrbtn').onclick=function(){ if(inE!=null&&outE!=null)showQR(inE,outE,'Your clip'); };
-$('qrclose').onclick=function(){$('qr').style.display='none'};
-$('qr').onclick=function(e){if(e.target===$('qr'))$('qr').style.display='none'};
+$('bQR').onclick=function(){ if(inE!=null&&outE!=null)showQR(inE,outE,'Your clip'); };
+$('qrclose').onclick=function(){$('qr').style.display='none'}; $('qr').onclick=function(e){if(e.target===$('qr'))$('qr').style.display='none'};
 
-// ── keyboard ──
-document.addEventListener('keydown',function(e){ if(/input|textarea/i.test((e.target.tagName||'')))return;
-  var k=e.key.toLowerCase();
-  if(k==='i'){$('in').onclick();}
-  else if(k==='o'){$('out').onclick();}
-  else if(k==='x'){$('clr').onclick();}
-  else if(k===' '){e.preventDefault(); vid.paused?vid.play():vid.pause();}
-  else if(k===','){var t=curEpoch(); if(t!=null){try{vid.currentTime=epochToMedia(t-1);}catch(x){}}}
-  else if(k==='.'){var t2=curEpoch(); if(t2!=null){try{vid.currentTime=epochToMedia(t2+1);}catch(x){}}}
+/* ═══ keyboard (editor muscle memory) ═══ */
+document.addEventListener('keydown',function(e){ if(/input|textarea/i.test(e.target.tagName||''))return;
+  var k=e.key.toLowerCase(); var shift=e.shiftKey;
+  if(k==='j'){e.preventDefault();bumpShuttle(-1);}
+  else if(k==='l'){e.preventDefault();bumpShuttle(1);}
+  else if(k==='k'||k===' '){e.preventDefault(); if(shuttle!==0)stopShuttle(); else togglePlay();}
+  else if(k==='i'){ if(shift){ if(inE!=null)seekEpoch(inE); } else markIn(); }   // Shift+I → go to In
+  else if(k==='o'){ if(shift){ if(outE!=null)seekEpoch(outE); } else markOut(); } // Shift+O → go to Out
+  else if(k==='x'){inE=outE=null;paintClip();}
+  else if(k==='s'){if(!$('bSave').disabled)$('bSave').onclick();}
+  else if(k==='enter'){if(!$('bGrab').disabled)$('bGrab').onclick();}
+  else if(k==='arrowleft'){e.preventDefault(); shift?stepSec(-1):stepFrame(-1);}
+  else if(k==='arrowright'){e.preventDefault(); shift?stepSec(1):stepFrame(1);}
+  else if(k==='home'){e.preventDefault();goStart();}
+  else if(k==='end'){e.preventDefault();goEnd();}
+  else if(k==='='||k==='+'){$('zin').onclick();}
+  else if(k==='-'||k==='_'){$('zout').onclick();}
 });
 
-// ── deep link: ?clip=IN_OUT preloads marks ──
+/* ═══ deep link ?clip=IN_OUT ═══ */
 (function(){var m=/[?&]clip=(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)/.exec(location.search);
-  if(m){ setTimeout(function(){inE=parseFloat(m[1]);outE=parseFloat(m[2]);paintClip();
-    try{vid.currentTime=epochToMedia(inE);}catch(e){}},1500); }})();
-paintClip();
+  if(m){ setTimeout(function(){inE=parseFloat(m[1]);outE=parseFloat(m[2]);paintClip();seekEpoch(inE);},1600); }})();
+setZoom(120); paintClip();
 </script>
 </body></html>
