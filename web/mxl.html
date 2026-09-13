@@ -55,7 +55,13 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 #contrib p{font-size:11px;color:#8b96b5;line-height:1.5}
 #contrib .st{font-size:11px;font-weight:700;margin-top:6px}
 #contrib button{font:inherit;font-size:11px;color:#cfd8ef;background:#131b2e;border:1px solid #26314d;border-radius:6px;padding:4px 9px;cursor:pointer}
-.ctrl{background:#0a0e1a}
+.ctrl{background:#0a0e1a;overflow-y:auto}
+/* The PTZ operator console (ptz_op.html, a bundled app) needs ~900px for the
+   pan/tilt pad + presets. On a tall monitor the iframe fills the column (100%);
+   on a standard 1080p screen — where browser chrome eats ~100px — the 900px
+   floor keeps the console full-size and the column SCROLLS so the drive pad and
+   presets stay reachable instead of being cut off below the fold. */
+.ctrl iframe{height:max(100%,900px)}
 .ctrl .hd{position:absolute;top:0;left:0;right:0;padding:7px 14px;font-size:11px;font-weight:700;letter-spacing:.6px;color:#8b96b5;background:linear-gradient(#0a0e14,rgba(10,14,20,0));pointer-events:none;z-index:3;text-transform:uppercase}
 #mtabs{display:none}
 @media(max-width:920px){
