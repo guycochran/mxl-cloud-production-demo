@@ -66,8 +66,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
         <div id="ghost" style="display:none;position:absolute;top:6px;width:1px;height:18px;background:rgba(238,242,255,.6);pointer-events:none"></div>
         <!-- big hover preview: nearest-available thumbnail, never broken -->
         <div id="hovertip" style="display:none;position:absolute;bottom:34px;transform:translateX(-50%);background:#0c1220;border:1px solid #26314d;border-radius:9px;padding:5px;text-align:center;pointer-events:none;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.5)">
-          <div style="position:relative;width:200px;height:112px;border-radius:6px;overflow:hidden;background:#000">
-            <div id="hovimg" style="width:200px;height:112px;background:#000 no-repeat"></div>
+          <div style="position:relative;width:320px;height:180px;border-radius:6px;overflow:hidden;background:#000">
+            <div id="hovimg" style="width:320px;height:180px;background:#000 no-repeat"></div>
             <div id="hovspin" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5b6885;font-size:11px">loading…</div>
           </div>
           <div id="hovt" style="font-size:12px;font-weight:600;color:#ffb400;font-variant-numeric:tabular-nums;margin-top:4px">--:--:--</div>
@@ -87,6 +87,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
       <span id="range">loading&hellip;</span>
     </div>
     <div class="tmbar" style="border-top:1px solid #1a2338;flex-wrap:wrap;gap:7px">
+      <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#35e0ff">QUICK GRAB</span>
+      <button id="grab10" style="border-color:#35e0ff;color:#35e0ff" title="Instantly clip the last 10 seconds up to the playhead — no marking">&#9889; last 10s</button>
+      <button id="grab30" style="border-color:#35e0ff;color:#35e0ff" title="Instantly clip the last 30 seconds up to the playhead">&#9889; 30s</button>
+      <button id="grab60" style="border-color:#35e0ff;color:#35e0ff" title="Instantly clip the last 60 seconds up to the playhead">&#9889; 60s</button>
+      <span style="width:1px;height:20px;background:#26314d;margin:0 4px"></span>
       <span style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#8b96b5">CLIP</span>
       <button id="setin" title="shortcut: I">&#10218; IN <kbd style="font-size:9px;opacity:.6">I</kbd></button>
       <button id="setout" title="shortcut: O">OUT <kbd style="font-size:9px;opacity:.6">O</kbd> &#10219;</button>
@@ -451,8 +456,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
   // While DRAGGING the preview becomes a big 480x270 filmstrip frame —
   // sprites are instant per-second images, which is what fluid skimming
   // actually needs (video seeks are ~300ms each; they land the final frame).
-  function tileW(){return dragging?480:200}
-  function tileH(){return dragging?270:112}
+  function tileW(){return dragging?640:320}
+  function tileH(){return dragging?360:180}
   function applyTipSize(){
     hovimg.style.width=tileW()+'px';hovimg.style.height=tileH()+'px';
     hovimg.dataset.ep='';                                 // force re-render at new scale
@@ -735,14 +740,35 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;min-height:0}
     navigator.clipboard.writeText(share).then(function(){cl.textContent='✓ Copied';setTimeout(function(){cl.textContent='🔗 Copy link'},1500)});
   };
   dl.onclick=function(){window.location='/api/mxl/clip.mp4?in='+inE.toFixed(3)+'&out='+outE.toFixed(3)};
-  document.getElementById('fastclip').onclick=function(){
-    var fc=document.getElementById('fastclip'); fc.disabled=true; var t0=Date.now();
-    // never let an error leave the button dead or the user without a message
-    Promise.resolve().then(function(){return fastClip(function(m){ci.textContent='⚡ '+m;});})
+  // shared instant-clip trigger — used by the Grab button AND the quick-grab
+  // presets. Disables the given buttons, always surfaces a message, re-enables.
+  function runFastClip(btns){
+    btns.forEach(function(b){if(b)b.disabled=true;}); var t0=Date.now();
+    return Promise.resolve().then(function(){return fastClip(function(m){ci.textContent='⚡ '+m;});})
       .catch(function(e){ci.textContent='⚡ instant clip failed: '+(e&&e.message||e);})
-      .then(function(){ fc.disabled=false;
+      .then(function(){ btns.forEach(function(b){if(b)b.disabled=false;});
         if(/ready/.test(ci.textContent)) ci.textContent+=' in '+((Date.now()-t0)/1000).toFixed(1)+'s'; });
-  };
+  }
+  var fcBtn=document.getElementById('fastclip');
+  fcBtn.onclick=function(){ runFastClip([fcBtn]); };
+
+  // ── QUICK GRAB: one-click "clip the last N seconds up to the playhead" ──
+  // The live-event killer: something just happened → hit "last 10s" → clip
+  // downloaded, no IN/OUT marking. Sets marks to [now−N, now], paints them so
+  // the shaded band + big duration show what was grabbed, then fires instantly.
+  var g10=document.getElementById('grab10'),g30=document.getElementById('grab30'),g60=document.getElementById('grab60');
+  var quickBtns=[g10,g30,g60];
+  function quickGrab(secs){
+    var now=curEpoch();
+    if(now==null){ci.textContent='⚡ no playhead yet — scrub or play first';return;}
+    outE=now; inE=now-secs;
+    pinWindowForEdit();       // keep the window still while we assemble
+    paintClip();              // show the band + big clip-length readout
+    runFastClip(quickBtns.concat([fcBtn]));
+  }
+  g10.onclick=function(){quickGrab(10)};
+  g30.onclick=function(){quickGrab(30)};
+  g60.onclick=function(){quickGrab(60)};
 
   // ── "take it home": QR + mailto (no server email, no stored PII) ──
   var qb=document.getElementById('qrclip'),qm=document.getElementById('qrmodal'),
