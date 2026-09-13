@@ -76,9 +76,15 @@ pipe = Gst.parse_launch(
     # NO ignore-inactive-pads: at startup every pad is inactive, so the
     # aggregator EOS'd instantly (silent exit-1 crash loop, 9/12). The
     # latency timeout alone handles absent sources — layout_pgm's proof.
-    f'compositor name=comp background=black latency=200000000 {pads}! '
+    # latency 1.5s (was 200ms): a single ~1s-late branch dragged the whole
+    # output behind the servo's reach → 21k hard-re-locks/respawn spiral
+    # (9/13). This is a MONITOR wall — latency is invisible, stability isn't.
+    f'compositor name=comp background=black latency=1500000000 {pads}! '
     f'video/x-raw,width=1920,height=1080 ! '
-    f'videorate drop-only=false ! video/x-raw,framerate={FPS}/1 ! videoconvert ! '
+    # drop-only: after an input pts jump (guest reconnect), fill-mode videorate
+    # emitted a burst of duplicates 1s ahead of realtime → servo re-lock storm
+    # (21k re-locks, 9/13). A wall can skip frames; it can't crash-loop.
+    f'videorate drop-only=true ! video/x-raw,framerate={FPS}/1 ! videoconvert ! '
     f'video/x-raw,format=v210 ! queue max-size-buffers=8 ! '
     f'mxlsink name=sink domain=/mxl-domain flow-id={DST} label="Multiview PGM" '
     f'description="3x3 multiview wall of all switcher inputs + program" '
