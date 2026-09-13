@@ -1,5 +1,10 @@
 # Quickstart: your own MXL switcher in ~10 minutes
 
+*Validated end-to-end 2026-09-13 on a fresh Azure D4s_v5 (Ubuntu 24.04):
+script → ON AIR → browser showed bars with the keyed lower-third → one curl
+cut to the clip, graphics stayed up — then the VM was deleted. Total cost of
+the test: about five cents.*
+
 One script takes a fresh Ubuntu VM to a **cuttable, keyed, browser-watchable
 MXL production**: test pattern + file playout through a shared-memory domain,
 an HTML5 lower-third keyed over program, and WebRTC out. Everything runs in
@@ -11,8 +16,11 @@ containers — this script is just verified assembly.
 - **Ubuntu 22.04/24.04, x86-64 with AVX.** Any Azure D-series v5, AWS m5/m6i,
   GCP n2. On QEMU/KVM set the CPU model to `host` or every libmxl call SIGILLs
   ([FINDINGS §11](FINDINGS.md)). Check: `grep -m1 avx /proc/cpuinfo`.
-- **~8 vCPU / 16 GB** is comfortable for this baseline (measured sizing for
-  the full facility is in the README's *Build one yourself* table).
+- **~8 vCPU / 16 GB** is comfortable for this baseline (a 4-vCPU D4s_v5 runs
+  it; measured sizing for the full facility is in the README's *Build one
+  yourself* table). **~10 GB free disk** — the container images total ~7 GB
+  (the CEF-based keyer alone is 3.3 GB), so the image pull dominates the 10
+  minutes.
 - **Cloud firewall / NSG open:** `8889/tcp` (WebRTC page + signaling),
   `8189/udp` (WebRTC media). Optional for later: `8890/udp` (SRT contribution).
 
