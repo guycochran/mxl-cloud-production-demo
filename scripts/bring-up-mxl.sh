@@ -50,10 +50,12 @@ done
 echo '{"id":"domain_1"}' | sudo tee /dev/shm/mxl/domain_1/domain_def.json >/dev/null
 # hands-on extras (mxl-info-gui :9608, spx-server :5660, webrtc2mxl :9609)
 # are restart-unless-stopped docker containers — nothing to relaunch here
-sudo docker start mxl-info-gui spx-server webrtc2mxl >/dev/null 2>&1 || true
-# commentary booth voice pipeline (commentary.html): labels are LOAD-BEARING —
-# flow UUID 101fcb5f (in audio_pgm SOURCES + backend) derives from them
+sudo docker start mxl-info-gui spx-server webrtc2mxl webrtc2mxl-2 >/dev/null 2>&1 || true
+# commentary booth voice pipelines (commentary.html / ?slot=2): labels are
+# LOAD-BEARING — flow UUIDs 101fcb5f / e8eb9046 (audio_pgm + backend) derive
+# from them
 curl -s -m 15 -X POST -H "Content-Type: application/json" -d '{"domain_path":"/mxl-domain","grouphint":"Commentary","label":"Commentary Audio","description":"remote commentator (browser mic via WHIP)"}' http://127.0.0.1:9609/pipeline/start >/dev/null || true
+curl -s -m 15 -X POST -H "Content-Type: application/json" -d '{"domain_path":"/mxl-domain","grouphint":"Commentary2","label":"Commentary 2 Audio","description":"remote commentator 2 (browser mic via WHIP)"}' http://127.0.0.1:9610/pipeline/start >/dev/null || true
 echo "  ✓ containers + :8085 up"
 VMEOF
 

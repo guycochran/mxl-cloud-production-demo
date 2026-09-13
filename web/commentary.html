@@ -56,7 +56,12 @@ button:disabled{opacity:.4;cursor:not-allowed}
 </main>
 <script>
 (function(){
-  var WHIP='https://mxl-feed.cochran.cloud/webrtc2mxl/whip';
+  // duo booth: ?slot=2 = second commentator (own path, own MXL flow, COM2 fader)
+  var SLOT=new URLSearchParams(location.search).get('slot')==='2'?2:1;
+  var WHIP='https://mxl-feed.cochran.cloud/webrtc2mxl'+(SLOT===2?'2':'')+'/whip';
+  var MIXKEY=SLOT===2?'voice2':'voice';
+  if(SLOT===2){document.title='MXL Switcher — Commentary Booth 2';
+    document.querySelector('header .t').innerHTML='<span>MXL</span> Switcher &middot; Commentary Booth &middot; SEAT 2';}
   var mics=document.getElementById('mics'),onair=document.getElementById('onair'),
       cough=document.getElementById('cough'),meter=document.getElementById('meter'),
       stat=document.getElementById('stat'),err=document.getElementById('err');
@@ -143,7 +148,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
       await pc.setRemoteDescription({type:'answer',sdp:await resp.text()});
       // self-heal: if the MXL consumer started before any publisher existed
       // it never subscribes — this bounces it only when the flow is missing
-      setTimeout(function(){fetch('/api/mxl/voice-kick',{method:'POST'}).catch(function(){})},2500);
+      setTimeout(function(){fetch('/api/mxl/voice-kick?slot='+SLOT,{method:'POST'}).catch(function(){})},2500);
       onair.textContent='&#9210;'.replace(/.*/,'')||'';
       onair.innerHTML='&#9679; ON AIR — click to stop';
       onair.classList.add('live');onair.disabled=false;
@@ -173,11 +178,11 @@ button:disabled{opacity:.4;cursor:not-allowed}
 
   // engine + mix status
   function poll(){
-    fetch('/api/mxl/voice-status').then(function(r){return r.json()}).then(function(s){
+    fetch('/api/mxl/voice-status?slot='+SLOT).then(function(r){return r.json()}).then(function(s){
       var eng=s.running?'<b style="color:#23d97c">running</b>':'<b style="color:#ff8f92">stopped</b>';
       fetch('/api/mxl/audio-state').then(function(r){return r.json()}).then(function(a){
-        var v=a.voice||{};
-        stat.innerHTML='engine: '+eng+' · mix: COM fader <b>'+(v.vol!=null?v.vol:'—')+'</b>'+(v.mute?' <b style="color:#ff8f92">(muted by producer)</b>':'');
+        var v=a[MIXKEY]||{};
+        stat.innerHTML='engine: '+eng+' · mix: COM'+(SLOT===2?'2':'')+' fader <b>'+(v.vol!=null?v.vol:'—')+'</b>'+(v.mute?' <b style="color:#ff8f92">(muted by producer)</b>':'');
       });
     }).catch(function(){stat.textContent='engine: unreachable'});
   }
