@@ -45,6 +45,12 @@ pgrep -f "http.server 8085" >/dev/null || \
 for p in 9600 9601 9602 9603 9604 9605; do  # 9606 = parked TG2, don't wait on it
   for i in $(seq 1 30); do curl -s -m 2 -o /dev/null http://127.0.0.1:$p/pipeline/status && break; sleep 2; done
 done
+# mxl-info-gui needs a domain_def.json to recognize the domain; /dev/shm is
+# volatile so recreate it every bring-up (2026-09-13; GUI at mxlinfo.cochran.cloud)
+echo '{"id":"domain_1"}' | sudo tee /dev/shm/mxl/domain_1/domain_def.json >/dev/null
+# hands-on extras (mxl-info-gui :9608, spx-server :5660, webrtc2mxl :9609)
+# are restart-unless-stopped docker containers — nothing to relaunch here
+sudo docker start mxl-info-gui spx-server webrtc2mxl >/dev/null 2>&1 || true
 echo "  ✓ containers + :8085 up"
 VMEOF
 
