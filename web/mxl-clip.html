@@ -372,7 +372,19 @@ function mediaToEpoch(md){ if(!frags.length) return winStart?winStart+md:null;
   var f=frags[lo]; return f.programDateTime/1000+(md-f.start); }
 function epochToMedia(ep){ for(var i=0;i<frags.length;i++){var f=frags[i],s=f.programDateTime/1000,e=s+(f.duration||1);
   if(ep>=s&&ep<e+0.001) return f.start+(ep-s);} return winMedia0+(ep-winStart); }
-function curEpoch(){ if(isFinite(vid.currentTime)){var e=mediaToEpoch(vid.currentTime); if(e!=null)return e;} return null; }
+// FRAME-ACCURATE playhead: requestVideoFrameCallback gives metadata.mediaTime =
+// the PTS of the frame ACTUALLY on screen — the ground truth that currentTime is
+// not. We track it continuously so timecode + marks reflect the real frame you
+// see ("what you see is what you mark"). Falls back to currentTime if unsupported.
+var _rvfcMediaTime=null, _hasRVFC=('requestVideoFrameCallback' in HTMLVideoElement.prototype);
+if(_hasRVFC){ (function rvfcLoop(){ vid.requestVideoFrameCallback(function(now,md){
+    _rvfcMediaTime=md.mediaTime; rvfcLoop(); }); })(); }
+function mediaNow(){ // best truth for the currently-shown media time
+  if(_hasRVFC && _rvfcMediaTime!=null && !vid.seeking) return _rvfcMediaTime;
+  return isFinite(vid.currentTime)?vid.currentTime:null; }
+function curEpoch(){ var m=mediaNow(); if(m==null)return null; var e=mediaToEpoch(m); return e; }
+// snap an epoch to the exact frame grid (removes sub-frame jitter in marks/TC)
+function snapFrame(ep){ return Math.round(ep*FPS)/FPS; }
 function edgeEpoch(){ return winStart+winDur; }
 
 /* ── the FULL record extent: the 12h overview knows it; fall back to the live
@@ -424,7 +436,12 @@ function windowUrl(endEp){
 }
 function loadWindow(landAtEnd){
   if(hls)hls.destroy(); windowReady=false; $('spinner').style.display='grid';
-  hls=new Hls({lowLatencyMode:false,maxBufferLength:WIN,backBufferLength:WIN,maxBufferSize:800*1000*1000,maxBufferHole:1.0});
+  hls=new Hls({lowLatencyMode:false,maxBufferLength:WIN,backBufferLength:WIN,maxBufferSize:800*1000*1000,maxBufferHole:1.0,
+    // FRAME ACCURACY: default maxFragLookUpTolerance is 0.25s — with our 1s
+    // segments a click in the last ¼s of a segment gets bumped to the NEXT
+    // segment's first frame (the "clicked frame ≠ landed frame" bug). Near-0
+    // makes hls.js decode within the exact segment to the target frame.
+    maxFragLookUpTolerance:0.02});
   hls.on(Hls.Events.ERROR,function(e,d){ if(!d.fatal)return;
     if(d.type==='networkError')hls.startLoad();
     else if(d.type==='mediaError'){try{hls.recoverMediaError();}catch(x){}}
@@ -624,7 +641,7 @@ function stripFrac(e){var b=$('strip').getBoundingClientRect();return Math.min(1
 function fracToEpochStrip(fr){var v=viewRange();return v.lo+fr*v.span;}
 var _hideTip=null;
 function showHover(e){
-  var fr=stripFrac(e), ep=fracToEpochStrip(fr), b=$('strip').getBoundingClientRect(), x=fr*b.width;
+  var fr=stripFrac(e), ep=snapFrame(fracToEpochStrip(fr)), b=$('strip').getBoundingClientRect(), x=fr*b.width;
   $('hover').style.display='block'; $('hover').style.left=x+'px';
   var tip=$('htip'); tip.style.display='block'; tip.style.left=Math.min(b.width-130,Math.max(130,x))+'px';
   $('htipt').textContent=tcStr(ep);
@@ -640,7 +657,10 @@ function showHover(e){
 // Clamp to the loaded window; no archive loading, no deferred seeks, no jumps.
 function seekEpoch(ep){
   ep=Math.max(winStart,Math.min(winStart+winDur-0.05,ep));
-  try{vid.currentTime=epochToMedia(ep);}catch(e){}
+  var md=epochToMedia(snapFrame(ep));                   // snap to the exact frame grid
+  // seek to the frame CENTER (+half a frame) so the decoder lands ON the frame,
+  // not on the boundary where rounding can pick the neighbor.
+  try{vid.currentTime=md + (0.5/FPS);}catch(e){}
   renderStrip(); renderOverview();
 }
 var liveSeek=seekEpoch;                                 // same thing now (all in-buffer)
@@ -735,8 +755,8 @@ function paintClip(){
   $('bGrab').disabled=!ok; $('bSave').disabled=!ok; $('bQR').disabled=!ok;
   renderMarks(viewRange());
 }
-function markIn(){ engageEdit(); var e=curEpoch(); if(e==null)return; inE=e; if(outE!=null&&outE<=inE)outE=null; paintClip(); $('viewstate').textContent='in set'; }
-function markOut(){ engageEdit(); var e=curEpoch(); if(e==null)return; outE=e; if(inE!=null&&inE>=outE)inE=null; paintClip(); $('viewstate').textContent='out set'; }
+function markIn(){ var e=curEpoch(); if(e==null)return; inE=snapFrame(e); if(outE!=null&&outE<=inE)outE=null; paintClip(); $('viewstate').textContent='in '+tcStr(inE); }
+function markOut(){ var e=curEpoch(); if(e==null)return; outE=snapFrame(e); if(inE!=null&&inE>=outE)inE=null; paintClip(); $('viewstate').textContent='out '+tcStr(outE); }
 $('bIn').onclick=markIn; $('bOut').onclick=markOut; $('bClr').onclick=function(){inE=outE=null;paintClip();};
 
 /* ═══ SIMPLE MODE: no edit-lock needed — the window is static so nothing jumps.
