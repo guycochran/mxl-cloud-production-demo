@@ -668,15 +668,39 @@ function seekEpoch(ep){
 var liveSeek=seekEpoch;                                 // same thing now (all in-buffer)
 // Click/drag the filmstrip = move the playhead there, like any NLE. Everything is
 // in the loaded window, so seekEpoch is direct + instant.
+// REAL NLE SCRUB: while dragging we DON'T seek the video every move (that's what
+// made it laggy/wacky). We move the scrub-head (dragEp) and paint the sprite
+// frame into the viewer instantly. On RELEASE we seek the video ONCE to that
+// frame; when it lands, the sprite hides and the real frame shows — ready to play.
+var dragEp=null;
+function paintScrubFrame(ep){                            // instant per-second thumb frame in the viewer
+  var ph=$('placeholder'), whole=Math.floor(ep);
+  // the per-second thumb is a full frame → contain fits it in the viewer. (Sub-second
+  // is fine as a scrub preview; the exact frame lands from the real seek on release.)
+  ph.style.backgroundImage='url('+THUMB+whole+'.jpg)';
+  ph.style.backgroundSize='contain'; ph.style.backgroundPosition='center';
+  ph.style.display='block';
+}
+function renderScrub(ep){ dragEp=ep;
+  var vr=viewRange();
+  if(ep>=vr.lo&&ep<=vr.hi){ $('ph').style.display='block'; $('ph').style.left=(((ep-vr.lo)/vr.span)*100)+'%'; }
+  $('tcbig').textContent=tcStr(ep); var t=tc(ep);
+  if(t!=='--:--:--:--') $('tc').innerHTML=t.h+':'+t.m+':'+t.s+'<span class="ff">:'+t.f+'</span>';
+  updateDurOverlay(ep);
+}
 $('strip').addEventListener('pointermove',function(e){ showHover(e);
-  if(dragging){ var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep);
-    $('tcbig').textContent=tcStr(ep); updateDurOverlay(ep); renderStrip(); } });
+  if(dragging){ var ep=snapFrame(fracToEpochStrip(stripFrac(e))); renderScrub(ep); paintScrubFrame(ep); } });
 $('strip').addEventListener('pointerdown',function(e){ stopShuttle(); dragging=true;
   $('strip').setPointerCapture(e.pointerId); vid.pause();
-  var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep); showHover(e); $('tcbig').textContent=tcStr(ep); });
+  var ep=snapFrame(fracToEpochStrip(stripFrac(e))); renderScrub(ep); paintScrubFrame(ep); showHover(e); });
 $('strip').addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
-  var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep);
-  $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none'; });
+  var ep=snapFrame(fracToEpochStrip(stripFrac(e)));
+  $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none';
+  // seek the video ONCE to the release frame; hide the sprite when the real frame lands
+  var landed=false, hide=function(){ if(landed)return; landed=true; $('placeholder').style.display='none';
+    vid.removeEventListener('seeked',hide); clearTimeout(to); };
+  var to=setTimeout(hide,800); vid.addEventListener('seeked',hide);
+  seekEpoch(ep); });
 $('strip').addEventListener('pointerleave',function(){ if(!dragging){$('hover').style.display='none';$('htip').style.display='none';} });
 
 /* ═══ transport: JKL shuttle + frame stepping ═══ */
@@ -730,7 +754,7 @@ $('tc').onclick=function(){ stopShuttle(); vid.pause();
   if(ep>=winStart&&ep<=edgeEpoch()) seekEpoch(ep); else $('msg').textContent='that timecode is outside the loaded window — ↻ Refresh for the latest'; };
 
 /* ═══ live tick: timecode + playhead + overview ═══ */
-(function tick(){ if(winDur>0){ var ep=curEpoch();
+(function tick(){ if(winDur>0 && !dragging){ var ep=curEpoch();   // during drag, the drag handlers own the playhead (dragEp)
   if(ep!=null){ var t=tc(ep); if(t!=='--:--:--:--'){ $('tc').innerHTML=t.h+':'+t.m+':'+t.s+'<span class="ff">:'+t.f+'</span>';
     if(!dragging&&shuttle===0)$('tcbig').textContent=t.h+':'+t.m+':'+t.s+':'+t.f; }
     // while playing/shuttling, auto-scroll the stable view only when the playhead
