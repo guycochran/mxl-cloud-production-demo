@@ -176,6 +176,10 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-ro
 .mk.go{background:var(--signal);border-color:var(--signal);color:#04121a;font-weight:750}
 .mk.go:hover:not(:disabled){filter:brightness(1.08)}
 .mk:disabled{opacity:.4;cursor:not-allowed}
+.fmttog{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.fmt{font-size:11px;font-weight:600;color:var(--faint);background:var(--panel2);border:0;padding:8px 10px;cursor:pointer}
+.fmt.on{background:color-mix(in srgb,var(--signal) 18%,var(--panel2));color:var(--signal)}
+.fmt+.fmt{border-left:1px solid var(--line)}
 kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentColor;border-radius:3px;padding:0 3px;margin-left:5px}
 #msg{margin-left:auto;font-size:12px;color:var(--signal);font-family:var(--mono);min-height:16px;max-width:40%;text-align:right}
 #prog{display:none;height:3px;background:var(--line);border-radius:2px;width:120px;overflow:hidden}
@@ -297,6 +301,7 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
       <button class="mk in" id="bIn">⟪ IN<kbd>I</kbd></button>
       <button class="mk out" id="bOut">OUT<kbd>O</kbd> ⟫</button>
       <button class="mk" id="bClr">✕ Clear<kbd>X</kbd></button>
+      <span class="fmttog"><button id="fmtWide" class="fmt on" title="16:9 landscape (fast, stream-copy)">▭ 16:9</button><button id="fmtVert" class="fmt" title="9:16 vertical for YouTube Shorts / Reels (re-encodes)">▯ Shorts</button></span>
       <button class="mk go" id="bGrab" disabled>⚡ Grab clip<kbd>↵</kbd></button>
       <button class="mk" id="bSave" disabled>💾 Save to bin<kbd>S</kbd></button>
       <button class="mk" id="bQR" disabled>📱 Take home</button>
@@ -871,9 +876,18 @@ async function doClip(a,b,msg){
     bufs.push(new Uint8Array(await r.arrayBuffer())); prog(0.1+0.6*(i+1)/fs.urls.length); }
   var names=[]; for(var j=0;j<bufs.length;j++){var n='s'+j+'.ts';await ff.writeFile(n,bufs[j]);names.push(n);}
   await ff.writeFile('list.txt',new TextEncoder().encode(names.map(function(n){return "file '"+n+"'"}).join('\n')));
-  var ss=Math.max(0,a-fs.segStart); prog(0.75); msg('assembling video…');
-  // trim video to the exact clip window (stream copy)
-  await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),'-c','copy','-movflags','+faststart','-y','vid.mp4']);
+  var ss=Math.max(0,a-fs.segStart); var vertical=(clipFmt==='vertical');
+  prog(0.75); msg(vertical?'assembling video (vertical re-encode)…':'assembling video…');
+  if(vertical){
+    // 9:16 SHORTS: center-crop the 16:9 program to 1080x1920 (re-encode). This
+    // takes longer than stream-copy but produces a ready-to-upload vertical clip.
+    await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),
+      '-vf','crop=ih*9/16:ih,scale=1080:1920,setsar=1','-c:v','libx264','-preset','veryfast','-crf','21',
+      '-pix_fmt','yuv420p','-movflags','+faststart','-an','-y','vid.mp4']);
+  } else {
+    // 16:9 landscape: exact trim, stream copy (fast)
+    await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),'-c','copy','-movflags','+faststart','-y','vid.mp4']);
+  }
   // fetch PGM audio for the same window and mux it in → clip WITH SOUND
   var haveAudio=false;
   try{
@@ -884,8 +898,8 @@ async function doClip(a,b,msg){
       if(abuf.length>500 && isFinite(aStart)){
         await ff.writeFile('a.ts',abuf);
         var ass=Math.max(0,a-aStart);                 // offset into the fetched audio
-        // trim audio to the window, re-encode to AAC (safe), then mux copy with video
         await ff.exec(['-ss',ass.toFixed(3),'-i','a.ts','-t',dur.toFixed(3),'-vn','-c:a','aac','-b:a','128k','-y','a.m4a']);
+        // video is stream-copyable in both modes (vertical already H.264/yuv420p)
         await ff.exec(['-i','vid.mp4','-i','a.m4a','-c','copy','-map','0:v:0','-map','1:a:0','-shortest','-movflags','+faststart','-y','out.mp4']);
         haveAudio=true;
       }
@@ -894,11 +908,11 @@ async function doClip(a,b,msg){
   if(!haveAudio){ await ff.exec(['-i','vid.mp4','-c','copy','-movflags','+faststart','-y','out.mp4']); }
   var data=await ff.readFile('out.mp4'); prog(0.98);
   var blob=new Blob([data.buffer],{type:'video/mp4'}); var el=document.createElement('a');
-  el.href=URL.createObjectURL(blob); el.download='mxl-clip-'+tcStr(a).replace(/:/g,'')+'-'+dur.toFixed(0)+'s.mp4';
+  el.href=URL.createObjectURL(blob); el.download='mxl-'+(vertical?'short':'clip')+'-'+tcStr(a).replace(/:/g,'')+'-'+dur.toFixed(0)+'s.mp4';
   document.body.appendChild(el); el.click(); el.remove();
   for(var k=0;k<names.length;k++){try{await ff.deleteFile(names[k])}catch(e){}}
   ['vid.mp4','a.ts','a.m4a','out.mp4','list.txt'].forEach(function(f){try{ff.deleteFile(f)}catch(e){}});
-  prog(null); msg('✓ '+fmtDur(dur)+' clip exported'+(haveAudio?' with audio':'')+' ('+(data.length/1e6).toFixed(1)+' MB)');
+  prog(null); msg('✓ '+fmtDur(dur)+(vertical?' Shorts (9:16)':' clip')+' exported'+(haveAudio?' with audio':'')+' ('+(data.length/1e6).toFixed(1)+' MB)');
 }
 function runClip(a,b,btns){ btns.forEach(function(x){if(x)x.disabled=true;}); var t0=Date.now();
   Promise.resolve().then(function(){return doClip(a,b,function(m){$('msg').textContent=m;});})
@@ -908,6 +922,10 @@ function runClip(a,b,btns){ btns.forEach(function(x){if(x)x.disabled=true;}); va
 $('bGrab').onclick=function(){ if(inE!=null&&outE!=null)runClip(inE,outE,[$('bGrab')]); };
 function quick(n){ var now=curEpoch(); if(now==null){$('msg').textContent='no playhead yet';return;} outE=now; inE=now-n; paintClip(); runClip(inE,outE,[$('g10'),$('g30'),$('g60'),$('bGrab')]); }
 $('g10').onclick=function(){quick(10)};$('g30').onclick=function(){quick(30)};$('g60').onclick=function(){quick(60)};
+// export format: 16:9 wide (fast stream-copy) vs 9:16 vertical Shorts (re-encode)
+var clipFmt='wide';
+$('fmtWide').onclick=function(){clipFmt='wide';$('fmtWide').classList.add('on');$('fmtVert').classList.remove('on');};
+$('fmtVert').onclick=function(){clipFmt='vertical';$('fmtVert').classList.add('on');$('fmtWide').classList.remove('on');};
 
 /* ═══ clip bin ═══ */
 var bin=[];
