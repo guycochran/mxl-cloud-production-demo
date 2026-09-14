@@ -339,10 +339,13 @@ def take_check(want, key, ctl):
         return  # can't verify — the slower guarded checks will handle it
     wedged = [SLOTS[i] for i in dead if live.get(SLOTS[i])]
     if wedged and ctl['cur'] == key:
+        # LOG-ONLY since 9/14 eve: exiting here compounded with startup
+        # repairs (+ the since-removed cascade warm-up) into a flash storm
+        # whenever an operator tapped a stale source in the matrix. A stale
+        # pane is visible and honest; a respawn storm stalls the whole rig.
+        # The wedge_watch (storm-broken) still guards ON-AIR panes.
         print(f'take-check: newly selected {wedged} silent with LIVE writers — '
-              f'immediate exit for fresh attach', flush=True)
-        import os
-        os._exit(1)
+              f'pane stale (writer bounce heals it); NOT exiting', flush=True)
 
 
 def control():
