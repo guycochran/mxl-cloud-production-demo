@@ -109,7 +109,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-ro
 #ovplay{position:absolute;top:0;bottom:0;width:2px;background:var(--play);pointer-events:none}
 .ovlbls{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--faint);padding:0 1px}
 /* detail filmstrip (the zoomed scrub) */
-#strip{position:relative;height:76px;border-radius:6px;overflow:hidden;background:#05070c;cursor:ew-resize;touch-action:none;border:1px solid var(--line)}
+#strip{position:relative;height:76px;border-radius:6px;overflow:hidden;background:#05070c;cursor:ew-resize;touch-action:none;border:1px solid var(--line);transition:border-color .2s,box-shadow .2s}
+/* HOLD (edit-lock) state — amber tint so it's unmistakable the timeline is frozen */
+.tls.hold #strip,.tls.hold #wavewrap,.tls.hold #ovwrap{border-color:var(--warm);box-shadow:0 0 0 1px var(--warm) inset}
+.tls.hold::after{content:"◼ HOLD — editing";position:absolute;top:8px;right:18px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--warm);background:rgba(255,180,58,.12);border:1px solid var(--warm);border-radius:5px;padding:2px 8px;pointer-events:none;z-index:5}
+.tls{position:relative}
 #film{position:absolute;inset:0;display:flex;overflow:hidden}
 #film .frm{flex:0 0 auto;height:100%;background:#000 center/cover no-repeat}
 #film .frm+.frm{box-shadow:inset 1px 0 0 rgba(255,255,255,.04)}
@@ -146,6 +150,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-ro
 .tlctl .z button:first-child{border-radius:6px 0 0 6px}.tlctl .z button:last-child{border-radius:0 6px 6px 0}
 .tlctl .z button:hover{color:var(--ink)}
 .tlctl .zlbl{font-family:var(--mono);font-size:11px;color:var(--faint);min-width:96px}
+.wavebtn{font-size:11px;font-weight:600;border-radius:7px;padding:6px 10px;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--faint)}
+.wavebtn.on{border-color:var(--signal-dim);color:var(--signal)}
+.wavebtn:hover{border-color:var(--line2)}
+#wavewrap{transition:height .18s,opacity .18s}
+#wavewrap.off{height:0;opacity:0;border:0;overflow:hidden;margin:0;pointer-events:none}
 .tlctl .hint{margin-left:auto;font-size:10.5px;color:var(--faint)}
 .tlctl .hint b{color:var(--dim)}
 
@@ -265,8 +274,9 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
     <div class="tlctl">
       <span class="lbl">Zoom</span>
       <div class="z"><button id="zout" title="zoom out (-)">–</button><button id="zin" title="zoom in (+)">+</button></div>
-      <span class="zlbl" id="zlbl">2 min view</span>
-      <span class="hint"><b>J K L</b> shuttle &middot; <b>I</b>/<b>O</b> in/out &middot; <b>M</b> marker &middot; <b>↑/↓</b> jump &middot; <b>←/→</b> frame &middot; <b>Space</b> play</span>
+      <span class="zlbl" id="zlbl">1 min view</span>
+      <button id="wavebtn" class="wavebtn on" title="Toggle the PGM audio waveform (W). Off = faster scrub.">〜 Waveform</button>
+      <span class="hint"><b>J K L</b> shuttle &middot; <b>I</b>/<b>O</b> in/out &middot; <b>M</b> marker &middot; <b>↑/↓</b> jump &middot; <b>←/→</b> frame &middot; <b>W</b> waveform &middot; <b>Space</b> play</span>
     </div>
   </div>
 
@@ -325,8 +335,12 @@ var FPS=30, SEG=1, WIN=900;                 // 30fps, 1s segs, 15-min scrub buff
 var vid=$('vid');
 var winStart=0, winDur=0, winMedia0=0, frags=[];
 var dragging=false, scrubbing=false, inE=null, outE=null;
-var zoomSec=120;                            // detail view span (seconds); zoom changes this
-var ZOOMS=[30,60,120,300,600,1800];
+// Default + ladder tuned for HIGHLIGHT grabbing (30s–2min clips — the "grab the
+// touchdown" workflow). 1-min default puts a typical clip filling the view with
+// margin to see both marks; the low end (15s) is for frame-tight in/out, the
+// high end for locating a play before diving in.
+var zoomSec=60;                             // detail view span (seconds); zoom changes this
+var ZOOMS=[15,30,60,120,300,600,1800];
 var editLock=false;                         // true = editor is working; freeze the live-edge follow
 
 /* ── theme toggle ── */
@@ -524,7 +538,12 @@ function drawWave(v){
   if(cur!=null&&cur>=v.lo&&cur<=v.hi){wph.style.display='block';wph.style.left=(((cur-v.lo)/v.span)*100)+'%';}
   else wph.style.display='none';
 }
-function renderWave(v){ fetchPeaks(v); drawWave(v); }
+var waveOn=(localStorage.getItem('mxlclip-wave')!=='0');
+function renderWave(v){ if(!waveOn)return; fetchPeaks(v); drawWave(v); }
+function setWave(on){ waveOn=on; localStorage.setItem('mxlclip-wave',on?'1':'0');
+  $('wavebtn').classList.toggle('on',on); $('wavewrap').classList.toggle('off',!on);
+  $('wavebtn').textContent = on?'〜 Waveform':'〜 Waveform off';
+  if(on) renderWave(viewRange()); }
 function renderRuler(v){
   var r=$('ruler'), stripW=$('strip').clientWidth||900; r.innerHTML='';
   // choose a nice tick interval for the span
@@ -688,7 +707,7 @@ $('tc').onclick=function(){ stopShuttle(); vid.pause();
     if(!dragging&&shuttle===0)$('tcbig').textContent=t.h+':'+t.m+':'+t.s+':'+t.f; }
     var vr=viewRange(); renderPlayhead(vr); $('ovplay').style.display='block';
     // waveform playhead tracks live too (cheap — just a div move, no redraw)
-    var wph=$('wph'); if(ep>=vr.lo&&ep<=vr.hi){wph.style.display='block';wph.style.left=(((ep-vr.lo)/vr.span)*100)+'%';}else wph.style.display='none';
+    if(waveOn){var wph=$('wph'); if(ep>=vr.lo&&ep<=vr.hi){wph.style.display='block';wph.style.left=(((ep-vr.lo)/vr.span)*100)+'%';}else wph.style.display='none';}
     if(ov&&winDur){var span=ov.end-ov.start;$('ovplay').style.left=(((ep-ov.start)/span)*100)+'%';}
   } }
   requestAnimationFrame(tick); })();
@@ -717,15 +736,18 @@ $('bIn').onclick=markIn; $('bOut').onclick=markOut; $('bClr').onclick=function()
 // nudge, we HOLD: the ruler + playhead stay put and the live playlist stops
 // yanking the frame. Hit ● LIVE to resume following the edge.
 function setEditLock(on){
-  editLock=on; var btn=$('livebtn');
+  editLock=on; var btn=$('livebtn'), tls=document.querySelector('.tls');
   if(on){ btn.classList.add('hold'); btn.textContent='◼ HOLD'; btn.title='Editing — timeline held. Click to resume LIVE.';
+    if(tls)tls.classList.add('hold');          // amber tint on the timeline
     // stop hls.js live-sync from nudging the paused frame toward the edge
     if(hls){ hls.config.liveSyncDuration=1e9; hls.config.liveMaxLatencyDuration=1e9; } }
   else { btn.classList.remove('hold'); btn.textContent='● LIVE'; btn.title='Following the live edge — click to HOLD while you edit';
+    if(tls)tls.classList.remove('hold');
     if(hls&&!loadedIsArchive){ loadedIsArchive=false; landed=false; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); } }
 }
 function engageEdit(){ if(!editLock && !loadedIsArchive) setEditLock(true); }   // auto-hold on first edit gesture
 $('livebtn').onclick=function(){ setEditLock(!editLock); };
+$('wavebtn').onclick=function(){ setWave(!waveOn); };
 
 /* ═══ zoom ═══ */
 function setZoom(sec){ zoomSec=Math.max(30,Math.min(1800,sec));
@@ -842,6 +864,7 @@ document.addEventListener('keydown',function(e){ if(/input|textarea/i.test(e.tar
   else if(k==='o'){ if(shift){ if(outE!=null)seekEpoch(outE); } else markOut(); } // Shift+O → go to Out
   else if(k==='x'){inE=outE=null;paintClip();}
   else if(k==='m'){addMarker();}
+  else if(k==='w'){setWave(!waveOn);}
   else if(k==='arrowup'){e.preventDefault();jumpMarker(-1);}
   else if(k==='arrowdown'){e.preventDefault();jumpMarker(1);}
   else if(k==='s'){if(!$('bSave').disabled)$('bSave').onclick();}
@@ -866,6 +889,6 @@ $('helpbtn').onclick=function(e){e.preventDefault();showIntro();};
 document.addEventListener('keydown',function(e){ if(e.key==='Escape')$('intro').classList.remove('show'); });
 if(!localStorage.getItem('mxlclip-introseen')) setTimeout(showIntro,600);
 
-setZoom(120); paintClip();
+setZoom(60); setWave(waveOn); paintClip();
 </script>
 </body></html>
