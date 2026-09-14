@@ -113,19 +113,16 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-ro
 .tls.hold #strip,.tls.hold #wavewrap,.tls.hold #ovwrap{border-color:var(--warm);box-shadow:0 0 0 1px var(--warm) inset}
 .tls.hold::after{content:"◼ HOLD — editing";position:absolute;top:8px;right:18px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--warm);background:rgba(255,180,58,.12);border:1px solid var(--warm);border-radius:5px;padding:2px 8px;pointer-events:none;z-index:5}
 .tls{position:relative}
-#film{position:absolute;inset:0;display:flex;overflow:hidden}
-#film .frm{flex:0 0 auto;height:100%;background:#000 center/cover no-repeat}
-/* NLE clip treatment: head/tail poster frames + a solid clip bar between */
-#film .frm.head{box-shadow:inset -1px 0 0 rgba(0,0,0,.5)}
-#film .frm.tail{box-shadow:inset 1px 0 0 rgba(0,0,0,.5)}
-#film .clipbar{flex:1 1 auto;height:100%;min-width:0;position:relative;
-  background:linear-gradient(180deg,color-mix(in srgb,var(--signal) 22%,#0c1626),color-mix(in srgb,var(--signal) 12%,#0a1220));
-  border-left:1px solid color-mix(in srgb,var(--signal) 45%,transparent);
-  border-right:1px solid color-mix(in srgb,var(--signal) 45%,transparent)}
-#film .clipname{position:absolute;left:12px;top:50%;transform:translateY(-50%);
-  font-size:12px;font-weight:650;letter-spacing:.02em;color:color-mix(in srgb,var(--signal) 80%,#fff);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 24px);
-  text-shadow:0 1px 2px rgba(0,0,0,.5);pointer-events:none}
+#film{position:absolute;inset:0;overflow:hidden}
+/* NLE "continuous thumbnails": a solid clip bar with poster frames tiled across */
+#film .clipbar{position:absolute;inset:0;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--signal) 20%,#0c1626),color-mix(in srgb,var(--signal) 10%,#0a1220));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--signal) 38%,transparent)}
+#film .clipname{position:absolute;left:12px;top:6px;
+  font-size:11px;font-weight:650;letter-spacing:.02em;color:color-mix(in srgb,var(--signal) 82%,#fff);
+  white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.6);pointer-events:none;z-index:2}
+#film .poster{position:absolute;top:0;height:100%;background:#000 no-repeat;
+  box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 0 0 2px color-mix(in srgb,var(--signal) 22%,transparent)}
 #ruler{position:absolute;left:0;right:0;top:0;height:15px;pointer-events:none}
 #ruler .tick{position:absolute;top:0;width:1px;height:6px;background:var(--line2)}
 #ruler .tk{position:absolute;top:1px;font-family:var(--mono);font-size:9px;color:var(--faint);transform:translateX(3px)}
@@ -534,12 +531,21 @@ function posterCSS(ep,w,h){                  // one poster frame (nearest-second
 function renderStrip(){
   if(!winDur)return;
   var v=viewRange(), film=$('film'), stripW=$('strip').clientWidth||900, cellH=$('strip').clientHeight||76;
-  var headW=Math.min(FRMW, Math.floor(stripW*0.42)), tailW=headW;
-  var head=posterCSS(v.lo, headW, cellH), tail=posterCSS(v.hi, tailW, cellH);
-  film.innerHTML=
-    '<div class="frm head" style="width:'+headW+'px;'+head+'"></div>'
-   +'<div class="clipbar"><span class="clipname">OHG × MXL Program — PGM</span></div>'
-   +'<div class="frm tail" style="width:'+tailW+'px;'+tail+'"></div>';
+  // Premiere-style "Continuous Video Thumbnails": poster frames tiled across the
+  // clip at a fixed spacing (each is the honest nearest-second frame for its
+  // position). Count scales with width; a solid clip bar + name shows underneath.
+  var posterW=Math.round(cellH*16/9);                    // 16:9 poster
+  // ~4–5 evenly-spaced posters (target 1 per ~300px), with small gaps so they
+  // read as distinct poster frames, not an edge-to-edge filmstrip.
+  var count=Math.max(3, Math.min(6, Math.round(stripW/320)));
+  var html='<div class="clipbar"><span class="clipname">OHG × MXL Program — PGM</span></div>';
+  for(var i=0;i<count;i++){
+    var frac=(count===1)?0:(i/(count-1));               // 0 at head … 1 at tail
+    var ep=v.lo+frac*v.span;
+    var leftPx=frac*(stripW-posterW);                   // head flush-left, tail flush-right
+    html+='<div class="frm poster" style="left:'+Math.round(leftPx)+'px;width:'+posterW+'px;'+posterCSS(ep,posterW,cellH)+'"></div>';
+  }
+  film.innerHTML=html;
   renderRuler(v); renderMarks(v); renderPlayhead(v); renderWave(v);
 }
 /* ═══ PGM AUDIO waveform ═══ */
