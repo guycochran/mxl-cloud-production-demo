@@ -405,20 +405,29 @@ function loadHls(){
     else setTimeout(loadHls,1500); });
   hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
     var d=data.details,f=d.fragments; if(!f.length)return;
-    // Always keep the fragment index current so seeks/clips work — but while the
-    // editor is actively working (editLock) DON'T re-anchor the window under them.
-    // The growing DVR window shifting winStart is exactly what makes the playhead
-    // "jump" mid-edit. We update frags (for accurate time↔media mapping) but leave
-    // winStart/winDur/the ruler frozen until they hit ● LIVE to resume.
     frags=f; windowReady=true;
-    if(dragging) return;
-    if(editLock && !loadedIsArchive){                   // frozen: only refresh frags, keep ruler put
-      return;
+    var freshLoad=(loadingWin!=null);                    // this playlist is the one we just requested
+    // Archive/live window WE requested (via ensureVideoAround): always adopt its
+    // window + apply the deferred seek so the video actually lands on the target.
+    if(freshLoad){
+      winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start;
+      loadingWin=null;
+      if(pendingSeek!=null){ var t=pendingSeek; pendingSeek=null;
+        // wait until MSE is ready enough to accept the seek, then land it
+        var tries=0,land=function(){ if(!isFinite(vid.duration)&&tries<40){tries++;return setTimeout(land,80);}
+          try{vid.currentTime=Math.max(0,epochToMedia(t));}catch(e){} renderStrip(); renderOverview(); };
+        land();
+      }
+      $('reclbl').textContent = loadedIsArchive ? 'reviewing archive · '+tcStr(winStart).slice(0,8)
+                                                : 'recording · '+Math.round(winDur/60)+' min in store';
+      renderOverview(); return;
     }
+    // Ongoing LIVE refresh (window growing): don't re-anchor while dragging or
+    // while the editor is holding — that's what made the ruler/playhead jump.
+    if(dragging) return;
+    if(editLock && !loadedIsArchive) return;             // held: keep the ruler put
     winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start;
-    $('reclbl').textContent = loadedIsArchive
-      ? 'reviewing archive · '+tcStr(winStart).slice(0,8)
-      : 'recording · '+Math.round(winDur/60)+' min in store';
+    $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min in store';
     renderOverview(); });
   hls.on(Hls.Events.MANIFEST_PARSED,function(){ $('spinner').style.display='none';
     setTimeout(function(){ if(landed)return; if(isFinite(vid.duration)){vid.pause(); vid.currentTime=Math.max(0,vid.duration-6); landed=true;} },500); });
@@ -616,35 +625,36 @@ function showHover(e){
 // video window (the live playlist is only ~5 min). The filmstrip/ruler/timecode
 // already span the full record; this makes the VIDEO frame follow anywhere the
 // proxy still retains. Debounced so a drag doesn't spam reloads.
-var loadReqAt=0, loadedIsArchive=false;
+var loadReqAt=0, loadedIsArchive=false, loadingWin=null, pendingSeek=null;
+// Is epoch ep inside the currently-LOADED video window (with a small margin)?
+function inLoadedWindow(ep){ return winDur>0 && ep>=winStart+0.5 && ep<=edgeEpoch()-0.5; }
+// Ensure the proxy video window covers ep. Returns true if a NEW window is being
+// loaded (caller must NOT seek yet — the pending seek lands when it parses).
 function ensureVideoAround(ep){
-  // in the currently-loaded window (with margin)? nothing to do.
-  if(winDur>0 && ep>=winStart+1 && ep<=edgeEpoch()-1) return;
-  var now=Date.now(); if(now-loadReqAt<700) return; loadReqAt=now;
-  // load a WIDE window around the seek so nearby scrubbing stays in-buffer and
-  // doesn't trigger another reload: ~3× the view span, min 10 min, cap 30 min.
-  var half=Math.min(900, Math.max(300, zoomSec*3));
-  // SNAP the window to a grid (2×half) so repeat scrubs of the same region ask
-  // for the IDENTICAL timerange → the backend playlist cache hits (~0ms) instead
-  // of re-paying the gateway's flat ~4s CouchDB query each seek.
-  var g=Math.round(half);
-  var center=Math.round(ep/g)*g;
-  var lo=center-half, hi=center+half;
+  if(inLoadedWindow(ep)) return false;                 // already covered → seek now
   var live=edgeEpoch();
-  if(hi>=live-2){ // near the edge → go back to the live playlist
-    if(loadedIsArchive){ loadedIsArchive=false; landed=true; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); }
-    return;
-  }
-  loadedIsArchive=true; landed=true;
-  var tr='['+lo+':0_'+hi+':0)';
-  var seekTo=ep;
-  hls.loadSource(PROXY_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+(hi-lo+10));
-  // after the new window parses, land the playhead on the requested instant
-  var once=function(){ hls.off(Hls.Events.LEVEL_LOADED,once);
-    setTimeout(function(){ try{vid.currentTime=epochToMedia(seekTo);}catch(e){} },250); };
-  hls.on(Hls.Events.LEVEL_LOADED,once);
+  // grid-snapped WIDE window so repeat scrubs hit the backend cache
+  var half=Math.min(900, Math.max(300, zoomSec*3));
+  var g=Math.round(half), center=Math.round(ep/g)*g, lo=center-half, hi=center+half;
+  var wantLive = (hi>=live-2);
+  var key = wantLive ? 'live' : ('['+lo+':0_'+hi+':0)');
+  // already loading exactly this window? just update the pending target.
+  if(loadingWin===key){ pendingSeek=ep; return true; }
+  var now=Date.now(); if(now-loadReqAt<400){ pendingSeek=ep; return true; } loadReqAt=now;
+  pendingSeek=ep; loadingWin=key;
+  if(wantLive){ loadedIsArchive=false; landed=true; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); }
+  else { loadedIsArchive=true; landed=true; hls.loadSource(PROXY_BASE+'?timerange='+encodeURIComponent(key)+'&limit='+(hi-lo+10)); }
+  return true;
 }
-function seekEpoch(ep){ ensureVideoAround(ep); try{vid.currentTime=epochToMedia(ep);}catch(e){} renderStrip(); renderOverview(); }
+function seekEpoch(ep){
+  var loading=ensureVideoAround(ep);
+  // Only seek NOW if the target window is already loaded. If a new archive/live
+  // window is loading, the seek is deferred (pendingSeek) and applied by the
+  // LEVEL_LOADED handler once the correct frags exist — otherwise we'd seek
+  // against the OLD window and get a wrong/negative currentTime (the frozen bug).
+  if(!loading){ try{vid.currentTime=epochToMedia(ep);}catch(e){} }
+  renderStrip(); renderOverview();
+}
 var seekPending=false, seekTarget=null;
 function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-.1&&t<=b.end(i)+.1)return true;}return false;}
 function liveSeek(ep){ seekTarget=epochToMedia(ep);
