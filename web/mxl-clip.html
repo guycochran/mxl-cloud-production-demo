@@ -774,20 +774,27 @@ function stepFrame(n){ engageEdit(); stopShuttle(); vid.pause(); var e=curEpoch(
 function stepSec(n){ stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n); $('tcbig').textContent=tcStr(curEpoch()); }
 function togglePlay(){ stopShuttle();
   if(!vid.paused){ vid.pause(); return; }
-  // Play from the current playhead. After an archive seek the new region may
-  // still be buffering (readyState low) — vid.play() would reject silently — so
-  // if it's not ready yet, wait for 'canplay' once, then play.
-  var go=function(){ vid.play().catch(function(){}); };
-  if(vid.readyState>=2){ go(); }
-  else { var on=function(){ vid.removeEventListener('canplay',on); go(); };
-    vid.addEventListener('canplay',on); try{hls&&hls.startLoad();}catch(e){} }
+  // PLAY from the current playhead, rock-solid: (1) always hide the scrub
+  // placeholder so you never watch a frozen still while the video plays under it;
+  // (2) if the region is still buffering, force-load and wait for it to be
+  // playable, then play — never a silent no-op. The 'playing' event does a final
+  // placeholder hide as a backstop.
+  var start=function(){ $('placeholder').style.display='none'; vid.play().catch(function(){}); };
+  if(vid.readyState>=3){ start(); }             // HAVE_FUTURE_DATA → play now
+  else {
+    $('placeholder').style.display='none';       // don't sit on a frozen still while we wait
+    try{hls&&hls.startLoad();}catch(e){}
+    var on=function(){ vid.removeEventListener('canplay',on); vid.removeEventListener('loadeddata',on); start(); };
+    vid.addEventListener('canplay',on); vid.addEventListener('loadeddata',on);
+  }
 }
 function goStart(){ stopShuttle(); vid.pause(); centerView(winStart+0.5); seekEpoch(winStart+0.5); }        // start of the loaded window
 function goEnd(){ stopShuttle(); vid.pause(); centerView(winStart+winDur-1); seekEpoch(winStart+winDur-1); } // end of the loaded window
 $('tJ').onclick=function(){bumpShuttle(-1)}; $('tL').onclick=function(){bumpShuttle(1)};
 $('tPlay').onclick=togglePlay; $('tBack').onclick=function(){stepFrame(-1)}; $('tFwd').onclick=function(){stepFrame(1)};
 $('tHome').onclick=goStart; $('tEnd').onclick=goEnd;
-vid.addEventListener('play',function(){stopShuttle();$('playicon').setAttribute('d','M6 5h4v14H6zm8 0h4v14h-4z');$('viewstate').textContent='playing';});
+vid.addEventListener('play',function(){stopShuttle();$('placeholder').style.display='none';$('playicon').setAttribute('d','M6 5h4v14H6zm8 0h4v14h-4z');$('viewstate').textContent='playing';});
+vid.addEventListener('playing',function(){$('placeholder').style.display='none';});  // backstop: still gone the instant real video runs
 vid.addEventListener('pause',function(){$('playicon').setAttribute('d','M7 5v14l11-7z');$('viewstate').textContent='paused';});
 // click-to-type timecode: click the readout, type HH:MM:SS:FF, Enter to jump.
 $('tc').style.cursor='text'; $('tc').title='click to type a timecode';
