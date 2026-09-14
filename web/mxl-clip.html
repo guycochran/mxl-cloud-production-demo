@@ -338,7 +338,9 @@ var PROXY_BASE='/tamsapi/flows/'+FLOW_PROXY+'/output.m3u8';
 var FULL_BASE ='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
 var SPRITE='/tamsobj/tams-media/sprites/';
 var THUMB ='/tamsobj/tams-media/thumbs/';
-var FPS=30, SEG=1, WIN=3600;                // 30fps, 1s segs, 60-min fixed window (static)
+var FPS=30, SEG=1, WIN=1800;                // 30fps, 1s segs, 30-min window — fits fully in the
+                                            // buffer (~470MB @260KB/s < cap) so EVERY seek is
+                                            // in-buffer + instant (no unbuffered-far-seek freeze).
 
 var vid=$('vid');
 var winStart=0, winDur=0, winMedia0=0, frags=[];
@@ -522,11 +524,22 @@ $('ovwrap').addEventListener('pointerdown',function(e){
    between with the source name. Honest (no per-frame accuracy claim) and clean —
    the frame-exact truth is the viewer. */
 var FRMW=112;                               // px width of the head/tail poster frames
-function posterCSS(ep,w,h){                  // one poster frame (nearest-second thumb, sprite fallback)
+// A poster = an <img> of the exact nearest-SECOND thumb (thumbs/<epoch>.jpg,
+// which exists ~immediately per segment). If that 404s (very newest second) it
+// falls back to the per-minute sprite TILE for that second; if THAT 404s (recent
+// minute not tiled yet) it falls back to the coarse 12h overview tile. This makes
+// posters HONEST — never a stale/adjacent frame masquerading as the right one.
+function posterImg(ep,w,h){
   var whole=Math.round(ep), m=Math.floor(whole/60)*60, idx=whole-m;
-  var bw=w*10, bh=(w*9/16)*6, px=-(idx%10)*w, py=-Math.floor(idx/10)*(w*9/16);
-  return 'background-image:url('+SPRITE+m+'.jpg);background-size:'+bw+'px '+bh+'px;'
-    +'background-position:'+px+'px '+py+'px;background-repeat:no-repeat';
+  var bw=w*10, bh=Math.round(w*9/16)*6, px=-(idx%10)*w, py=-Math.floor(idx/10)*Math.round(w*9/16);
+  var ovStyle='';
+  if(ov&&ovOK){ var span=ov.end-ov.start, oi=Math.min(ov.tiles-1,Math.max(0,Math.floor((ep-ov.start)/span*ov.tiles)));
+    var ocx=oi%ov.cols, ocy=Math.floor(oi/ov.cols), otw=h*(ov.tw/ov.th);
+    ovStyle='background-image:url('+SPRITE+'overview-12h.jpg?b='+ov.built+');background-size:'+(otw*ov.cols)+'px '+(h*ov.rows)+'px;background-position:'+(-ocx*otw)+'px '+(-ocy*h)+'px'; }
+  // sprite-tile fallback style (applied on img error)
+  var spr="this.onerror=null;this.style.display='none';this.parentNode.style.cssText+=';background-image:url("+SPRITE+m+".jpg);background-size:"+bw+"px "+bh+"px;background-position:"+px+"px "+py+"px;background-repeat:no-repeat';";
+  return '<img src="'+THUMB+whole+'.jpg" style="width:100%;height:100%;object-fit:cover;display:block" '
+    +'onerror="'+spr+'"> ';
 }
 function renderStrip(){
   if(!winDur)return;
@@ -543,7 +556,7 @@ function renderStrip(){
     var frac=(count===1)?0:(i/(count-1));               // 0 at head … 1 at tail
     var ep=v.lo+frac*v.span;
     var leftPx=frac*(stripW-posterW);                   // head flush-left, tail flush-right
-    html+='<div class="frm poster" style="left:'+Math.round(leftPx)+'px;width:'+posterW+'px;'+posterCSS(ep,posterW,cellH)+'"></div>';
+    html+='<div class="frm poster" style="left:'+Math.round(leftPx)+'px;width:'+posterW+'px">'+posterImg(ep,posterW,cellH)+'</div>';
   }
   film.innerHTML=html;
   renderRuler(v); renderMarks(v); renderPlayhead(v); renderWave(v);
@@ -664,13 +677,19 @@ function showHover(e){
     t.style.backgroundPosition=(-(idx%10)*240)+'px '+(-Math.floor(idx/10)*135)+'px'; };
   pi.src=THUMB+whole+'.jpg';
 }
-// SIMPLE MODE: the whole window is loaded, so seeking is direct + instant.
-// Clamp to the loaded window; no archive loading, no deferred seeks, no jumps.
+// Seek to a frame in the loaded window. The 60-min window is one playlist but
+// hls.js only BUFFERS a region around the playhead — a far seek lands on an
+// unbuffered spot and the video stalls (the "freeze"). So: show the sprite
+// placeholder immediately (so you always see the target frame), and hide it only
+// once the real frame actually paints (rVFC / seeked). Never a frozen old frame.
 function seekEpoch(ep){
   ep=Math.max(winStart,Math.min(winStart+winDur-0.05,ep));
-  var md=epochToMedia(snapFrame(ep));                   // snap to the exact frame grid
-  // seek to the frame CENTER (+half a frame) so the decoder lands ON the frame,
-  // not on the boundary where rounding can pick the neighbor.
+  var md=epochToMedia(snapFrame(ep));
+  paintScrubFrame(ep);                                  // instant sprite of the target — no frozen frame
+  var landed=false, hide=function(){ if(landed)return; landed=true;
+    $('placeholder').style.display='none'; vid.removeEventListener('seeked',hide); clearTimeout(to); };
+  var to=setTimeout(hide,2500);                         // safety: don't wedge the placeholder up forever
+  vid.addEventListener('seeked',hide);
   try{vid.currentTime=md + (0.5/FPS);}catch(e){}
   renderStrip(); renderOverview();
 }
