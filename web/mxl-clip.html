@@ -356,12 +356,21 @@ function epochToMedia(ep){ for(var i=0;i<frags.length;i++){var f=frags[i],s=f.pr
 function curEpoch(){ if(isFinite(vid.currentTime)){var e=mediaToEpoch(vid.currentTime); if(e!=null)return e;} return null; }
 function edgeEpoch(){ return winStart+winDur; }
 
+/* ── the FULL record extent: the 12h overview knows it; fall back to the live
+   proxy window before the overview has loaded. The detail view zooms/pans within
+   THIS, not the small video buffer — filmstrip+ruler+timecode are sprite/math
+   driven so they span the whole record; only the video frame is load-on-demand. */
+function recBounds(){
+  if(ov && ov.start && ov.end) return {lo:ov.start, hi:ov.end};
+  return {lo:winStart, hi:edgeEpoch()};
+}
 /* ── detail-view window: centered on playhead, zoomSec wide, clamped to record ── */
 function viewRange(){
   var c=curEpoch(); if(c==null)c=edgeEpoch();
+  var rb=recBounds(), recLo=rb.lo, recHi=rb.hi;
   var half=zoomSec/2, lo=c-half, hi=c+half;
-  var recLo=winStart, recHi=edgeEpoch();
   if(hi>recHi){hi=recHi;lo=hi-zoomSec;} if(lo<recLo){lo=recLo;hi=Math.min(recHi,lo+zoomSec);}
+  if(hi-lo<zoomSec) lo=Math.max(recLo,hi-zoomSec);      // keep full span when record is long enough
   return {lo:lo,hi:hi,span:hi-lo};
 }
 
@@ -377,7 +386,9 @@ function loadHls(){
   hls.on(Hls.Events.LEVEL_LOADED,function(e,data){ if(dragging)return;
     var d=data.details,f=d.fragments; if(!f.length)return;
     winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start; frags=f; windowReady=true;
-    $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min in store';
+    $('reclbl').textContent = loadedIsArchive
+      ? 'reviewing archive · '+tcStr(winStart).slice(0,8)
+      : 'recording · '+Math.round(winDur/60)+' min in store';
     renderOverview(); });
   hls.on(Hls.Events.MANIFEST_PARSED,function(){ $('spinner').style.display='none';
     setTimeout(function(){ if(landed)return; if(isFinite(vid.duration)){vid.pause(); vid.currentTime=Math.max(0,vid.duration-6); landed=true;} },500); });
@@ -566,7 +577,32 @@ function showHover(e){
     t.style.backgroundPosition=(-(idx%10)*240)+'px '+(-Math.floor(idx/10)*135)+'px'; };
   pi.src=THUMB+whole+'.jpg';
 }
-function seekEpoch(ep){ try{vid.currentTime=epochToMedia(ep);}catch(e){} renderStrip(); renderOverview(); }
+// Load a proxy ARCHIVE window around ep when the user scrubs outside the loaded
+// video window (the live playlist is only ~5 min). The filmstrip/ruler/timecode
+// already span the full record; this makes the VIDEO frame follow anywhere the
+// proxy still retains. Debounced so a drag doesn't spam reloads.
+var loadReqAt=0, loadedIsArchive=false;
+function ensureVideoAround(ep){
+  // in the currently-loaded window (with margin)? nothing to do.
+  if(winDur>0 && ep>=winStart+1 && ep<=edgeEpoch()-1) return;
+  var now=Date.now(); if(now-loadReqAt<700) return; loadReqAt=now;
+  var half=Math.max(150, zoomSec);                       // load ~2× the view span
+  var lo=Math.floor(ep-half), hi=Math.ceil(ep+half);
+  var live=edgeEpoch();
+  if(hi>=live-2){ // near the edge → go back to the live playlist
+    if(loadedIsArchive){ loadedIsArchive=false; landed=true; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); }
+    return;
+  }
+  loadedIsArchive=true; landed=true;
+  var tr='['+lo+':0_'+hi+':0)';
+  var seekTo=ep;
+  hls.loadSource(PROXY_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+(hi-lo+10));
+  // after the new window parses, land the playhead on the requested instant
+  var once=function(){ hls.off(Hls.Events.LEVEL_LOADED,once);
+    setTimeout(function(){ try{vid.currentTime=epochToMedia(seekTo);}catch(e){} },250); };
+  hls.on(Hls.Events.LEVEL_LOADED,once);
+}
+function seekEpoch(ep){ ensureVideoAround(ep); try{vid.currentTime=epochToMedia(ep);}catch(e){} renderStrip(); renderOverview(); }
 var seekPending=false, seekTarget=null;
 function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-.1&&t<=b.end(i)+.1)return true;}return false;}
 function liveSeek(ep){ seekTarget=epochToMedia(ep);
