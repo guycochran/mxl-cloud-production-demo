@@ -402,6 +402,31 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   // 60p-direct toggle: the de-transcoded chain means the camera's NATIVE
   // 1080p60 already sits in mediamtx — this view costs the server nothing.
   var v60=$('#v60'),feedFrame=document.querySelector('.feedview iframe'),feedBadge=document.querySelector('.feedview .badge');
+  // ── viewer self-heal (9/14, "I have to refresh" is not acceptable) ──
+  // Every encoder restart (self-heal cascades, doctors) kills the WebRTC
+  // session; the player then sits on its last frame forever. Detect a
+  // dead session (video.currentTime stops advancing — a live session
+  // advances even on static content) and reconnect the iframe ourselves.
+  // A frozen-CONTENT-but-alive session keeps advancing and is correctly
+  // left alone (that's a server problem the doctors handle).
+  (function(){
+    var lastT=-1,still=0,reloads=0;
+    setInterval(function(){
+      try{
+        var vid=feedFrame.contentDocument&&feedFrame.contentDocument.querySelector('video');
+        if(!vid||vid.readyState<2){still++;}
+        else if(Math.abs(vid.currentTime-lastT)<0.001){still++;}
+        else{still=0;lastT=vid.currentTime;}
+      }catch(e){still=0;/*cross-origin (60p toggle variants) — leave alone*/}
+      if(still>=5){
+        still=0;lastT=-1;reloads++;
+        msg.textContent='⟳ reconnecting video…';
+        setTimeout(function(){if(msg.textContent.indexOf('reconnect')>=0)msg.textContent=''},4000);
+        var src=feedFrame.getAttribute('src');
+        feedFrame.setAttribute('src',src);
+      }
+    },1000);
+  })();
   var v60on=false;
   v60.addEventListener('click',function(){
     v60on=!v60on;
