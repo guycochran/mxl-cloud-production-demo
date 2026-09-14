@@ -65,6 +65,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
 #cutbtn{align-self:stretch;min-width:68px;font-family:'Barlow Condensed',system-ui,sans-serif;font-size:19px;font-weight:700;letter-spacing:2.5px;background:linear-gradient(#1d2740,#161f33);border:1px solid #3c4a70;border-radius:8px;color:#eef2ff;box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 2px 4px rgba(0,0,0,.5)}
 #cutbtn:hover{background:#e5484d;border-color:#e5484d;box-shadow:0 0 16px rgba(229,72,77,.4)}
 .sidecol{display:flex;flex-direction:column;gap:5px;justify-content:center}
+/* SuperSource crosspoint matrix */
+#lmx{display:flex;flex-direction:column;gap:3px}
+.lmxstyles{display:flex;gap:4px}
+.lst{font-size:9px;font-weight:800;letter-spacing:.5px;padding:2px 9px !important;border-radius:5px !important}
+.lst.on{background:#0e6ad9 !important;border-color:#0e6ad9 !important;color:#fff !important}
+.lmxgrid{display:grid;grid-template-columns:16px repeat(6,32px);gap:2px;align-items:center}
+.lmxh{font-size:8px;font-weight:800;color:#8b96b5;text-align:center}
+.lmxr{font-size:9px;font-weight:800;color:#8b96b5;text-align:right;padding-right:2px}
+.lmxc{width:32px;height:17px;padding:0 !important;border-radius:4px !important;font-size:0 !important}
+.lmxc.on{background:#0e6ad9 !important;border-color:#3b8bee !important;box-shadow:0 0 6px rgba(14,106,217,.6)}
+.lmxc.nofeed{opacity:.3}
+.lmxrow-dis{opacity:.22;pointer-events:none}
 .sidecol .row{display:flex;gap:6px;align-items:center}
 .mixlbl{font-size:9px;font-weight:800;color:#8b96b5}
 .af{width:56px;accent-color:var(--acc)}
@@ -182,7 +194,13 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
         <div class="row"><button id="keybtn">KEY</button><select id="pat"><option value="" disabled selected>pattern&hellip;</option></select><span id="mxlmsg"></span></div>
         <div class="row"><button id="mvbtn" title="pop out a 9-up multiview of every source">&#128250; Multiview</button><button id="contribbtn">&#128752; Send us your feed</button>
         <a href="/mxl-tams.html" style="font-size:11px;font-weight:600;color:#8b96b5;background:transparent;border:1px solid #26314d;border-radius:7px;padding:5px 10px;text-decoration:none;white-space:nowrap;transition:all .15s" onmouseover="this.style.color='#ffb400';this.style.borderColor='#ffb400'" onmouseout="this.style.color='#8b96b5';this.style.borderColor='#26314d'">clip it &#9986; &rarr;</a></div>
-        <div class="row" title="composite inputs on the Layout button (2-up / PiP / 4-up)"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#129513;</span><select id="lstyle" style="font-size:11px"><option value="2up">2-up</option><option value="pip">PiP</option><option value="4up">4-up</option></select><select id="lsrcA" style="font-size:11px"></select><select id="lsrcB" style="font-size:11px"></select><select id="lsrcC" style="font-size:11px;display:none"></select><select id="lsrcD" style="font-size:11px;display:none"></select></div>
+        <div class="row" title="SuperSource matrix &mdash; tap a source for each box, it takes instantly" style="align-items:flex-start">
+          <span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5;margin-top:3px">&#129513;</span>
+          <div id="lmx">
+            <div class="lmxstyles"><button class="lst" data-st="2up">2-UP</button><button class="lst" data-st="pip">PiP</button><button class="lst" data-st="4up">4-UP</button></div>
+            <div class="lmxgrid" id="lmxgrid"></div>
+          </div>
+        </div>
         <div class="row" title="program audio mixer &mdash; level + mute per input" style="gap:7px"><span style="font-size:9px;font-weight:800;letter-spacing:.6px;color:#8b96b5">&#127911;</span><span class="mixlbl">PLY</span><input type="range" class="af" data-a="playout" min="0" max="150" value="80"><button class="am" data-a="playout">M</button><span class="mixlbl">G1</span><input type="range" class="af" data-a="guest1" min="0" max="150" value="100"><button class="am" data-a="guest1">M</button><span class="mixlbl">G2</span><input type="range" class="af" data-a="guest2" min="0" max="150" value="100"><button class="am" data-a="guest2">M</button><span class="mixlbl" title="commentator 1 — commentary.html">COM</span><input type="range" class="af" data-a="voice" min="0" max="150" value="100"><button class="am" data-a="voice">M</button><span class="mixlbl" title="commentator 2 — commentary.html?slot=2">CO2</span><input type="range" class="af" data-a="voice2" min="0" max="150" value="100"><button class="am" data-a="voice2">M</button></div>
       </div>
     </div>
@@ -305,18 +323,42 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       .then(function(){$('#copysrt').textContent='✓ Copied';setTimeout(function(){$('#copysrt').textContent='📋 Copy URL'},1500)});
   });
   // layout (2-up / PiP) controls -> /api/mxl/layout; layout_pgm applies live
-  var LSRC=[['cam','Cam 1'],['cam2','Cam 2'],['playout','Playout'],['pattern','Pattern'],['guest1','Guest 1'],['guest2','Guest 2']];
-  var lstyle=$('#lstyle'),lsrcA=$('#lsrcA'),lsrcB=$('#lsrcB'),lsrcC=$('#lsrcC'),lsrcD=$('#lsrcD');
-  LSRC.forEach(function(o){lsrcA.add(new Option(o[1],o[0]));lsrcB.add(new Option(o[1],o[0]));lsrcC.add(new Option(o[1],o[0]));lsrcD.add(new Option(o[1],o[0]))});
-  lsrcC.value='playout';lsrcD.value='pattern';
-  function lcd(){var v=lstyle.value==='4up'?'':'none';lsrcC.style.display=v;lsrcD.style.display=v}
+  // SuperSource crosspoint matrix (9/14): boxes A-D x sources, one tap =
+  // one take (engine applies in ~90ms via the long-poll push). Dropdowns
+  // cost three interactions per pane; a matrix costs one.
+  var LSRC=[['cam','C1','Cam 1'],['cam2','C2','Cam 2'],['playout','PL','Playout'],['pattern','PT','Pattern'],['guest1','G1','Guest 1'],['guest2','G2','Guest 2']];
+  var lay={style:'2up',a:'cam',b:'cam2',c:'playout',d:'pattern'};
+  var BOXES=[['a','A'],['b','B'],['c','C'],['d','D']];
+  (function buildMatrix(){
+    var g=$('#lmxgrid'),h='<span></span>';
+    LSRC.forEach(function(o){h+='<span class="lmxh" title="'+o[2]+'">'+o[1]+'</span>'});
+    BOXES.forEach(function(bx){
+      h+='<span class="lmxr lmxb-'+bx[0]+'">'+bx[1]+'</span>';
+      LSRC.forEach(function(o){
+        h+='<button class="lmxc lmxb-'+bx[0]+'" data-box="'+bx[0]+'" data-src="'+o[0]+'" title="Box '+bx[1]+' &larr; '+o[2]+'"></button>';
+      });
+    });
+    g.innerHTML=h;
+  })();
+  function paintMatrix(){
+    $$('.lst').forEach(function(b){b.classList.toggle('on',b.dataset.st===lay.style)});
+    var four=lay.style==='4up';
+    ['c','d'].forEach(function(k){$$('.lmxb-'+k).forEach(function(el){el.classList.toggle('lmxrow-dis',!four)})});
+    $$('.lmxc').forEach(function(b){
+      b.classList.toggle('on',lay[b.dataset.box]===b.dataset.src);
+      var i=LSRC.findIndex(function(o){return o[0]===b.dataset.src});
+      var slot={cam:0,playout:1,pattern:2,cam2:3,guest1:4,guest2:5}[b.dataset.src];
+      b.classList.toggle('nofeed',liveMap[slot]===false);
+    });
+  }
   fetch('/api/mxl/layout-state').then(function(r){return r.json()}).then(function(st){
-    lstyle.value=st.style;lsrcA.value=st.a;lsrcB.value=st.b;
-    if(st.c)lsrcC.value=st.c;if(st.d)lsrcD.value=st.d;lcd();}).catch(function(){});
+    lay.style=st.style;lay.a=st.a;lay.b=st.b;
+    if(st.c)lay.c=st.c;if(st.d)lay.d=st.d;paintMatrix();}).catch(function(){});
+  var lmxLocalAt=0;
   function pushLayout(){
-    lcd();
+    lmxLocalAt=Date.now();
     fetch('/api/mxl/layout',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({style:lstyle.value,a:lsrcA.value,b:lsrcB.value,c:lsrcC.value,d:lsrcD.value})}).catch(function(){});
+      body:JSON.stringify({style:lay.style,a:lay.a,b:lay.b,c:lay.c,d:lay.d})}).catch(function(){});
     showLayoutPreview();
   }
   // live preview of the composite while adjusting (layout thumb renders 2fps
@@ -358,10 +400,22 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     }
     tick();setInterval(tick,15000);
   })();
-  [lstyle,lsrcA,lsrcB,lsrcC,lsrcD].forEach(function(el){
-    el.addEventListener('change',pushLayout);
-    el.addEventListener('focus',showLayoutPreview);
-  });
+  $$('.lmxc').forEach(function(b){b.addEventListener('click',function(){
+    lay[b.dataset.box]=b.dataset.src;paintMatrix();pushLayout();
+  })});
+  $$('.lst').forEach(function(b){b.addEventListener('click',function(){
+    lay.style=b.dataset.st;paintMatrix();pushLayout();
+  })});
+  // reflect other operators' layout changes (skip briefly after local edits)
+  setInterval(function(){
+    if(Date.now()-lmxLocalAt<2500)return;
+    fetch('/api/mxl/layout-state').then(function(r){return r.json()}).then(function(st){
+      if(!st||!st.style)return;
+      lay.style=st.style;lay.a=st.a;lay.b=st.b;
+      if(st.c)lay.c=st.c;if(st.d)lay.d=st.d;paintMatrix();
+    }).catch(function(){});
+  },3000);
+  paintMatrix();
 
   // audio mixer strip -> /api/mxl/audio (audio_pgm polls and applies)
   fetch('/api/mxl/audio-state').then(function(r){return r.json()}).then(function(st){
