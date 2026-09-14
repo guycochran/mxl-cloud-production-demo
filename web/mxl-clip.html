@@ -48,6 +48,10 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:9px 16px;b
 header .spacer{flex:1}
 .badge{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim);padding:5px 11px;border:1px solid var(--line);border-radius:20px;background:var(--panel)}
 .badge .rdot{width:8px;height:8px;border-radius:50%;background:var(--rec);box-shadow:0 0 8px var(--rec);animation:pulse 1.7s ease-in-out infinite}
+/* live / hold toggle */
+.livebtn{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid var(--rec);background:rgba(255,59,59,.12);color:var(--rec)}
+.livebtn.hold{border-color:var(--warm);background:rgba(255,180,58,.12);color:var(--warm)}
+.livebtn:hover{filter:brightness(1.15)}
 @keyframes pulse{50%{opacity:.3}}
 .ghosts{display:flex;gap:6px}
 .ghost{font-size:11px;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 10px;text-decoration:none}
@@ -205,6 +209,7 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
   </div>
   <div class="spacer"></div>
   <div class="badge"><span class="rdot"></span><span id="reclbl" class="mono">connecting…</span></div>
+  <button id="livebtn" class="livebtn" title="Following the live edge — click to HOLD while you edit">● LIVE</button>
   <div class="ghosts">
     <a class="ghost" href="#" id="helpbtn" title="how it works">?</a>
     <a class="ghost" href="#" id="themebtn" title="toggle theme">◐</a>
@@ -322,6 +327,7 @@ var winStart=0, winDur=0, winMedia0=0, frags=[];
 var dragging=false, scrubbing=false, inE=null, outE=null;
 var zoomSec=120;                            // detail view span (seconds); zoom changes this
 var ZOOMS=[30,60,120,300,600,1800];
+var editLock=false;                         // true = editor is working; freeze the live-edge follow
 
 /* ── theme toggle ── */
 (function(){var t=localStorage.getItem('mxlclip-theme'); if(t)document.documentElement.setAttribute('data-theme',t);
@@ -383,9 +389,19 @@ function loadHls(){
     if(d.type==='networkError')hls.startLoad();
     else if(d.type==='mediaError'){try{hls.recoverMediaError();}catch(x){}}
     else setTimeout(loadHls,1500); });
-  hls.on(Hls.Events.LEVEL_LOADED,function(e,data){ if(dragging)return;
+  hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
     var d=data.details,f=d.fragments; if(!f.length)return;
-    winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start; frags=f; windowReady=true;
+    // Always keep the fragment index current so seeks/clips work — but while the
+    // editor is actively working (editLock) DON'T re-anchor the window under them.
+    // The growing DVR window shifting winStart is exactly what makes the playhead
+    // "jump" mid-edit. We update frags (for accurate time↔media mapping) but leave
+    // winStart/winDur/the ruler frozen until they hit ● LIVE to resume.
+    frags=f; windowReady=true;
+    if(dragging) return;
+    if(editLock && !loadedIsArchive){                   // frozen: only refresh frags, keep ruler put
+      return;
+    }
+    winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start;
     $('reclbl').textContent = loadedIsArchive
       ? 'reviewing archive · '+tcStr(winStart).slice(0,8)
       : 'recording · '+Math.round(winDur/60)+' min in store';
@@ -619,7 +635,7 @@ function liveSeek(ep){ seekTarget=epochToMedia(ep);
     if(Math.abs(seekTarget-t)>.3&&dragging){seekPending=true;go();}else seekPending=false;};
     var to=setTimeout(fin,500);vid.addEventListener('seeked',fin);try{vid.currentTime=t;}catch(e){fin();}}; go(); }
 $('strip').addEventListener('pointermove',function(e){ showHover(e); if(dragging){var ep=fracToEpochStrip(stripFrac(e)); liveSeek(ep); $('tcbig').textContent=tcStr(ep); updateDurOverlay(ep); renderStrip();} });
-$('strip').addEventListener('pointerdown',function(e){ stopShuttle(); dragging=true; $('strip').setPointerCapture(e.pointerId); vid.pause();
+$('strip').addEventListener('pointerdown',function(e){ engageEdit(); stopShuttle(); dragging=true; $('strip').setPointerCapture(e.pointerId); vid.pause();
   var ep=fracToEpochStrip(stripFrac(e)); liveSeek(ep); showHover(e); });
 $('strip').addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
   var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep); $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none'; });
@@ -645,11 +661,11 @@ function bumpShuttle(dir){ vid.pause();
   else if(Math.sign(shuttle)!==dir){ shuttle=dir*Math.abs(shuttle); }   // flip, keep tier
   else { var i=SPEEDS.indexOf(Math.abs(shuttle)); shuttle=dir*SPEEDS[Math.min(SPEEDS.length-1,i+1)]; }
   startShuttle(); }
-function stepFrame(n){ stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n/FPS); $('tcbig').textContent=tcStr(curEpoch()); }
+function stepFrame(n){ engageEdit(); stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n/FPS); $('tcbig').textContent=tcStr(curEpoch()); }
 function stepSec(n){ stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n); $('tcbig').textContent=tcStr(curEpoch()); }
 function togglePlay(){ stopShuttle(); if(vid.paused){vid.play().catch(function(){});} else vid.pause(); }
 function goStart(){ stopShuttle(); vid.pause(); seekEpoch(winStart+0.05); }
-function goEnd(){ stopShuttle(); vid.pause(); seekEpoch(edgeEpoch()-6); }
+function goEnd(){ stopShuttle(); if(editLock)setEditLock(false); vid.pause(); seekEpoch(edgeEpoch()-6); }  // End = deliberately return to live
 $('tJ').onclick=function(){bumpShuttle(-1)}; $('tL').onclick=function(){bumpShuttle(1)};
 $('tPlay').onclick=togglePlay; $('tBack').onclick=function(){stepFrame(-1)}; $('tFwd').onclick=function(){stepFrame(1)};
 $('tHome').onclick=goStart; $('tEnd').onclick=goEnd;
@@ -691,9 +707,25 @@ function paintClip(){
   $('bGrab').disabled=!ok; $('bSave').disabled=!ok; $('bQR').disabled=!ok;
   renderMarks(viewRange());
 }
-function markIn(){ var e=curEpoch(); if(e==null)return; inE=e; if(outE!=null&&outE<=inE)outE=null; paintClip(); $('viewstate').textContent='in set'; }
-function markOut(){ var e=curEpoch(); if(e==null)return; outE=e; if(inE!=null&&inE>=outE)inE=null; paintClip(); $('viewstate').textContent='out set'; }
+function markIn(){ engageEdit(); var e=curEpoch(); if(e==null)return; inE=e; if(outE!=null&&outE<=inE)outE=null; paintClip(); $('viewstate').textContent='in set'; }
+function markOut(){ engageEdit(); var e=curEpoch(); if(e==null)return; outE=e; if(inE!=null&&inE>=outE)inE=null; paintClip(); $('viewstate').textContent='out set'; }
 $('bIn').onclick=markIn; $('bOut').onclick=markOut; $('bClr').onclick=function(){inE=outE=null;paintClip();};
+
+/* ═══ EDIT LOCK — freeze the live-edge follow while the editor works ═══ */
+// The DVR window grows every second; letting it re-anchor mid-edit makes the
+// playhead/ruler "jump" under you. The instant you touch the timeline, mark, or
+// nudge, we HOLD: the ruler + playhead stay put and the live playlist stops
+// yanking the frame. Hit ● LIVE to resume following the edge.
+function setEditLock(on){
+  editLock=on; var btn=$('livebtn');
+  if(on){ btn.classList.add('hold'); btn.textContent='◼ HOLD'; btn.title='Editing — timeline held. Click to resume LIVE.';
+    // stop hls.js live-sync from nudging the paused frame toward the edge
+    if(hls){ hls.config.liveSyncDuration=1e9; hls.config.liveMaxLatencyDuration=1e9; } }
+  else { btn.classList.remove('hold'); btn.textContent='● LIVE'; btn.title='Following the live edge — click to HOLD while you edit';
+    if(hls&&!loadedIsArchive){ loadedIsArchive=false; landed=false; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); } }
+}
+function engageEdit(){ if(!editLock && !loadedIsArchive) setEditLock(true); }   // auto-hold on first edit gesture
+$('livebtn').onclick=function(){ setEditLock(!editLock); };
 
 /* ═══ zoom ═══ */
 function setZoom(sec){ zoomSec=Math.max(30,Math.min(1800,sec));
