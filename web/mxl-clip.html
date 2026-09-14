@@ -519,8 +519,8 @@ function renderStrip(){
   var html='';
   var cellH=$('strip').clientHeight||76;
   for(var i=0;i<cells;i++){
-    var ep=v.lo+i*secPerCell;
-    var m=Math.floor(ep/60)*60, idx=Math.floor(ep-m);            // per-minute sprite: 1s tile
+    var ep=v.lo+(i+0.5)*secPerCell;                              // sample at cell CENTER (not left edge)
+    var m=Math.floor(ep/60)*60, idx=Math.round(ep-m); if(idx>59)idx=59; // nearest-second tile
     var bw=FRMW*10, bh=(FRMW*9/16)*6, px=-(idx%10)*FRMW, py=-Math.floor(idx/10)*(FRMW*9/16);
     // GUARANTEED fallback layer: the 12h overview tile for this instant (always
     // exists for any in-range time). The sharp minute sprite draws OVER it; if
@@ -647,10 +647,10 @@ function showHover(e){
   $('hover').style.display='block'; $('hover').style.left=x+'px';
   var tip=$('htip'); tip.style.display='block'; tip.style.left=Math.min(b.width-130,Math.max(130,x))+'px';
   $('htipt').textContent=tcStr(ep);
-  // per-second thumb in the hover tip (a downscale → crisp); fall back to sprite tile
-  var t=$('htipimg'); var whole=Math.floor(ep);
+  // nearest-second thumb (matches the frame you'll land on, ±0.5s max)
+  var t=$('htipimg'); var whole=Math.round(ep);
   var pi=new Image(); pi.onload=function(){t.style.backgroundImage='url('+THUMB+whole+'.jpg)';t.style.backgroundSize='cover';};
-  pi.onerror=function(){ var m=Math.floor(ep/60)*60,idx=Math.floor(ep-m); var bw=240*10,bh=135*6;
+  pi.onerror=function(){ var m=Math.floor(whole/60)*60,idx=whole-m; var bw=240*10,bh=135*6;
     t.style.backgroundImage='url('+SPRITE+m+'.jpg)'; t.style.backgroundSize=bw+'px '+bh+'px';
     t.style.backgroundPosition=(-(idx%10)*240)+'px '+(-Math.floor(idx/10)*135)+'px'; };
   pi.src=THUMB+whole+'.jpg';
@@ -674,7 +674,7 @@ var liveSeek=seekEpoch;                                 // same thing now (all i
 // frame; when it lands, the sprite hides and the real frame shows — ready to play.
 var dragEp=null;
 function paintScrubFrame(ep){                            // instant placeholder while the real frame isn't buffered yet
-  var ph=$('placeholder'), whole=Math.floor(ep);
+  var ph=$('placeholder'), whole=Math.round(ep);         // nearest second (matches the frame you'll land on)
   ph.style.backgroundImage='url('+THUMB+whole+'.jpg)';
   ph.style.backgroundSize='contain'; ph.style.backgroundPosition='center';
   ph.style.display='block';
