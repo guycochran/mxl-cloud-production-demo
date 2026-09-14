@@ -323,8 +323,10 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
    with ffmpeg.wasm (stream copy). 30fps → SMPTE HH:MM:SS:FF timecode.
    ═════════════════════════════════════════════════════════════════════════ */
 var $=function(s){return document.getElementById(s)};
-var FLOW_FULL ='7a350001-aaaa-4bbb-8ccc-000000000001';
-var FLOW_PROXY='7a350002-aaaa-4bbb-8ccc-000000000002';
+var FLOW_FULL ='7a350001-aaaa-4bbb-8ccc-000000000001';   // full-res → the exported clip
+var FLOW_PROXY='7a350004-aaaa-4bbb-8ccc-000000000004';   // ALL-INTRA 480p → the scrub player
+// (every frame a keyframe → seeking to any frame is exact + instant, no decode-forward.
+//  the old GOP proxy 7a350002 stays running as a fallback; this is the frame-accurate one.)
 var PROXY_BASE='/tamsapi/flows/'+FLOW_PROXY+'/output.m3u8';
 var FULL_BASE ='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
 var SPRITE='/tamsobj/tams-media/sprites/';
