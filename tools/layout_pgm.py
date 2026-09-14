@@ -171,6 +171,13 @@ def make_normalizer(idx):
 
     def probe(pad, info):
         buf = info.get_buffer()
+        if last_buf[idx] == 0.0 or time.monotonic() - last_buf[idx] > 8:
+            # branch (re)came alive — clear its wedge strikes
+            try:
+                import os as _os
+                _os.remove(f'/tmp/.layout-wedge-{SLOTS[idx]}.count')
+            except Exception:
+                pass
         last_buf[idx] = time.monotonic()
         clock = pipe.get_clock()
         if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
@@ -446,8 +453,27 @@ def wedge_watch():
                     break  # can't verify — never respawn blind
                 if not live.get(SLOTS[i]):
                     continue  # writer gone: expected silence, not a wedge
+                # STORM BREAKER (9/14): if the SAME branch wedges on 3
+                # consecutive respawns, fresh attaches aren't fixing it (the
+                # stale-attach species lives on the FLOW; the writer must be
+                # bounced). Stop exiting: one dead pane beats a respawn storm
+                # that recreates our output flow, burns the repair cooldown,
+                # and stalls the whole rig (tonight: 10 respawns via cam).
+                import os as _os
+                mark = f'/tmp/.layout-wedge-{SLOTS[i]}.count'
+                try:
+                    cnt = int(open(mark).read())
+                except Exception:
+                    cnt = 0
+                if cnt >= 3:
+                    if now - last_buf[i] < 60:  # log once a sweep, not forever
+                        print(f'wedge STORM-BREAK: {SLOTS[i]} failed {cnt} fresh attaches — '
+                              f'holding (writer needs a bounce; pane stays stale)', flush=True)
+                    continue
+                open(mark, 'w').write(str(cnt + 1))
                 print(f'input wedge: selected source {SLOTS[i]} silent '
-                      f'{now - last_buf[i]:.0f}s with a LIVE writer — exiting for fresh attach', flush=True)
+                      f'{now - last_buf[i]:.0f}s with a LIVE writer — exiting for fresh attach '
+                      f'(attempt {cnt + 1}/3)', flush=True)
                 try:
                     req = _rq.Request('https://prodbots.com/api/mxl/repair',
                                       data=b'{"auto":1}',
