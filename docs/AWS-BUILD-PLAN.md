@@ -1,11 +1,12 @@
 # Building the MXL Cloud Production Demo on AWS
 
-**Goal:** stand up the *exact* production we ran on Azure for IBC 2026 —
-uncompressed v210 shared-memory switching, multi-host MXL fabric, guest
-SRT contribution, TAMS recording/clipping, public WebRTC program — on AWS,
-to prove the stack is genuinely cloud-neutral. Everything in this repo
-(tools/, bring-up, FINDINGS) runs unchanged; only the infrastructure
-vocabulary translates.
+**Goal:** run the facility we proved on Azure for IBC 2026 — uncompressed
+v210 shared-memory switching, multi-host MXL fabric, guest SRT
+contribution, TAMS recording/clipping, public WebRTC program — **as a
+production deployment on AWS**. Everything in this repo (tools/,
+bring-up, FINDINGS) runs unchanged; only the infrastructure vocabulary
+translates. (The Azure run already proved cloud-neutrality, including a
+cross-network fabric island — production doesn't need to re-prove it.)
 
 Audience: anyone with an AWS account and a weekend. We spent ~6 days on
 Azure *discovering* everything in `FINDINGS.md`; a replay with these
@@ -19,9 +20,8 @@ recipes is a 1–2 day job.
 |---|---|---|---|
 | **Host 1 — production** (domain, switcher, layout, keyer, encoder, mediamtx) | `D32s_v5` (32 vCPU / 128 GB, Xeon 8370C) | **`m6i.8xlarge`** (32 vCPU / 128 GB, Xeon 8375C) | Near-identical silicon. The MXL domain lives in `/dev/shm` — RAM matters as much as cores, so m6i over c6i. |
 | Host 2 — contribution (guest SRT ingest, fabric initiators, TAMS shipper) | `D8s_v5` (8 / 32) | **`m6i.2xlarge`** (8 / 32) | 1:1. |
-| Host 3 — TAMS store / remote-island receiver | `D4s_v5` (4 / 16) | **`m6i.xlarge`** (4 / 16) | 1:1. |
+| ~~Host 3~~ | `D4s_v5` (TAMS store + island tests) | **not needed** | Native S3 replaces the self-hosted object store; the lightweight TAMS API rides on Host 2. Production has no island. |
 | VNet + NSG | single VNet 10.0.0.x, NSG rules | **VPC + Security Groups** | See §3 for the exact port set. |
-| Isolated-island test (VM3 in separate VNet/region) | isolated VNet, public-IP fabric, sockaddr patch | **separate VPC** (or separate *region* for a bigger wow) + `tools/patch-target-ip.py` | Identical mechanics — the TargetInfo sockaddr patch (FINDINGS, dmf-mxl#714) is cloud-agnostic. |
 | Public URLs | Cloudflare tunnels (`cloudflared`) | **Same.** cloudflared runs identically on EC2 | Don't replace what works. WebRTC media never rode the tunnel anyway — it goes UDP-direct to the instance (Elastic IP). |
 | TAMS object store | MinIO-style store on VM3 (:9000) | **Native S3 + presigned URLs** | TAMS was *designed* for S3. This is the one place AWS is an upgrade, not a translation — drop the self-hosted object store entirely. |
 | Auth to cloud | Service Principal | **IAM role on the instances** | Instance profiles; no long-lived keys on boxes. |
@@ -44,23 +44,23 @@ These are the traps for a personal-account build. Read before launching.
      same AZ, in a cluster placement group.** Non-negotiable.
    - Cross-AZ: $0.01/GB each way ≈ **$11.70/hour per flow**. Never run the
      fabric cross-AZ by accident.
-   - Internet egress ($0.09/GB): the public-IP island test (§6 Phase 4)
-     costs ≈ **$52/hour per 1080p flow**. Run it for the screenshot and the
-     numbers, then shut it down. (Cross-*region* over VPC peering is
-     $0.02/GB ≈ $11.70/hr — cheaper way to show geography.)
+   - Internet egress ($0.09/GB): never point a raw fabric flow at a public
+     IP in production — that's ≈$52/hour per 1080p flow. Fabric stays on
+     private IPs, period; only the encoded program (~5 Mbps) leaves.
 2. **Viewer egress is fine.** Each WebRTC viewer is ~5 Mbps H.264 ≈
    2.3 GB/hr ≈ $0.20/hr. A booth crowd costs beer money, not rent.
 3. **Stop instances when idle.** EC2 *stop* keeps the EBS volumes
    (~$0.08/GB-month for gp3) and drops compute to zero — same discipline as
    our Azure deallocate rule.
-4. **Ballpark demo-day rate** (3 hosts, us-west-2, on-demand):
-   `m6i.8xlarge` $1.536 + `m6i.2xlarge` $0.384 + `m6i.xlarge` $0.192 ≈
-   **$2.11/hr + viewer egress**. Left running 24/7 that's ~$1,550/mo —
-   don't. (Spot is ~60-70% off and fine for rehearsal days; don't demo to
-   Jonas on spot.)
+4. **Ballpark production rate** (2 hosts, us-west-2, on-demand):
+   `m6i.8xlarge` $1.536 + `m6i.2xlarge` $0.384 ≈ **$1.92/hr + viewer
+   egress**. Show-hours-only with stop-when-idle: a few dollars per
+   production day. If it becomes an always-on facility, a 1-year Compute
+   Savings Plan takes ~40% off (≈$850/mo for 24/7); use Spot only for
+   rehearsals, never on air.
 5. **New-account quota:** fresh AWS accounts often cap Running On-Demand
-   Standard vCPUs at 32 or fewer. **File the quota increase to 64 vCPU on
-   day 0** — it can take a day to approve and it gates the whole build.
+   Standard vCPUs at 32 or fewer. **File the quota increase to 48 vCPU on
+   day 0** (32+8 running, headroom for a resize) — it can take a day to approve and it gates the whole build.
 
 ---
 
@@ -150,19 +150,18 @@ avg 1080 slices/grain, ~1.3 Gbps/flow. Port the guest-leg doctor with the
 legs — the fabric wedge species (FINDINGS) travel with the software, not
 the cloud.
 
-**Phase 3 — TAMS on real S3 (half day):** TAMS API server on host 3 (or
-host 2), segments to **native S3 presigned URLs**. The clipper
+**Phase 3 — TAMS on real S3 (half day):** TAMS API server on host 2,
+segments to **native S3 presigned URLs**. The clipper
 (`web/mxl-tams.html`) works unchanged — it already speaks
-presigned-object-URL. This phase is the AWS-native flex: no self-hosted
-object store.
+presigned-object-URL. No self-hosted object store, no third host.
+(If a remote/cross-region receiver is ever wanted later, the recipe is
+`tools/patch-target-ip.py` + FINDINGS — proven on Azure, not part of
+this production build.)
 
-**Phase 4 — the island (2 hours, then OFF):** `m6i.xlarge` in a *different
-VPC or region*, fabric target via public IP with
-`tools/patch-target-ip.py`. This reproduces our three-node
-isolated-network proof. Mind §2.1 egress; run it hot only for the demo.
-
-**Phase 5 — hardening (half day):** grain probe + health board, doctor
-timers, kiosk idle-reset, the multiview wall. All ports of existing tools.
+**Phase 4 — production hardening (half day):** grain probe + health
+board, guest-leg doctor, kiosk idle-reset, the multiview wall, and
+`flow_stabilizer.py` deployed **from day 1** (see §7.2). All ports of
+existing tools.
 
 ---
 
@@ -189,18 +188,17 @@ timers, kiosk idle-reset, the multiview wall. All ports of existing tools.
 
 ---
 
-## 8. Cost of the full proof
+## 8. What it costs
 
-| Line | Rate | A realistic 3-day build+demo |
+| Line | Rate | A realistic 2-day build + first show |
 |---|---|---|
-| m6i.8xlarge × ~30 hrs | $1.536/hr | ~$46 |
-| m6i.2xlarge × ~30 hrs | $0.384/hr | ~$12 |
-| m6i.xlarge × ~10 hrs | $0.192/hr | ~$2 |
-| Island public-IP fabric × 2 hrs | ~$52/hr egress | ~$104 (the single biggest line — keep it short) |
-| Viewer egress, storage, EIPs, S3 | — | ~$10 |
-| **Total** | | **≈ $175 for the whole proof** |
+| m6i.8xlarge × ~25 hrs | $1.536/hr | ~$38 |
+| m6i.2xlarge × ~25 hrs | $0.384/hr | ~$10 |
+| Viewer egress, storage, EIPs, S3 | — | ~$8 |
+| **Total** | | **≈ $56 to a working production facility** |
 
-Ongoing rehearsals with stopped-when-idle discipline: a few dollars a day.
+Ongoing: ~$2/hr during show hours, near-zero stopped. Always-on with a
+Savings Plan ≈ $850/mo (§2.4).
 
 ---
 
