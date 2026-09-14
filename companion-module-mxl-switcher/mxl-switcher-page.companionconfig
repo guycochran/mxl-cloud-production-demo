@@ -1,0 +1,884 @@
+{
+	"version": 3,
+	"type": "page",
+	"controls": {
+		"bank:1-1": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nCam 1",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000001",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 0}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-2": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nCam 2",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000002",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 3}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-3": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nPlayout",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000003",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 1}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-4": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nPattern",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000004",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 2}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-5": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nGuest 1",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000005",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 4}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-6": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nGuest 2",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000006",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 5}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-7": {
+			"type": "button",
+			"style": {
+				"text": "PGM\\nLayout",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 9049108,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000007",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/input",
+									"body": "{\"input\": 6}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-9": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nCam 1",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000008",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 0}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-10": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nCam 2",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000009",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 3}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-11": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nPlayout",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000010",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 1}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-12": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nPattern",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000011",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 2}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-13": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nGuest 1",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000012",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 4}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-14": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nGuest 2",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000013",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 5}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-15": {
+			"type": "button",
+			"style": {
+				"text": "PVW\\nLayout",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 686650,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000014",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/preview",
+									"body": "{\"input\": 6}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-17": {
+			"type": "button",
+			"style": {
+				"text": "TAKE",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 6950928,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000015",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/take",
+									"body": "{}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-18": {
+			"type": "button",
+			"style": {
+				"text": "KEY ON",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 1712952,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000016",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/key",
+									"body": "{\"on\": true}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-19": {
+			"type": "button",
+			"style": {
+				"text": "KEY OFF",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 1712952,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000017",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/key",
+									"body": "{\"on\": false}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-20": {
+			"type": "button",
+			"style": {
+				"text": "WARM\\nUP",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 13400576,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000018",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/warmup",
+									"body": "{}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-22": {
+			"type": "button",
+			"style": {
+				"text": "2-UP",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 1712952,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000019",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/layout",
+									"body": "{\"style\": \"2up\", \"a\": \"cam\", \"b\": \"cam2\"}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-23": {
+			"type": "button",
+			"style": {
+				"text": "4-UP",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 1712952,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000020",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/layout",
+									"body": "{\"style\": \"4up\", \"a\": \"cam\", \"b\": \"cam2\", \"c\": \"playout\", \"d\": \"pattern\"}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		},
+		"bank:1-24": {
+			"type": "button",
+			"style": {
+				"text": "PiP",
+				"size": "14",
+				"png": null,
+				"alignment": "center:center",
+				"pngalignment": "center:center",
+				"color": 16777215,
+				"bgcolor": 1712952,
+				"show_topbar": "default"
+			},
+			"options": {
+				"relativeDelay": false,
+				"stepAutoProgress": true
+			},
+			"feedbacks": [],
+			"steps": {
+				"0": {
+					"action_sets": {
+						"down": [
+							{
+								"id": "act0000000000000021",
+								"action": "post",
+								"instance": "mxlhttp0000000000001",
+								"options": {
+									"url": "https://prodbots.com/api/mxl/layout",
+									"body": "{\"style\": \"pip\", \"a\": \"cam\", \"b\": \"guest1\"}",
+									"contentType": "application/json"
+								},
+								"delay": 0
+							}
+						],
+						"up": []
+					},
+					"options": {
+						"runWhileHeld": []
+					}
+				}
+			}
+		}
+	},
+	"page": {
+		"name": "MXL Switcher"
+	},
+	"custom_variables": {},
+	"instances": {
+		"mxlhttp0000000000001": {
+			"instance_type": "generic-http",
+			"label": "mxl",
+			"isFirstInit": false,
+			"config": {
+				"url": "https://prodbots.com"
+			},
+			"enabled": true,
+			"lastUpgradeIndex": -1
+		}
+	},
+	"oldPageNumber": 1
+}
