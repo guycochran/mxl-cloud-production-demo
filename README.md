@@ -283,6 +283,42 @@ landmines: aggregator EOS on `ignore-inactive-pads`, tsmux latency handling
 outside `gst-launch`, and MediaMTX silently discarding non-1316-byte SRT
 payloads (`mpegtsmux alignment=7` is mandatory).
 
+## Update 6: standard control — NMOS discovery + a hardware panel
+
+The facility now speaks the industry's control-plane standards, not just a
+private REST dialect.
+
+**NMOS (AMWA BCP-007-03).** [`tools/nmos_node.py`](tools/nmos_node.py) is a
+stdlib-only **IS-04 v1.3 Node** that presents every MXL flow as a standard
+NMOS Sender/Receiver — transport `urn:x-nmos:transport:mxl`, tagged with
+`mxl_domain_id`/`mxl_flow_id` exactly as AMWA's published
+**[BCP-007-03 "NMOS Support for MXL"](https://specs.amwa.tv/bcp-007-03/)**
+prescribes, with live PGM/PVW tally carried as grouphint tags. Registered
+into a standard registry, any broadcast controller discovers the cloud
+switcher — verified live against **Bitfocus Buttons** (its NMOS registry
+client) and shown here straight from the registry's IS-04 Query API:
+
+![MXL flows discovered in an NMOS registry](docs/images/nmos-in-registry.png)
+
+To our knowledge this is the first time a commercial broadcast controller
+has discovered an MXL production facility through a standard NMOS registry —
+three days after IBC 2026, on the published spec.
+
+**A hardware panel.** [`companion-module-mxl-switcher/`](companion-module-mxl-switcher/)
+is a **Bitfocus Companion** module: an **Elgato Stream Deck XL** cutting the
+cloud switcher with real broadcast tally — the on-air source burns red, the
+armed preview source glows green, feedless inputs dim — over a 1 s status
+poll. Actions (cut, TAKE, keyer, warm-up, SuperSource layouts), feedbacks
+(PGM/PVW tally, no-feed, keyer state), and drop-in presets. Confirmed
+running on hardware (Companion 5.0.5). Setup — module *and* a zero-install
+one-click page import — in
+[`companion-module-mxl-switcher/TURNKEY-COMPANION.md`](companion-module-mxl-switcher/TURNKEY-COMPANION.md).
+
+The arc: private REST → physical panel with tally → NMOS-discoverable per
+published spec. That's the difference between a demo and a facility. Full
+control-plane roadmap (IS-05 routing, IS-07 tally, IS-08 audio) in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
 ## Build one yourself
 
 **Fastest path: [docs/QUICKSTART.md](docs/QUICKSTART.md)** — one script,
