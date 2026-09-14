@@ -339,8 +339,12 @@ var $=function(s){return document.getElementById(s)};
 // you clip (no proxy for playback). Full-res is normal-GOP H.264 so it plays
 // smoothly like any VOD. The proxies (all-intra 7a350004 / GOP 7a350002) are
 // scrub-only aids and are NOT used for the viewer anymore.
-var FLOW_FULL ='7a350001-aaaa-4bbb-8ccc-000000000001';   // full-res TAMS — the viewer + the clip
-var PROXY_BASE='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';  // viewer loads the real TAMS record
+// CLEAN full-res flow 7a350005 — gapless, continuous timestamps, keyframe-aligned
+// 2s segments (the legacy 7a350001 had a DISCONTINUITY almost every segment from
+// -reset_timestamps + restart gaps → decoder reset every second = the stutter).
+// This flow plays smoothly like the BBC reference. Viewer AND clip use it.
+var FLOW_FULL ='7a350005-aaaa-4bbb-8ccc-000000000005';   // clean full-res TAMS — viewer + clip
+var PROXY_BASE='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
 var FULL_BASE ='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
 var SPRITE='/tamsobj/tams-media/sprites/';
 var THUMB ='/tamsobj/tams-media/thumbs/';
