@@ -115,33 +115,42 @@ relock = {'times': []}
 
 
 def out_restamp(pad, info):
+    # v5 GRID STAMPER (9/14). v4 followed the buffer timeline through an
+    # offset; upstream cadence excess (source bursts surviving even
+    # drop-only conform) pushed it +1s ahead every ~10s -> hard re-lock
+    # death cycle -> respawns -> cascades -> frozen viewers. Now output
+    # PTS IGNORES upstream timestamps entirely: a fixed 33.33ms grid
+    # servo'd to the wall clock. Ahead-of-grid arrivals are DROPPED (the
+    # compositor's next frame carries newer content anyway) — the output
+    # timeline is monotonic and real-time by construction; the re-lock
+    # class is structurally gone.
     buf = info.get_buffer()
     clock = pipe.get_clock()
-    if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
+    if not clock:
         return Gst.PadProbeReturn.OK
     now = clock.get_time() - pipe.get_base_time()
-    if out_state['off'] is None:
-        out_state['off'] = now + MARGIN_NS - buf.pts
-    mapped = buf.pts + out_state['off']
-    err = mapped - (now + MARGIN_NS)
-    if abs(err) > Gst.SECOND:
-        # catastrophic (startup transient / stall recovery): hard re-lock —
-        # one visible discontinuity beats minutes of stale ring writes
-        out_state['off'] = now + MARGIN_NS - buf.pts
-        mapped = now + MARGIN_NS
-        print(f'output hard re-lock ({err/1e9:+.2f}s)', flush=True)
-        wall = time.monotonic()
-        relock['times'] = [t for t in relock['times'] if wall - t < 10] + [wall]
-        if len(relock['times']) >= 8:
-            # 8 re-locks in 10s = the servo can't win — respawn for a clean lock
-            print('output re-lock LOOP (8/10s) — exiting for fresh offset', flush=True)
-            import os
-            os._exit(1)
+    if out_state.get('base') is None:
+        out_state['base'] = now + MARGIN_NS
+        out_state['n'] = 0
+    pts = out_state['base'] + out_state['n'] * FRAME_NS
+    err = pts - (now + MARGIN_NS)
+    if err > 400_000_000:
+        # arrivals outpace the grid: shed the excess instead of stamping
+        # the future (this is what used to become the +1s runaway)
+        out_state['drops'] = out_state.get('drops', 0) + 1
+        if out_state['drops'] % 300 == 1:
+            print(f"grid: shedding ahead-of-realtime frames (total {out_state['drops']})", flush=True)
+        return Gst.PadProbeReturn.DROP
+    if err < -Gst.SECOND:
+        # stall recovery: jump the grid forward once, cleanly
+        out_state['base'] = now + MARGIN_NS - out_state['n'] * FRAME_NS
+        pts = now + MARGIN_NS
+        print('output grid re-based after stall', flush=True)
     else:
-        corr = max(-SLEW_MAX_NS, min(SLEW_MAX_NS, int(err * 0.02)))
-        out_state['off'] -= corr
-    buf.pts = mapped
+        out_state['base'] -= max(-SLEW_MAX_NS, min(SLEW_MAX_NS, int(err * 0.02)))
+    buf.pts = pts
     buf.duration = FRAME_NS
+    out_state['n'] += 1
     return Gst.PadProbeReturn.OK
 
 
