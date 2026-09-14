@@ -384,14 +384,32 @@ function recBounds(){
   if(ov && ov.start && ov.end) return {lo:ov.start, hi:ov.end};
   return {lo:winStart, hi:edgeEpoch()};
 }
-/* ── detail-view window: centered on playhead, zoomSec wide, clamped to record ── */
-function viewRange(){
-  var c=curEpoch(); if(c==null)c=edgeEpoch();
-  var rb=recBounds(), recLo=rb.lo, recHi=rb.hi;
-  var half=zoomSec/2, lo=c-half, hi=c+half;
-  if(hi>recHi){hi=recHi;lo=hi-zoomSec;} if(lo<recLo){lo=recLo;hi=Math.min(recHi,lo+zoomSec);}
-  if(hi-lo<zoomSec) lo=Math.max(recLo,hi-zoomSec);      // keep full span when record is long enough
+/* ── detail-view window ──
+   NLE behavior: the view is a STABLE window (anchored at viewCenter). Clicking or
+   scrubbing moves the PLAYHEAD within it — the timeline does NOT scroll under you.
+   The view only re-anchors when the playhead reaches the edge (auto-scroll while
+   playing/stepping past the boundary), on zoom, or on an explicit recenter. */
+var viewCenter=null;                                   // epoch the detail view is anchored on
+function clampView(center){
+  var rb=recBounds(), half=zoomSec/2, lo=center-half, hi=center+half;
+  if(hi>rb.hi){hi=rb.hi;lo=hi-zoomSec;} if(lo<rb.lo){lo=rb.lo;hi=Math.min(rb.hi,lo+zoomSec);}
+  if(hi-lo<zoomSec) lo=Math.max(rb.lo,hi-zoomSec);
   return {lo:lo,hi:hi,span:hi-lo};
+}
+function viewRange(){
+  if(viewCenter==null){ var c=curEpoch(); viewCenter=(c!=null?c:edgeEpoch()); }
+  return clampView(viewCenter);
+}
+// Re-anchor the view on ep (used on jumps: overview click, go-to-live, deep link).
+function centerView(ep){ if(ep!=null) viewCenter=ep; }
+// Keep the playhead visible: if it drifts to the edge of the stable view (playing,
+// stepping, or a click near the border), nudge the anchor so it stays on screen —
+// but don't recenter for small in-window moves (that's what caused the "timeline
+// scrolls under me / playhead stuck at center" feel).
+function followPlayhead(){
+  var c=curEpoch(); if(c==null||viewCenter==null) return;
+  var v=clampView(viewCenter), margin=v.span*0.12;
+  if(c<v.lo+margin || c>v.hi-margin) viewCenter=c;      // reached the edge → recenter on playhead
 }
 
 /* ═══ HLS scrub player (proxy) ═══ */
@@ -473,7 +491,7 @@ function renderOverview(){
 }
 $('ovwrap').addEventListener('pointerdown',function(e){
   if(!ov)return; var b=$('ovwrap').getBoundingClientRect(); var fr=(e.clientX-b.left)/b.width;
-  var ep=ov.start+fr*(ov.end-ov.start); seekEpoch(ep); });
+  var ep=ov.start+fr*(ov.end-ov.start); centerView(ep); seekEpoch(ep); });   // jump = recenter the detail view
 
 /* ═══ DETAIL filmstrip ═══ */
 var FRMW=96;                                // px width of each filmstrip frame cell
@@ -663,11 +681,21 @@ function liveSeek(ep){ seekTarget=epochToMedia(ep);
   var go=function(){var t=seekTarget,done=false; var fin=function(){if(done)return;done=true;vid.removeEventListener('seeked',fin);clearTimeout(to);
     if(Math.abs(seekTarget-t)>.3&&dragging){seekPending=true;go();}else seekPending=false;};
     var to=setTimeout(fin,500);vid.addEventListener('seeked',fin);try{vid.currentTime=t;}catch(e){fin();}}; go(); }
-$('strip').addEventListener('pointermove',function(e){ showHover(e); if(dragging){var ep=fracToEpochStrip(stripFrac(e)); liveSeek(ep); $('tcbig').textContent=tcStr(ep); updateDurOverlay(ep); renderStrip();} });
-$('strip').addEventListener('pointerdown',function(e){ engageEdit(); stopShuttle(); dragging=true; $('strip').setPointerCapture(e.pointerId); vid.pause();
-  var ep=fracToEpochStrip(stripFrac(e)); liveSeek(ep); showHover(e); });
+// Click/drag the filmstrip = move the playhead there, like any NLE. pointerdown
+// does a full seekEpoch (handles archive-window load + deferred landing); while
+// dragging within the LOADED window we do fast in-buffer seeks; if the drag
+// leaves the loaded window we seekEpoch again (loads that region). pointerup
+// does a final authoritative seekEpoch so the playhead lands exactly.
+$('strip').addEventListener('pointermove',function(e){ showHover(e);
+  if(dragging){ var ep=fracToEpochStrip(stripFrac(e));
+    if(inLoadedWindow(ep)){ liveSeek(ep); } else { seekEpoch(ep); }
+    $('tcbig').textContent=tcStr(ep); updateDurOverlay(ep); renderStrip(); } });
+$('strip').addEventListener('pointerdown',function(e){ engageEdit(); stopShuttle(); dragging=true;
+  $('strip').setPointerCapture(e.pointerId); vid.pause();
+  var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep); showHover(e); $('tcbig').textContent=tcStr(ep); });
 $('strip').addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
-  var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep); $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none'; });
+  var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep);
+  $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none'; });
 $('strip').addEventListener('pointerleave',function(){ if(!dragging){$('hover').style.display='none';$('htip').style.display='none';} });
 
 /* ═══ transport: JKL shuttle + frame stepping ═══ */
@@ -692,9 +720,18 @@ function bumpShuttle(dir){ vid.pause();
   startShuttle(); }
 function stepFrame(n){ engageEdit(); stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n/FPS); $('tcbig').textContent=tcStr(curEpoch()); }
 function stepSec(n){ stopShuttle(); vid.pause(); var e=curEpoch(); if(e==null)return; seekEpoch(e+n); $('tcbig').textContent=tcStr(curEpoch()); }
-function togglePlay(){ stopShuttle(); if(vid.paused){vid.play().catch(function(){});} else vid.pause(); }
-function goStart(){ stopShuttle(); vid.pause(); seekEpoch(winStart+0.05); }
-function goEnd(){ stopShuttle(); if(editLock)setEditLock(false); vid.pause(); seekEpoch(edgeEpoch()-6); }  // End = deliberately return to live
+function togglePlay(){ stopShuttle();
+  if(!vid.paused){ vid.pause(); return; }
+  // Play from the current playhead. After an archive seek the new region may
+  // still be buffering (readyState low) — vid.play() would reject silently — so
+  // if it's not ready yet, wait for 'canplay' once, then play.
+  var go=function(){ vid.play().catch(function(){}); };
+  if(vid.readyState>=2){ go(); }
+  else { var on=function(){ vid.removeEventListener('canplay',on); go(); };
+    vid.addEventListener('canplay',on); try{hls&&hls.startLoad();}catch(e){} }
+}
+function goStart(){ stopShuttle(); vid.pause(); centerView(winStart+0.05); seekEpoch(winStart+0.05); }
+function goEnd(){ stopShuttle(); if(editLock)setEditLock(false); vid.pause(); centerView(edgeEpoch()-6); seekEpoch(edgeEpoch()-6); }  // End = deliberately return to live
 $('tJ').onclick=function(){bumpShuttle(-1)}; $('tL').onclick=function(){bumpShuttle(1)};
 $('tPlay').onclick=togglePlay; $('tBack').onclick=function(){stepFrame(-1)}; $('tFwd').onclick=function(){stepFrame(1)};
 $('tHome').onclick=goStart; $('tEnd').onclick=goEnd;
@@ -715,6 +752,9 @@ $('tc').onclick=function(){ stopShuttle(); vid.pause();
 (function tick(){ if(winDur>0){ var ep=curEpoch();
   if(ep!=null){ var t=tc(ep); if(t!=='--:--:--:--'){ $('tc').innerHTML=t.h+':'+t.m+':'+t.s+'<span class="ff">:'+t.f+'</span>';
     if(!dragging&&shuttle===0)$('tcbig').textContent=t.h+':'+t.m+':'+t.s+':'+t.f; }
+    // while playing/shuttling, auto-scroll the stable view only when the playhead
+    // nears the edge (so playback stays visible without the view jittering per-seek)
+    if((!vid.paused||shuttle!==0)&&!dragging) followPlayhead();
     var vr=viewRange(); renderPlayhead(vr); $('ovplay').style.display='block';
     // waveform playhead tracks live too (cheap — just a div move, no redraw)
     if(waveOn){var wph=$('wph'); if(ep>=vr.lo&&ep<=vr.hi){wph.style.display='block';wph.style.left=(((ep-vr.lo)/vr.span)*100)+'%';}else wph.style.display='none';}
@@ -761,6 +801,7 @@ $('wavebtn').onclick=function(){ setWave(!waveOn); };
 
 /* ═══ zoom ═══ */
 function setZoom(sec){ zoomSec=Math.max(30,Math.min(1800,sec));
+  var c=curEpoch(); if(c!=null)centerView(c);           // zoom recenters on the playhead
   $('zlbl').textContent=(zoomSec<60?zoomSec+' sec view':(zoomSec/60)+' min view'); renderStrip(); renderOverview();
   prewarmAround(curEpoch()); }
 // Warm the backend playlist cache for the region around ep (same grid-snapped
