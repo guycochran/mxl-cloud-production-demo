@@ -102,13 +102,19 @@ standardizes. The forward plan:
   standard query any broadcast controller understands. (A read-only
   IS-04 node over the domain's flow list is a weekend project — the
   domain already exposes everything needed.)
-- **IS-05 (connection management):** cuts and pane routes become
-  standard Connection API patches instead of bespoke REST. MXL's
-  shared-memory transport rides IS-05's extensible transport model
-  (vendor `urn:x-mxl:shm` alongside `urn:x-nmos:transport:rtp` for the
-  gateway edges). The payoff: **Lawo VSM, Riedel, Pebble, or any NMOS
-  controller could drive this switcher out of the box** — that's the
-  moment this stops being a demo and becomes a facility.
+- **IS-05 (connection management) via BCP-007-03:** this is not a
+  proposal — **AMWA has already published
+  [BCP-007-03 "NMOS Support for MXL"](https://specs.amwa.tv/bcp-007-03/)**
+  (v1.0): transport `urn:x-nmos:transport:mxl`, IS-05
+  `transport_params` of `mxl_domain_id` + `mxl_flow_id` (no transport
+  file), receiver capabilities per BCP-004-01, on IS-04 v1.3+/IS-05
+  v1.2+. Our facility already satisfies its domain-identity
+  prerequisite (`domain_def.json` with domain UUID/label/tags ships in
+  our bring-up). Implementing its Sender/Receiver semantics over our
+  existing flows means cuts and pane routes become standard Connection
+  API patches — and **Lawo VSM, Riedel, Pebble, or any NMOS controller
+  drives this switcher per published spec, not per our REST dialect**.
+  That's the moment this stops being a demo and becomes a facility.
 - **IS-07 (events & tally):** program/preview state as standard events
   — hardware tally lights and panels against a cloud MXL switcher.
 - **IS-08 (audio mapping):** our per-input audio mixer expressed as
@@ -119,10 +125,19 @@ standardizes. The forward plan:
   domains — which is precisely the EBU Dynamic Media Facility
   conversation this showcase exists to feed.
 
-Sequenced: (1) read-only IS-04 exposure of the domain; (2) IS-05 shim
-mapping connection patches onto the existing selector/layout API;
-(3) IS-07 tally from switcher state. Each step is independently
-demoable and none disturbs the running data plane.
+Sequenced: (1) read-only IS-04 exposure of the domain; (2) BCP-007-03
+Sender/Receiver endpoints mapping `mxl_domain_id`/`mxl_flow_id`
+connection patches onto the existing selector/layout API; (3) IS-07
+tally from switcher state. Each step is independently demoable and none
+disturbs the running data plane.
+
+**Panel hardware today, standards tomorrow:** as a bridge before the
+NMOS lane lands, the switcher's REST API is drivable from
+[Bitfocus Companion](https://bitfocus.io/companion) generic-HTTP
+buttons — a Stream Deck cutting an MXL cloud switcher with zero custom
+code — with a proper Companion module (PGM tally as button feedback)
+as the follow-on, and the BCP-007-03/NMOS controller path as the
+destination.
 
 ---
 
