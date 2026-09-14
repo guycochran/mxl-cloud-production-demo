@@ -63,12 +63,12 @@ for i, name in enumerate(SLOTS):
 
 pipe = Gst.parse_launch(
     branches +
-    f'input-selector name=selA sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsA ! queue max-size-buffers=8 ! comp.sink_0 '
-    f'input-selector name=selB sync-mode=1 ! videorate ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsB ! queue max-size-buffers=8 ! comp.sink_1 '
+    f'input-selector name=selA sync-mode=1 ! videorate max-duplication-time=500000000 ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsA ! queue max-size-buffers=8 ! comp.sink_0 '
+    f'input-selector name=selB sync-mode=1 ! videorate max-duplication-time=500000000 ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsB ! queue max-size-buffers=8 ! comp.sink_1 '
     f'input-selector name=selC sync-mode=1 ! valve name=valveC drop=true ! videorate max-duplication-time=500000000 ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsC ! queue max-size-buffers=8 ! comp.sink_2 '
     f'input-selector name=selD sync-mode=1 ! valve name=valveD drop=true ! videorate max-duplication-time=500000000 ! video/x-raw,framerate=30/1 ! videoconvert n-threads=2 ! videoscale ! capsfilter name=fcapsD ! queue max-size-buffers=8 ! comp.sink_3 '
     f'compositor name=comp background=black latency=200000000 ! video/x-raw,width=1920,height=1080 ! '
-    f'videorate drop-only=false ! video/x-raw,framerate=30/1 ! videoconvert ! '
+    f'videorate drop-only=true ! video/x-raw,framerate=30/1 ! videoconvert ! '
     f'video/x-raw,format=v210 ! queue max-size-buffers=8 ! '
     f'mxlsink name=sink domain=/mxl-domain flow-id={DST} label="Layout PGM" '
     f'description="2-up / PiP composite of two switcher inputs" '
@@ -503,10 +503,11 @@ def startup_repair():
 
 threading.Thread(target=control, daemon=True).start()
 threading.Thread(target=wedge_watch, daemon=True).start()
-# startup_repair RETIRED 9/12: the selector reads layout-STABLE (via
-# flow_stabilizer), which survives our respawns — the cascade this fired
-# was pure disruption (froze program ~10s in the on-air kill test).
-# threading.Thread(target=startup_repair, daemon=True).start()
+# startup_repair RE-ENABLED 9/14: the stabilizer rollout was rolled back,
+# so the selector reads OUR volatile flow again — every respawn of this
+# process recreates it and strands slot 6 without a cascade. (Retire this
+# again only when/if the stabilizers return.)
+threading.Thread(target=startup_repair, daemon=True).start()
 
 pipe.set_state(Gst.State.PLAYING)
 print('layout_pgm running', flush=True)

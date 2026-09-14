@@ -251,9 +251,25 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       .then(function(j){setBusy(false,j.error?('⚠ '+j.error):'');if(!j.error&&done)done(j);refresh()})
       .catch(function(){setBusy(false,'⚠ request failed')});
   }
-  function cutTo(i){
-    var was=pgm;
-    post('/api/mxl/input',{input:i},'cutting…',function(){pgm=i;if(was!=null&&was!==i)pvw=was;paintBuses()});
+  function cutTo(i,attempt){
+    var was=pgm;attempt=attempt||0;
+    // rock-solid 9/14: a cut retries itself through transient failures
+    // (cascade collisions, CF blips) — the operator should never see a
+    // failed cut for anything recoverable
+    if(busy)return;setBusy(true,attempt?('cutting… (retry '+attempt+')'):'cutting…');
+    fetch('/api/mxl/input',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:i})})
+      .then(function(r){return r.json()})
+      .then(function(j){
+        if(j.error){
+          if(attempt<2){setBusy(false,'');setTimeout(function(){cutTo(i,attempt+1)},1200);return}
+          setBusy(false,'⚠ '+j.error);refresh();return;
+        }
+        setBusy(false,'');pgm=i;if(was!=null&&was!==i)pvw=was;paintBuses();refresh();
+      })
+      .catch(function(){
+        if(attempt<2){setBusy(false,'');setTimeout(function(){cutTo(i,attempt+1)},1200);return}
+        setBusy(false,'⚠ request failed');
+      });
   }
   $$('.bus.pgmrow .src').forEach(function(b){b.addEventListener('click',function(){
     var i=Number(b.dataset.inp);if(liveMap[i]===false)return;cutTo(i);
