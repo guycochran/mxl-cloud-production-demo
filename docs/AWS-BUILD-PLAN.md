@@ -21,7 +21,7 @@ recipes is a 1–2 day job.
 | **Host 1 — production** (domain, switcher, layout, keyer, encoder, mediamtx) | `D32s_v5` (32 vCPU / 128 GB, Xeon 8370C) | **`m6i.8xlarge`** (32 vCPU / 128 GB, Xeon 8375C) | Near-identical silicon. The MXL domain lives in `/dev/shm` — RAM matters as much as cores, so m6i over c6i. |
 | Host 2 — contribution (guest SRT ingest, fabric initiators, TAMS shipper) | `D8s_v5` (8 / 32) | **`m6i.2xlarge`** (8 / 32) | 1:1. |
 | ~~Host 3~~ | `D4s_v5` (TAMS store + island tests) | **not needed** | Native S3 replaces the self-hosted object store; the lightweight TAMS API rides on Host 2. Production has no island. |
-| VNet + NSG | single VNet 10.0.0.x, NSG rules | **VPC + Security Groups** | See §3 for the exact port set. |
+| VNet + NSG | single VNet 10.0.0.x, NSG rules | **TWO VPCs + peering** — prod and a contribution DMZ | Stricter than our Azure rig, deliberately: guests are strangers; isolate their landing zone from the program chain. §3. |
 | Public URLs | Cloudflare tunnels (`cloudflared`) | **Same.** cloudflared runs identically on EC2 | Don't replace what works. WebRTC media never rode the tunnel anyway — it goes UDP-direct to the instance (Elastic IP). |
 | TAMS object store | MinIO-style store on VM3 (:9000) | **Native S3 + presigned URLs** | TAMS was *designed* for S3. This is the one place AWS is an upgrade, not a translation — drop the self-hosted object store entirely. |
 | Auth to cloud | Service Principal | **IAM role on the instances** | Instance profiles; no long-lived keys on boxes. |
@@ -40,8 +40,8 @@ These are the traps for a personal-account build. Read before launching.
 1. **Cross-AZ data transfer will eat you alive.** An MXL fabric flow is
    **~1.3 Gbps of uncompressed v210 — ≈585 GB/hour, continuously.** On
    Azure (grant) we never felt it. On AWS:
-   - Same-AZ private-IP traffic: **free**. → **Put Host 1 and Host 2 in the
-     same AZ, in a cluster placement group.** Non-negotiable.
+   - Same-AZ private-IP traffic — **including over VPC peering** — is
+     **free**. → **Put Host 1 and Host 2 in the same AZ.** Non-negotiable.
    - Cross-AZ: $0.01/GB each way ≈ **$11.70/hour per flow**. Never run the
      fabric cross-AZ by accident.
    - Internet egress ($0.09/GB): never point a raw fabric flow at a public
@@ -64,33 +64,70 @@ These are the traps for a personal-account build. Read before launching.
 
 ---
 
-## 3. Network design
+## 3. Network design — two VPCs (production + contribution DMZ)
+
+Guests are strangers with a QR code. Their landing zone gets its own VPC:
+a compromised or misbehaving contribution host has **no route** to the
+program chain except the two fabric ports we explicitly peer. This is the
+broadcast ingest-DMZ pattern, in cloud vocabulary.
 
 ```
-VPC 10.0.0.0/16, one subnet per AZ, hosts 1+2 in the SAME subnet/AZ
-└── cluster placement group "mxl-fabric"  (sub-100µs RTT host1↔host2)
-
-Security groups (principle: media in, management locked):
-  sg-media (hosts 1,2):
-    UDP 8890            SRT contribution (guests + cameras) — world or geo-scoped
-    UDP 8189            WebRTC media — world
-    TCP 1312-1315       MXL fabric legs — sg-internal only (private IPs!)
-    TCP 8554            RTSP — sg-internal only
-    TCP 8888-8889       HLS/WHEP — via cloudflared, so internal only
-    TCP 9600-9700       easy-mxl / pipeline APIs — sg-internal + admin IP
-  sg-admin: TCP 22 from your IP only. cloudflared needs NO inbound at all.
+                                    THE INTERNET
+        ┌──────────────┐   ┌───────────────┐   ┌─────────────────────────┐
+        │ Guests        │   │ Studio cams   │   │ Viewers + Operators     │
+        │ Larix / vMix  │   │ PTZ, Makito   │   │ switcher UI + WebRTC    │
+        └──────┬────────┘   └──────┬────────┘   └───────────▲─────────────┘
+               │ SRT (UDP 8890)    │ SRT (UDP 8890)         │ WebRTC (UDP 8189)
+               ▼                   ▼                        │ + HTTPS via cloudflared
+╔══════════════════════════╗  ╔═════════════════════════════╧════════════════╗
+║ VPC-CONTRIB  10.1.0.0/16 ║  ║ VPC-PROD  10.0.0.0/16                        ║
+║ ┌──────────────────────┐ ║  ║ ┌──────────────────────────────────────────┐ ║
+║ │ Host 2  m6i.2xlarge  │ ║  ║ │ Host 1  m6i.8xlarge   (32c/128G, AVX)    │ ║
+║ │  mediamtx (SRT in)   │ ║  ║ │  /dev/shm MXL domain (uncompressed v210) │ ║
+║ │  guest_ingest ×2 ────┼─╫──╫─▶  fabric targets :1314-1315               │ ║
+║ │  guest_audio ×2      │ ║  ║ │  cam/cam2 ingest ─ relay ─┐              │ ║
+║ │  fabric initiators   │ ║  ║ │  layout_pgm (2up/PiP/4up) ├─ SELECTOR    │ ║
+║ │  fabric PGM target ◀─┼─╫──╫─┤  audio_pgm, test gen ─────┘    │         │ ║
+║ │       │              │ ║  ║ │                    HTML5 KEYER ─┴─ ENCODER│ ║
+║ │  tams_shipper        │ ║  ║ │                        │            │     │ ║
+║ │  TAMS API :8000      │ ║  ║ │  grain_probe, thumbs, multiview  mediamtx │ ║
+║ └───────┬──────────────┘ ║  ║ └──────────────────────────────────────────┘ ║
+╚═════════╪════════════════╝  ╚══════════════════════════════════════════════╝
+          │       ▲______________________▲
+          │        VPC PEERING pcx-…  (BOTH HOSTS IN THE SAME AZ = $0/GB)
+          │        route: 10.0.0.0/16 ⇄ 10.1.0.0/16, fabric TCP only in SGs
+          │        guests → :1314-1315 (prod)   keyed PGM ← :1313 (contrib)
+          ▼
+   Amazon S3 (regional) — s3://…-mxl-tams/ : 1s segments + sprites,
+   presigned URLs straight to the clipper UI. Reached from BOTH VPCs via
+   S3 Gateway Endpoints ($0/GB, traffic never touches the internet).
 ```
 
-Two AWS-specific wins over our Azure setup:
+Provisioning specifics:
 
-- **Jumbo frames.** VPC MTU 9001 (Azure default was 1500). For a 1.3 Gbps
-  TCP fabric flow this is free headroom — set it on both fabric hosts.
-- **Placement group.** Our fabric was happiest when RTT was tiny (the whole
-  20ms-SRT saga in FINDINGS is about latency margins). Cluster PG gives you
-  the best case by default.
-
-Elastic IPs on hosts 1 and 2 (SRT publishers and WebRTC need stable
-addresses; an EIP attached to a running instance is free).
+- **Peering:** one `pcx` between the VPCs, routes for each other's CIDR in
+  both route tables. Same region, same AZ (pick the AZ by *name mapping*
+  in both VPCs — AZ letters shuffle per account; use AZ IDs like
+  `usw2-az1` to be sure both subnets truly share an AZ).
+- **Security groups** (cross-VPC SG references don't work over peering —
+  use CIDR rules):
+  - `sg-prod` (Host 1): UDP 8890 world (studio cams), UDP 8189 world
+    (WebRTC), TCP 1314-1315 from 10.1.0.0/16 (guest fabric in), TCP 9600-
+    9700 + 8554 from 10.1.0.0/16 + admin IP, SSH from admin IP.
+  - `sg-contrib` (Host 2): UDP 8890 world (guest SRT — this is the DMZ's
+    whole job), TCP 1313 from 10.0.0.0/16 (PGM fabric back for TAMS),
+    TCP 8000 from admin IP or via cloudflared (TAMS API), SSH admin IP.
+  - cloudflared needs **no inbound anywhere**.
+- **S3 Gateway Endpoints** in both VPCs (route-table entries, free) + IAM
+  instance roles scoped to the TAMS bucket.
+- **Jumbo frames:** MTU 9001 works *within* each VPC but **peering clamps
+  to 1500** — set the fabric sockets/NICs accordingly or leave MTU 1500 on
+  the fabric path (our Azure rig ran 1500 at 1.3 Gbps without complaint,
+  so this costs nothing we ever had).
+- **No cluster placement group** (can't span VPCs). Same-AZ RTT ≈ 0.5 ms —
+  an order of magnitude better than anything our fabric needed.
+- **Elastic IPs** on both hosts (stable targets for SRT publishers and
+  WebRTC; free while attached to running instances).
 
 ---
 
@@ -132,9 +169,10 @@ Two options, in order of effort:
 
 ## 6. Build phases
 
-**Phase 0 — account prep (day 0, async):** vCPU quota request (§2.5), VPC +
-subnets + SGs + placement group, 2× EIP, S3 bucket for TAMS, IAM instance
-role with scoped S3 access.
+**Phase 0 — account prep (day 0, async):** vCPU quota request (§2.5),
+BOTH VPCs + same-AZ-ID subnets + peering + routes + SGs (§3), 2× EIP,
+S3 bucket + gateway endpoints in both VPCs, IAM instance roles with
+scoped S3 access.
 
 **Phase 1 — single-host production (half day):** launch `m6i.8xlarge`, run
 the §4 build, adapt `bring-up-mxl.sh` (it's already the executable
@@ -142,9 +180,12 @@ documentation of the whole VM1 stack: containers, ingests, layout, thumbs,
 probe, keyer, encoder). Success = test-generator program visible over
 WebRTC + cuts working from the web UI.
 
-**Phase 2 — two-host fabric (half day):** launch `m6i.2xlarge` in the same
-PG. Guest SRT → ingest → **MXL fabric TCP over private IPs** → host 1
-domain. Success = phone on Larix appears on a Guest button and cuts to
+**Phase 2 — contribution DMZ + fabric (half day):** launch `m6i.2xlarge`
+in VPC-CONTRIB (same AZ ID!). Guest SRT → ingest → **MXL fabric TCP over
+the peering, private IPs** → host 1 domain. First test after bring-up:
+`iperf3` across the peering to confirm same-AZ placement (≥4 Gbps and
+sub-ms RTT — if you see ~1 Gbps and 1-2 ms you've crossed AZs and §2.1
+applies; fix before anything else). Success = phone on Larix appears on a Guest button and cuts to
 program uncompressed. Expect the *same* numbers we logged: 30 grains/s,
 avg 1080 slices/grain, ~1.3 Gbps/flow. Port the guest-leg doctor with the
 legs — the fabric wedge species (FINDINGS) travel with the software, not

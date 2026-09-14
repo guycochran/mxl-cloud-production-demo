@@ -115,9 +115,10 @@ facility did — current numbers at the top). Details and gotchas (libfabric
 
 **Cloud-neutral by design:** everything here runs on any cloud (or metal)
 with AVX and RAM for the shared-memory domain. A complete replay plan for
-AWS as a production deployment — instance mapping, VPC/security-group
-design, the data-transfer cost rules, native-S3 TAMS, and a two-day
-phased build — is in **[docs/AWS-BUILD-PLAN.md](docs/AWS-BUILD-PLAN.md)**.
+AWS as a production deployment — a two-VPC design (production + a
+contribution DMZ for stranger-facing guest ingest), instance mapping,
+the data-transfer cost rules, native-S3 TAMS, and a two-day phased
+build — is in **[docs/AWS-BUILD-PLAN.md](docs/AWS-BUILD-PLAN.md)**.
 
 ## Update 2: live MXL → TAMS record (EBU's two flagship projects, united)
 
