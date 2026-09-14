@@ -96,12 +96,17 @@ hosts). What this facility improvised — slot lists, a bespoke REST
 control API, an ad-hoc domain browser — is exactly what **AMWA NMOS**
 standardizes. The forward plan:
 
-- **IS-04 (discovery & registration):** every MXL flow in the domain
-  advertised as an NMOS Node/Device/Flow/Sender in a registry. Our
-  switcher's input list stops being a hardcoded array and becomes a
-  standard query any broadcast controller understands. (A read-only
-  IS-04 node over the domain's flow list is a weekend project — the
-  domain already exposes everything needed.)
+- **IS-04 (discovery & registration): SHIPPED** — `tools/nmos_node.py`
+  is a stdlib-only IS-04 v1.3 Node presenting the facility as standard
+  NMOS resources: 9 senders (one per MXL flow, transport
+  `urn:x-nmos:transport:mxl`, tagged with `mxl_domain_id`/`mxl_flow_id`
+  per BCP-007-03) and 7 receivers (one per switcher input, subscription
+  reflecting the attached sender, live feed state, **and PGM/PVW tally
+  as grouphint tags** — the preview bus surfaces in NMOS in real time).
+  Peer-to-peer queryable (`curl :8021/x-nmos/node/v1.3/senders/`) and
+  carries a registration client with heartbeat, ready to register into
+  easy-nmos today or Buttons v1.8's built-in registry when it ships
+  (`--registry http://host:port`).
 - **IS-05 (connection management) via BCP-007-03:** this is not a
   proposal — **AMWA has already published
   [BCP-007-03 "NMOS Support for MXL"](https://specs.amwa.tv/bcp-007-03/)**
