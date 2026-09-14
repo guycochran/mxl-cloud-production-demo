@@ -131,6 +131,12 @@ connection patches onto the existing selector/layout API; (3) IS-07
 tally from switcher state. Each step is independently demoable and none
 disturbs the running data plane.
 
+**Controller ecosystem timing:** Bitfocus announced (IBC 2026) that
+Buttons v1.8 ships a **built-in NMOS registry server** — meaning the
+registry/controller half of the BCP-007-03 lane above is arriving in a
+mainstream product while this facility supplies the MXL sender/receiver
+half. Their HTTP workflow nodes also drive this switcher's REST today.
+
 **Panel hardware today, standards tomorrow:** as a bridge before the
 NMOS lane lands, the switcher's REST API is drivable from
 [Bitfocus Companion](https://bitfocus.io/companion) generic-HTTP
