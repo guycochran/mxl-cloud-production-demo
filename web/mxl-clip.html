@@ -897,8 +897,13 @@ async function doClip(a,b,msg){
   if(vertical){
     // 9:16 SHORTS: center-crop the 16:9 program to 1080x1920 (re-encode). This
     // takes longer than stream-copy but produces a ready-to-upload vertical clip.
+    // fps=30 in the filter + -vsync cfr FORCE a constant 30fps output. Without it,
+    // trimming (-ss/-t) across the PTS joins of concatenated TS segments makes the
+    // re-encoder emit variable frame timing (dupe/drop at seg boundaries) → the
+    // downloaded Short plays back stuttery. -g 60 gives a clean 2s GOP for YT ingest.
     await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),
-      '-vf','crop=ih*9/16:ih,scale=1080:1920,setsar=1','-c:v','libx264','-preset','veryfast','-crf','21',
+      '-vf','crop=ih*9/16:ih,scale=1080:1920,setsar=1,fps=30','-vsync','cfr','-r','30',
+      '-c:v','libx264','-preset','veryfast','-crf','21','-g','60','-keyint_min','60',
       '-pix_fmt','yuv420p','-movflags','+faststart','-an','-y','vid.mp4']);
   } else {
     // 16:9 landscape: exact trim, stream copy (fast)
