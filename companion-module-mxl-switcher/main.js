@@ -25,7 +25,7 @@ const SRC_CHOICES = LAYOUT_SRC.map((s) => ({ id: s, label: s }))
 class MXLSwitcherInstance extends InstanceBase {
 	async init(config) {
 		this.config = config
-		this.state = { input: null, key: false, live: {}, fading: false, dipping: false }
+		this.state = { input: null, pvw: null, key: false, live: {}, fading: false, dipping: false }
 		this.initActions()
 		this.initFeedbacks()
 		this.initVariables()
@@ -81,6 +81,7 @@ class MXLSwitcherInstance extends InstanceBase {
 				const st = await this.api('/api/mxl/status')
 				if (st && typeof st.input !== 'undefined') {
 					this.state.input = st.input
+					this.state.pvw = typeof st.pvw === 'number' ? st.pvw : null
 					this.state.key = !!st.key
 					this.state.fading = !!st.fading
 					this.state.dipping = !!st.dipping
@@ -89,12 +90,15 @@ class MXLSwitcherInstance extends InstanceBase {
 					this.state.live = live
 					this.updateStatus(InstanceStatus.Ok)
 					const cur = SLOTS.find((s) => s.id === st.input)
+					const pv = SLOTS.find((s) => s.id === this.state.pvw)
 					this.setVariableValues({
 						pgm_slot: String(st.input),
 						pgm_label: cur ? cur.label : '—',
+						pvw_slot: String(this.state.pvw),
+						pvw_label: pv ? pv.label : '—',
 						key_state: st.key ? 'ON' : 'OFF',
 					})
-					this.checkFeedbacks('pgm_tally', 'source_live', 'key_on')
+					this.checkFeedbacks('pgm_tally', 'pvw_tally', 'source_live', 'key_on')
 				}
 			} catch (e) {
 				this.updateStatus(InstanceStatus.ConnectionFailure, String(e).slice(0, 60))
@@ -111,6 +115,22 @@ class MXLSwitcherInstance extends InstanceBase {
 				options: [{ type: 'dropdown', id: 'slot', label: 'Input', default: 0, choices: SLOT_CHOICES }],
 				callback: async (a) => {
 					await this.api('/api/mxl/input', { input: Number(a.options.slot) })
+				},
+			},
+			preview: {
+				name: 'Preview input (arm the green bus)',
+				options: [{ type: 'dropdown', id: 'slot', label: 'Input', default: 0, choices: SLOT_CHOICES }],
+				callback: async (a) => {
+					await this.api('/api/mxl/preview', { input: Number(a.options.slot) })
+					this.state.pvw = Number(a.options.slot)
+					this.checkFeedbacks('pvw_tally')
+				},
+			},
+			take: {
+				name: 'TAKE (cut preview to program, flip-flop)',
+				options: [],
+				callback: async () => {
+					await this.api('/api/mxl/take', {})
 				},
 			},
 			key: {
@@ -176,6 +196,13 @@ class MXLSwitcherInstance extends InstanceBase {
 				options: [{ type: 'dropdown', id: 'slot', label: 'Input', default: 0, choices: SLOT_CHOICES }],
 				callback: (fb) => this.state.input === Number(fb.options.slot),
 			},
+			pvw_tally: {
+				type: 'boolean',
+				name: 'Preview tally (source armed)',
+				defaultStyle: { bgcolor: combineRgb(0, 160, 70), color: combineRgb(255, 255, 255) },
+				options: [{ type: 'dropdown', id: 'slot', label: 'Input', default: 0, choices: SLOT_CHOICES }],
+				callback: (fb) => this.state.pvw === Number(fb.options.slot),
+			},
 			source_live: {
 				type: 'boolean',
 				name: 'Source has NO feed (dim it)',
@@ -197,6 +224,8 @@ class MXLSwitcherInstance extends InstanceBase {
 		this.setVariableDefinitions([
 			{ variableId: 'pgm_slot', name: 'Program slot number' },
 			{ variableId: 'pgm_label', name: 'Program source name' },
+			{ variableId: 'pvw_slot', name: 'Preview slot number' },
+			{ variableId: 'pvw_label', name: 'Preview source name' },
 			{ variableId: 'key_state', name: 'Keyer state' },
 		])
 	}
@@ -204,17 +233,39 @@ class MXLSwitcherInstance extends InstanceBase {
 	initPresets() {
 		const presets = {}
 		for (const s of SLOTS) {
+			// PROGRAM bus row: hot cut; red = on air (wins), dim = no feed
 			presets[`cut_${s.id}`] = {
 				type: 'button',
-				category: 'Cuts',
-				name: `Cut ${s.label}`,
+				category: 'Program bus (hot cut)',
+				name: `PGM ${s.label}`,
 				style: { text: s.label, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(26, 35, 56) },
 				steps: [{ down: [{ actionId: 'cut', options: { slot: s.id } }], up: [] }],
 				feedbacks: [
-					{ feedbackId: 'pgm_tally', options: { slot: s.id }, style: { bgcolor: combineRgb(200, 0, 0) } },
 					{ feedbackId: 'source_live', options: { slot: s.id }, style: { bgcolor: combineRgb(20, 20, 20), color: combineRgb(90, 90, 90) } },
+					{ feedbackId: 'pgm_tally', options: { slot: s.id }, style: { bgcolor: combineRgb(200, 0, 0) } },
 				],
 			}
+			// PREVIEW bus row: arm; green = armed, red overrides if also on air
+			presets[`pvw_${s.id}`] = {
+				type: 'button',
+				category: 'Preview bus (arm)',
+				name: `PVW ${s.label}`,
+				style: { text: s.label, size: '14', color: combineRgb(255, 255, 255), bgcolor: combineRgb(26, 35, 56) },
+				steps: [{ down: [{ actionId: 'preview', options: { slot: s.id } }], up: [] }],
+				feedbacks: [
+					{ feedbackId: 'source_live', options: { slot: s.id }, style: { bgcolor: combineRgb(20, 20, 20), color: combineRgb(90, 90, 90) } },
+					{ feedbackId: 'pvw_tally', options: { slot: s.id }, style: { bgcolor: combineRgb(0, 160, 70) } },
+					{ feedbackId: 'pgm_tally', options: { slot: s.id }, style: { bgcolor: combineRgb(200, 0, 0) } },
+				],
+			}
+		}
+		presets['take'] = {
+			type: 'button',
+			category: 'Switcher',
+			name: 'TAKE',
+			style: { text: 'TAKE', size: '18', color: combineRgb(255, 255, 255), bgcolor: combineRgb(120, 20, 20) },
+			steps: [{ down: [{ actionId: 'take', options: {} }], up: [] }],
+			feedbacks: [],
 		}
 		presets['key_toggle'] = {
 			type: 'button',

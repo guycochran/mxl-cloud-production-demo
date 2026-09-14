@@ -228,7 +228,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   })();
   // ATEM semantics: PGM row = on air (red, clicking = hot cut), PVW row = armed
   // next (green, client-side), CUT = take preview to program then flip-flop.
-  var pgm=null, pvw=1, liveMap={};
+  var pgm=null, pvw=1, liveMap={}, busHoldAt=0;
   function setBusy(b,t){busy=b;$$('.mxlbar button,select').forEach(function(el){el.disabled=b});msg.textContent=t||''}
   function paintBuses(){
     $$('.bus.pgmrow .src').forEach(function(b){
@@ -244,8 +244,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
     mvState(); // keep the multiview popout's tally in lockstep
   }
   function paint(st){
-    // if an API-driven transition is mid-flight, hold the program ring
-    pgm=(st.fading||st.dipping)?pgm:st.input;
+    // hold bus state briefly after our own cut/take: the status route has
+    // a 500ms shared cache, and adopting a stale snapshot right after an
+    // action scrambles pgm/pvw (swallowed the 2nd TAKE, 9/14)
+    var busHold=Date.now()-busHoldAt<1200;
+    pgm=(st.fading||st.dipping||busHold)?pgm:st.input;
     if(st.slots){
       st.slots.forEach(function(s){liveMap[s.slot]=s.live});
       var g1=st.slots[4],g2=st.slots[5];
@@ -255,7 +258,8 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
       if($('#qst1'))$('#qst1').innerHTML=(g1&&g1.live)?rx:aw;
       if($('#qst2'))$('#qst2').innerHTML=(g2&&g2.live)?rx:aw;
     }
-    if(pvw===pgm){var alt=[0,1,2,3,4,5].filter(function(i){return i!==pgm&&liveMap[i]!==false});pvw=alt.length?alt[0]:pvw}
+    if(st.pvw!=null&&!st.fading&&!st.dipping&&!busHold){pvw=st.pvw}
+    else if(pvw===pgm){var alt=[0,1,2,3,4,5].filter(function(i){return i!==pgm&&liveMap[i]!==false});pvw=alt.length?alt[0]:pvw}
     paintBuses();
     keybtn.classList.toggle('on',st.key);keybtn.textContent=st.key?'KEY ON':'KEY OFF';
     if(pat.options.length<=1&&st.available){st.available.forEach(function(p){var o=document.createElement('option');o.value=o.textContent=p;pat.appendChild(o)})}
@@ -282,7 +286,7 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
           if(attempt<2){setBusy(false,'');setTimeout(function(){cutTo(i,attempt+1)},1200);return}
           setBusy(false,'⚠ '+j.error);refresh();return;
         }
-        setBusy(false,'');pgm=i;if(was!=null&&was!==i)pvw=was;paintBuses();refresh();
+        setBusy(false,'');busHoldAt=Date.now();pgm=i;if(j.pvw!=null)pvw=j.pvw;else if(was!=null&&was!==i)pvw=was;paintBuses();refresh();
       })
       .catch(function(){
         if(attempt<2){setBusy(false,'');setTimeout(function(){cutTo(i,attempt+1)},1200);return}
@@ -294,8 +298,18 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 420px;min-height:0}
   })});
   $$('.bus.pvwrow .src').forEach(function(b){b.addEventListener('click',function(){
     var i=Number(b.dataset.inp);if(liveMap[i]===false)return;pvw=i;paintBuses();
+    // preview is FACILITY state now (shared with Stream Deck tally etc.)
+    fetch('/api/mxl/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:i})}).catch(function(){});
   })});
-  cutbtn.addEventListener('click',function(){if(pvw!=null&&pvw!==pgm)cutTo(pvw)});
+  cutbtn.addEventListener('click',function(){
+    if(pvw==null||pvw===pgm)return;
+    if(busy)return;setBusy(true,'taking…');
+    fetch('/api/mxl/take',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+      .then(function(r){return r.json()})
+      .then(function(j){setBusy(false,j.error?('⚠ '+j.error):'');
+        if(!j.error){busHoldAt=Date.now();pgm=j.input;if(j.pvw!=null)pvw=j.pvw;paintBuses()}refresh()})
+      .catch(function(){setBusy(false,'⚠ request failed')});
+  });
   // Transition UIs removed 2026-09-11 (Guy's call — cuts only for broadcast).
   // Both engines remain API-usable: POST /api/mxl/auto (cross-fade through
   // the layout compositor; froze on air twice from slot-6 stale-attach lag,
