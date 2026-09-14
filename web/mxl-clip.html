@@ -455,11 +455,13 @@ function windowUrl(endEp){
 }
 function loadWindow(landAtEnd){
   if(hls)hls.destroy(); windowReady=false; $('spinner').style.display='grid';
-  hls=new Hls({lowLatencyMode:false,maxBufferLength:WIN,backBufferLength:WIN,maxBufferSize:900*1000*1000,maxBufferHole:1.0,
-    // FRAME ACCURACY: default maxFragLookUpTolerance is 0.25s — with our 1s
-    // segments a click in the last ¼s of a segment gets bumped to the NEXT
-    // segment's first frame (the "clicked frame ≠ landed frame" bug). Near-0
-    // makes hls.js decode within the exact segment to the target frame.
+  // SMOOTH PLAYBACK: do NOT try to buffer the whole window — that made hls.js
+  // thrash-fetch 15 min of 1080p while playing → stutter. Use a normal forward
+  // buffer (~60s) + modest back buffer; segments arrive ~0.1s each so far seeks
+  // refill fast (placeholder covers the blip). This is standard smooth HLS.
+  hls=new Hls({lowLatencyMode:false,maxBufferLength:60,backBufferLength:120,maxBufferSize:200*1000*1000,maxBufferHole:0.5,
+    // FRAME ACCURACY: default maxFragLookUpTolerance 0.25s bumps a click in the
+    // last ¼s of a 1s segment to the next segment's frame; near-0 = exact.
     maxFragLookUpTolerance:0.02});
   hls.on(Hls.Events.ERROR,function(e,d){ if(!d.fatal)return;
     if(d.type==='networkError')hls.startLoad();
