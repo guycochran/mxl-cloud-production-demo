@@ -586,8 +586,15 @@ function ensureVideoAround(ep){
   // in the currently-loaded window (with margin)? nothing to do.
   if(winDur>0 && ep>=winStart+1 && ep<=edgeEpoch()-1) return;
   var now=Date.now(); if(now-loadReqAt<700) return; loadReqAt=now;
-  var half=Math.max(150, zoomSec);                       // load ~2× the view span
-  var lo=Math.floor(ep-half), hi=Math.ceil(ep+half);
+  // load a WIDE window around the seek so nearby scrubbing stays in-buffer and
+  // doesn't trigger another reload: ~3× the view span, min 10 min, cap 30 min.
+  var half=Math.min(900, Math.max(300, zoomSec*3));
+  // SNAP the window to a grid (2×half) so repeat scrubs of the same region ask
+  // for the IDENTICAL timerange → the backend playlist cache hits (~0ms) instead
+  // of re-paying the gateway's flat ~4s CouchDB query each seek.
+  var g=Math.round(half);
+  var center=Math.round(ep/g)*g;
+  var lo=center-half, hi=center+half;
   var live=edgeEpoch();
   if(hi>=live-2){ // near the edge → go back to the live playlist
     if(loadedIsArchive){ loadedIsArchive=false; landed=true; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); }
@@ -690,7 +697,18 @@ $('bIn').onclick=markIn; $('bOut').onclick=markOut; $('bClr').onclick=function()
 
 /* ═══ zoom ═══ */
 function setZoom(sec){ zoomSec=Math.max(30,Math.min(1800,sec));
-  $('zlbl').textContent=(zoomSec<60?zoomSec+' sec view':(zoomSec/60)+' min view'); renderStrip(); renderOverview(); }
+  $('zlbl').textContent=(zoomSec<60?zoomSec+' sec view':(zoomSec/60)+' min view'); renderStrip(); renderOverview();
+  prewarmAround(curEpoch()); }
+// Warm the backend playlist cache for the region around ep (same grid-snapped
+// window ensureVideoAround uses) so the first scrub there is already cached — the
+// gateway's flat ~4s query happens in the background, not under the user's finger.
+var _prewarmKey=null;
+function prewarmAround(ep){ if(ep==null||!ov)return;
+  var half=Math.min(900,Math.max(300,zoomSec*3)), g=Math.round(half), center=Math.round(ep/g)*g;
+  var lo=center-half, hi=center+half; if(hi>=edgeEpoch()-2)return;      // live region needs no warm
+  var tr='['+lo+':0_'+hi+':0)'; if(tr===_prewarmKey)return; _prewarmKey=tr;
+  fetch(PROXY_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+(hi-lo+10)).catch(function(){});
+}
 $('zin').onclick=function(){var i=ZOOMS.indexOf(zoomSec);setZoom(ZOOMS[Math.max(0,i-1)]);};
 $('zout').onclick=function(){var i=ZOOMS.indexOf(zoomSec);setZoom(ZOOMS[Math.min(ZOOMS.length-1,i+1)]);};
 
