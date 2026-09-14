@@ -1,0 +1,21 @@
+{
+  "id": "mxl-switcher",
+  "name": "mxl-switcher",
+  "shortname": "mxl",
+  "description": "MXL cloud production switcher (mxl-cloud-production-demo): cuts, SuperSource layouts, keyer, warm-up, PGM tally",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/guycochran/mxl-cloud-production-demo",
+  "bugs": "https://github.com/guycochran/mxl-cloud-production-demo/issues",
+  "maintainers": [{ "name": "Guy Cochran" }],
+  "legacyIds": [],
+  "runtime": {
+    "type": "node18",
+    "api": "nodejs-ipc",
+    "apiVersion": "0.0.0",
+    "entrypoint": "../main.js"
+  },
+  "manufacturer": "MXL Showcase",
+  "products": ["MXL Cloud Switcher"],
+  "keywords": ["mxl", "switcher", "ebu", "tally"]
+}

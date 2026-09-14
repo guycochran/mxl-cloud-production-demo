@@ -1,0 +1,10 @@
+{
+  "name": "companion-module-mxl-switcher",
+  "version": "0.1.0",
+  "main": "main.js",
+  "license": "MIT",
+  "description": "Bitfocus Companion module for the MXL cloud production switcher — cuts, SuperSource, keyer, warm-up, with live PGM tally feedback",
+  "dependencies": {
+    "@companion-module/base": "~1.10.0"
+  }
+}
