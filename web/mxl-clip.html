@@ -49,8 +49,7 @@ header .spacer{flex:1}
 .badge{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim);padding:5px 11px;border:1px solid var(--line);border-radius:20px;background:var(--panel)}
 .badge .rdot{width:8px;height:8px;border-radius:50%;background:var(--rec);box-shadow:0 0 8px var(--rec);animation:pulse 1.7s ease-in-out infinite}
 /* live / hold toggle */
-.livebtn{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid var(--rec);background:rgba(255,59,59,.12);color:var(--rec)}
-.livebtn.hold{border-color:var(--warm);background:rgba(255,180,58,.12);color:var(--warm)}
+.livebtn{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;border-radius:7px;padding:6px 11px;cursor:pointer;border:1px solid var(--signal-dim);background:rgba(0,229,199,.10);color:var(--signal)}
 .livebtn:hover{filter:brightness(1.15)}
 @keyframes pulse{50%{opacity:.3}}
 .ghosts{display:flex;gap:6px}
@@ -218,7 +217,7 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
   </div>
   <div class="spacer"></div>
   <div class="badge"><span class="rdot"></span><span id="reclbl" class="mono">connecting…</span></div>
-  <button id="livebtn" class="livebtn" title="Following the live edge — click to HOLD while you edit">● LIVE</button>
+  <button id="livebtn" class="livebtn" title="Reload to include the latest footage (keeps your position)">↻ Refresh</button>
   <div class="ghosts">
     <a class="ghost" href="#" id="helpbtn" title="how it works">?</a>
     <a class="ghost" href="#" id="themebtn" title="toggle theme">◐</a>
@@ -257,7 +256,7 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
   </div>
 
   <div class="tls">
-    <div class="ovlbls"><span id="ovL">--:--</span><span class="lbl" style="letter-spacing:.14em">12-hour record</span><span id="ovR">--:--</span></div>
+    <div class="ovlbls"><span id="ovL">--:--</span><span class="lbl" style="letter-spacing:.14em">loaded window · click to jump</span><span id="ovR">--:--</span></div>
     <div id="ovwrap"><div id="ovimg"></div><div id="ovport"></div><div id="ovplay"></div></div>
     <div id="strip">
       <div id="film"></div>
@@ -330,7 +329,7 @@ var PROXY_BASE='/tamsapi/flows/'+FLOW_PROXY+'/output.m3u8';
 var FULL_BASE ='/tamsapi/flows/'+FLOW_FULL +'/output.m3u8';
 var SPRITE='/tamsobj/tams-media/sprites/';
 var THUMB ='/tamsobj/tams-media/thumbs/';
-var FPS=30, SEG=1, WIN=900;                 // 30fps, 1s segs, 15-min scrub buffer
+var FPS=30, SEG=1, WIN=3600;                // 30fps, 1s segs, 60-min fixed window (static)
 
 var vid=$('vid');
 var winStart=0, winDur=0, winMedia0=0, frags=[];
@@ -412,46 +411,42 @@ function followPlayhead(){
   if(c<v.lo+margin || c>v.hi-margin) viewCenter=c;      // reached the edge → recenter on playhead
 }
 
-/* ═══ HLS scrub player (proxy) ═══ */
-var hls=null, windowReady=false, landed=false;
-function loadHls(){
-  if(hls)hls.destroy(); windowReady=false;
-  hls=new Hls({lowLatencyMode:false,maxBufferLength:90,backBufferLength:WIN,maxBufferSize:400*1000*1000,maxBufferHole:1.0});
+/* ═══ SIMPLE MODE: load ONE fixed WIN-second archive window as a stable VOD ═══
+   No live-follow, no on-demand archive loading, no deferred seeks — the whole
+   window sits in the buffer, so every seek/click/play is instant and in-window.
+   ↻ Refresh reloads to include the latest. This is what makes it reliable. */
+var hls=null, windowReady=false;
+// build the fixed-window archive playlist URL (last WIN seconds up to `endEp` or now)
+function windowUrl(endEp){
+  var now=Math.floor((endEp||(Date.now()/1000)));
+  var lo=now-WIN, hi=now;
+  return PROXY_BASE+'?timerange='+encodeURIComponent('['+lo+':0_'+hi+':0)')+'&limit='+(WIN+30);
+}
+function loadWindow(landAtEnd){
+  if(hls)hls.destroy(); windowReady=false; $('spinner').style.display='grid';
+  hls=new Hls({lowLatencyMode:false,maxBufferLength:WIN,backBufferLength:WIN,maxBufferSize:800*1000*1000,maxBufferHole:1.0});
   hls.on(Hls.Events.ERROR,function(e,d){ if(!d.fatal)return;
     if(d.type==='networkError')hls.startLoad();
     else if(d.type==='mediaError'){try{hls.recoverMediaError();}catch(x){}}
-    else setTimeout(loadHls,1500); });
+    else setTimeout(function(){loadWindow(landAtEnd);},1500); });
   hls.on(Hls.Events.LEVEL_LOADED,function(e,data){
     var d=data.details,f=d.fragments; if(!f.length)return;
-    frags=f; windowReady=true;
-    var freshLoad=(loadingWin!=null);                    // this playlist is the one we just requested
-    // Archive/live window WE requested (via ensureVideoAround): always adopt its
-    // window + apply the deferred seek so the video actually lands on the target.
-    if(freshLoad){
-      winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start;
-      loadingWin=null;
-      if(pendingSeek!=null){ var t=pendingSeek; pendingSeek=null;
-        // wait until MSE is ready enough to accept the seek, then land it
-        var tries=0,land=function(){ if(!isFinite(vid.duration)&&tries<40){tries++;return setTimeout(land,80);}
-          try{vid.currentTime=Math.max(0,epochToMedia(t));}catch(e){} renderStrip(); renderOverview(); };
-        land();
-      }
-      $('reclbl').textContent = loadedIsArchive ? 'reviewing archive · '+tcStr(winStart).slice(0,8)
-                                                : 'recording · '+Math.round(winDur/60)+' min in store';
-      renderOverview(); return;
-    }
-    // Ongoing LIVE refresh (window growing): don't re-anchor while dragging or
-    // while the editor is holding — that's what made the ruler/playhead jump.
-    if(dragging) return;
-    if(editLock && !loadedIsArchive) return;             // held: keep the ruler put
-    winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start;
-    $('reclbl').textContent='recording · '+Math.round(winDur/60)+' min in store';
+    winStart=f[0].programDateTime/1000; winDur=d.totalduration; winMedia0=f[0].start; frags=f; windowReady=true;
+    $('reclbl').textContent='last '+Math.round(winDur/60)+' min · '+tcStr(winStart).slice(0,5)+'–'+tcStr(winStart+winDur).slice(0,5);
     renderOverview(); });
   hls.on(Hls.Events.MANIFEST_PARSED,function(){ $('spinner').style.display='none';
-    setTimeout(function(){ if(landed)return; if(isFinite(vid.duration)){vid.pause(); vid.currentTime=Math.max(0,vid.duration-6); landed=true;} },500); });
-  hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); hls.attachMedia(vid);
+    setTimeout(function(){ if(isFinite(vid.duration)){ vid.pause();
+      // land at the end (latest) on first load; keep position on refresh
+      if(landAtEnd){ vid.currentTime=Math.max(0,vid.duration-3); centerView(winStart+winDur-3); }
+    } },400); });
+  hls.loadSource(windowUrl()); hls.attachMedia(vid);
 }
-loadHls();
+loadWindow(true);
+// ↻ Refresh: reload the window to include the latest footage, keep the playhead
+function refreshWindow(){ var keep=curEpoch(); loadWindow(false);
+  var on=function(){ hls.off&&hls.off(Hls.Events.MANIFEST_PARSED,on);
+    setTimeout(function(){ if(keep!=null&&keep>=winStart&&keep<=winStart+winDur){ try{vid.currentTime=epochToMedia(keep);}catch(e){} } },600); };
+  hls.on(Hls.Events.MANIFEST_PARSED,on); }
 
 /* ═══ 12h OVERVIEW ribbon ═══ */
 var ov=null, ovOK=false, ovAt=0;
@@ -483,15 +478,17 @@ function renderOverview(){
     img.innerHTML=html; img.style.display='flex'; img.style.opacity='.7';
     img.style.background='none';
   }
-  var span=ov.end-ov.start, v=viewRange();
-  var a=(v.lo-ov.start)/span, b=(v.hi-ov.start)/span;
+  // viewport box + playhead + labels map to the LOADED window (not the 12h sheet)
+  var wLo=winStart, wSpan=winDur, v=viewRange();
+  var a=(v.lo-wLo)/wSpan, b=(v.hi-wLo)/wSpan;
   $('ovport').style.left=(a*100)+'%'; $('ovport').style.width=Math.max(0.6,(b-a)*100)+'%';
-  var c=curEpoch(); if(c!=null){ $('ovplay').style.display='block'; $('ovplay').style.left=(((c-ov.start)/span)*100)+'%'; }
-  $('ovL').textContent=tcStr(ov.start).slice(0,8); $('ovR').textContent=tcStr(ov.end).slice(0,8);
+  var c=curEpoch(); if(c!=null){ $('ovplay').style.display='block'; $('ovplay').style.left=(((c-wLo)/wSpan)*100)+'%'; }
+  $('ovL').textContent=tcStr(wLo).slice(0,8); $('ovR').textContent=tcStr(wLo+wSpan).slice(0,8);
 }
 $('ovwrap').addEventListener('pointerdown',function(e){
-  if(!ov)return; var b=$('ovwrap').getBoundingClientRect(); var fr=(e.clientX-b.left)/b.width;
-  var ep=ov.start+fr*(ov.end-ov.start); centerView(ep); seekEpoch(ep); });   // jump = recenter the detail view
+  if(!winDur)return; var b=$('ovwrap').getBoundingClientRect(); var fr=(e.clientX-b.left)/b.width;
+  // overview spans the LOADED window in simple mode → click is always in-bounds
+  var ep=winStart+fr*winDur; centerView(ep); seekEpoch(ep); });
 
 /* ═══ DETAIL filmstrip ═══ */
 var FRMW=96;                                // px width of each filmstrip frame cell
@@ -639,58 +636,20 @@ function showHover(e){
     t.style.backgroundPosition=(-(idx%10)*240)+'px '+(-Math.floor(idx/10)*135)+'px'; };
   pi.src=THUMB+whole+'.jpg';
 }
-// Load a proxy ARCHIVE window around ep when the user scrubs outside the loaded
-// video window (the live playlist is only ~5 min). The filmstrip/ruler/timecode
-// already span the full record; this makes the VIDEO frame follow anywhere the
-// proxy still retains. Debounced so a drag doesn't spam reloads.
-var loadReqAt=0, loadedIsArchive=false, loadingWin=null, pendingSeek=null;
-// Is epoch ep inside the currently-LOADED video window (with a small margin)?
-function inLoadedWindow(ep){ return winDur>0 && ep>=winStart+0.5 && ep<=edgeEpoch()-0.5; }
-// Ensure the proxy video window covers ep. Returns true if a NEW window is being
-// loaded (caller must NOT seek yet — the pending seek lands when it parses).
-function ensureVideoAround(ep){
-  if(inLoadedWindow(ep)) return false;                 // already covered → seek now
-  var live=edgeEpoch();
-  // grid-snapped WIDE window so repeat scrubs hit the backend cache
-  var half=Math.min(900, Math.max(300, zoomSec*3));
-  var g=Math.round(half), center=Math.round(ep/g)*g, lo=center-half, hi=center+half;
-  var wantLive = (hi>=live-2);
-  var key = wantLive ? 'live' : ('['+lo+':0_'+hi+':0)');
-  // already loading exactly this window? just update the pending target.
-  if(loadingWin===key){ pendingSeek=ep; return true; }
-  var now=Date.now(); if(now-loadReqAt<400){ pendingSeek=ep; return true; } loadReqAt=now;
-  pendingSeek=ep; loadingWin=key;
-  if(wantLive){ loadedIsArchive=false; landed=true; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); }
-  else { loadedIsArchive=true; landed=true; hls.loadSource(PROXY_BASE+'?timerange='+encodeURIComponent(key)+'&limit='+(hi-lo+10)); }
-  return true;
-}
+// SIMPLE MODE: the whole window is loaded, so seeking is direct + instant.
+// Clamp to the loaded window; no archive loading, no deferred seeks, no jumps.
 function seekEpoch(ep){
-  var loading=ensureVideoAround(ep);
-  // Only seek NOW if the target window is already loaded. If a new archive/live
-  // window is loading, the seek is deferred (pendingSeek) and applied by the
-  // LEVEL_LOADED handler once the correct frags exist — otherwise we'd seek
-  // against the OLD window and get a wrong/negative currentTime (the frozen bug).
-  if(!loading){ try{vid.currentTime=epochToMedia(ep);}catch(e){} }
+  ep=Math.max(winStart,Math.min(winStart+winDur-0.05,ep));
+  try{vid.currentTime=epochToMedia(ep);}catch(e){}
   renderStrip(); renderOverview();
 }
-var seekPending=false, seekTarget=null;
-function inBuf(t){var b=vid.buffered;for(var i=0;i<b.length;i++){if(t>=b.start(i)-.1&&t<=b.end(i)+.1)return true;}return false;}
-function liveSeek(ep){ seekTarget=epochToMedia(ep);
-  if(inBuf(seekTarget)){try{vid.currentTime=seekTarget;}catch(e){}return;}
-  if(seekPending)return; seekPending=true;
-  var go=function(){var t=seekTarget,done=false; var fin=function(){if(done)return;done=true;vid.removeEventListener('seeked',fin);clearTimeout(to);
-    if(Math.abs(seekTarget-t)>.3&&dragging){seekPending=true;go();}else seekPending=false;};
-    var to=setTimeout(fin,500);vid.addEventListener('seeked',fin);try{vid.currentTime=t;}catch(e){fin();}}; go(); }
-// Click/drag the filmstrip = move the playhead there, like any NLE. pointerdown
-// does a full seekEpoch (handles archive-window load + deferred landing); while
-// dragging within the LOADED window we do fast in-buffer seeks; if the drag
-// leaves the loaded window we seekEpoch again (loads that region). pointerup
-// does a final authoritative seekEpoch so the playhead lands exactly.
+var liveSeek=seekEpoch;                                 // same thing now (all in-buffer)
+// Click/drag the filmstrip = move the playhead there, like any NLE. Everything is
+// in the loaded window, so seekEpoch is direct + instant.
 $('strip').addEventListener('pointermove',function(e){ showHover(e);
-  if(dragging){ var ep=fracToEpochStrip(stripFrac(e));
-    if(inLoadedWindow(ep)){ liveSeek(ep); } else { seekEpoch(ep); }
+  if(dragging){ var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep);
     $('tcbig').textContent=tcStr(ep); updateDurOverlay(ep); renderStrip(); } });
-$('strip').addEventListener('pointerdown',function(e){ engageEdit(); stopShuttle(); dragging=true;
+$('strip').addEventListener('pointerdown',function(e){ stopShuttle(); dragging=true;
   $('strip').setPointerCapture(e.pointerId); vid.pause();
   var ep=fracToEpochStrip(stripFrac(e)); seekEpoch(ep); showHover(e); $('tcbig').textContent=tcStr(ep); });
 $('strip').addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
@@ -730,8 +689,8 @@ function togglePlay(){ stopShuttle();
   else { var on=function(){ vid.removeEventListener('canplay',on); go(); };
     vid.addEventListener('canplay',on); try{hls&&hls.startLoad();}catch(e){} }
 }
-function goStart(){ stopShuttle(); vid.pause(); centerView(winStart+0.05); seekEpoch(winStart+0.05); }
-function goEnd(){ stopShuttle(); if(editLock)setEditLock(false); vid.pause(); centerView(edgeEpoch()-6); seekEpoch(edgeEpoch()-6); }  // End = deliberately return to live
+function goStart(){ stopShuttle(); vid.pause(); centerView(winStart+0.5); seekEpoch(winStart+0.5); }        // start of the loaded window
+function goEnd(){ stopShuttle(); vid.pause(); centerView(winStart+winDur-1); seekEpoch(winStart+winDur-1); } // end of the loaded window
 $('tJ').onclick=function(){bumpShuttle(-1)}; $('tL').onclick=function(){bumpShuttle(1)};
 $('tPlay').onclick=togglePlay; $('tBack').onclick=function(){stepFrame(-1)}; $('tFwd').onclick=function(){stepFrame(1)};
 $('tHome').onclick=goStart; $('tEnd').onclick=goEnd;
@@ -746,7 +705,7 @@ $('tc').onclick=function(){ stopShuttle(); vid.pause();
   // interpret as wall-clock time on the record's day (the store is UTC-stamped)
   var base=new Date((winStart)*1000); base.setUTCHours(h,m,s,0);
   var ep=base.getTime()/1000 + f/FPS;
-  if(ep>=winStart&&ep<=edgeEpoch()) seekEpoch(ep); else $('msg').textContent='that timecode is outside the 12h record'; };
+  if(ep>=winStart&&ep<=edgeEpoch()) seekEpoch(ep); else $('msg').textContent='that timecode is outside the loaded window — ↻ Refresh for the latest'; };
 
 /* ═══ live tick: timecode + playhead + overview ═══ */
 (function tick(){ if(winDur>0){ var ep=curEpoch();
@@ -758,7 +717,7 @@ $('tc').onclick=function(){ stopShuttle(); vid.pause();
     var vr=viewRange(); renderPlayhead(vr); $('ovplay').style.display='block';
     // waveform playhead tracks live too (cheap — just a div move, no redraw)
     if(waveOn){var wph=$('wph'); if(ep>=vr.lo&&ep<=vr.hi){wph.style.display='block';wph.style.left=(((ep-vr.lo)/vr.span)*100)+'%';}else wph.style.display='none';}
-    if(ov&&winDur){var span=ov.end-ov.start;$('ovplay').style.left=(((ep-ov.start)/span)*100)+'%';}
+    if(winDur){$('ovplay').style.left=(((ep-winStart)/winDur)*100)+'%';}
   } }
   requestAnimationFrame(tick); })();
 // keep the strip/overview fresh even when idle
@@ -780,23 +739,11 @@ function markIn(){ engageEdit(); var e=curEpoch(); if(e==null)return; inE=e; if(
 function markOut(){ engageEdit(); var e=curEpoch(); if(e==null)return; outE=e; if(inE!=null&&inE>=outE)inE=null; paintClip(); $('viewstate').textContent='out set'; }
 $('bIn').onclick=markIn; $('bOut').onclick=markOut; $('bClr').onclick=function(){inE=outE=null;paintClip();};
 
-/* ═══ EDIT LOCK — freeze the live-edge follow while the editor works ═══ */
-// The DVR window grows every second; letting it re-anchor mid-edit makes the
-// playhead/ruler "jump" under you. The instant you touch the timeline, mark, or
-// nudge, we HOLD: the ruler + playhead stay put and the live playlist stops
-// yanking the frame. Hit ● LIVE to resume following the edge.
-function setEditLock(on){
-  editLock=on; var btn=$('livebtn'), tls=document.querySelector('.tls');
-  if(on){ btn.classList.add('hold'); btn.textContent='◼ HOLD'; btn.title='Editing — timeline held. Click to resume LIVE.';
-    if(tls)tls.classList.add('hold');          // amber tint on the timeline
-    // stop hls.js live-sync from nudging the paused frame toward the edge
-    if(hls){ hls.config.liveSyncDuration=1e9; hls.config.liveMaxLatencyDuration=1e9; } }
-  else { btn.classList.remove('hold'); btn.textContent='● LIVE'; btn.title='Following the live edge — click to HOLD while you edit';
-    if(tls)tls.classList.remove('hold');
-    if(hls&&!loadedIsArchive){ loadedIsArchive=false; landed=false; hls.loadSource(PROXY_BASE+'?type=live&t='+Date.now()); } }
-}
-function engageEdit(){ if(!editLock && !loadedIsArchive) setEditLock(true); }   // auto-hold on first edit gesture
-$('livebtn').onclick=function(){ setEditLock(!editLock); };
+/* ═══ SIMPLE MODE: no edit-lock needed — the window is static so nothing jumps.
+   The ↻ Refresh button reloads to include the latest footage. ═══ */
+function engageEdit(){}                          // no-op (window is static)
+$('livebtn').onclick=function(){ var b=$('livebtn'); b.textContent='↻ …'; refreshWindow();
+  setTimeout(function(){ b.textContent='↻ Refresh'; },1500); };
 $('wavebtn').onclick=function(){ setWave(!waveOn); };
 
 /* ═══ zoom ═══ */
@@ -807,13 +754,7 @@ function setZoom(sec){ zoomSec=Math.max(30,Math.min(1800,sec));
 // Warm the backend playlist cache for the region around ep (same grid-snapped
 // window ensureVideoAround uses) so the first scrub there is already cached — the
 // gateway's flat ~4s query happens in the background, not under the user's finger.
-var _prewarmKey=null;
-function prewarmAround(ep){ if(ep==null||!ov)return;
-  var half=Math.min(900,Math.max(300,zoomSec*3)), g=Math.round(half), center=Math.round(ep/g)*g;
-  var lo=center-half, hi=center+half; if(hi>=edgeEpoch()-2)return;      // live region needs no warm
-  var tr='['+lo+':0_'+hi+':0)'; if(tr===_prewarmKey)return; _prewarmKey=tr;
-  fetch(PROXY_BASE+'?timerange='+encodeURIComponent(tr)+'&limit='+(hi-lo+10)).catch(function(){});
-}
+function prewarmAround(ep){}                      // no-op (whole window already loaded)
 $('zin').onclick=function(){var i=ZOOMS.indexOf(zoomSec);setZoom(ZOOMS[Math.max(0,i-1)]);};
 $('zout').onclick=function(){var i=ZOOMS.indexOf(zoomSec);setZoom(ZOOMS[Math.min(ZOOMS.length-1,i+1)]);};
 
