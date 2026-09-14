@@ -673,13 +673,27 @@ var liveSeek=seekEpoch;                                 // same thing now (all i
 // frame into the viewer instantly. On RELEASE we seek the video ONCE to that
 // frame; when it lands, the sprite hides and the real frame shows — ready to play.
 var dragEp=null;
-function paintScrubFrame(ep){                            // instant per-second thumb frame in the viewer
+function paintScrubFrame(ep){                            // instant placeholder while the real frame isn't buffered yet
   var ph=$('placeholder'), whole=Math.floor(ep);
-  // the per-second thumb is a full frame → contain fits it in the viewer. (Sub-second
-  // is fine as a scrub preview; the exact frame lands from the real seek on release.)
   ph.style.backgroundImage='url('+THUMB+whole+'.jpg)';
   ph.style.backgroundSize='contain'; ph.style.backgroundPosition='center';
   ph.style.display='block';
+}
+// Because the scrub proxy is ALL-INTRA, seeking within a buffered segment is
+// instant (no decode-forward) → we can show the SHARP real video frame while
+// dragging, not the tiny 192px thumb. Coalesced to one seek in flight; the thumb
+// placeholder only covers the split-second before a segment is buffered.
+function isBuf(t){var bf=vid.buffered;for(var i=0;i<bf.length;i++){if(t>=bf.start(i)-0.1&&t<=bf.end(i)+0.1)return true;}return false;}
+var _dragSeekPending=false, _dragSeekTarget=null;
+function scrubVideo(ep){
+  var md=epochToMedia(snapFrame(ep))+(0.5/FPS); _dragSeekTarget=md;
+  if(!isBuf(md)){ paintScrubFrame(ep); return; }         // not buffered yet → sprite for now
+  if(_dragSeekPending) return; _dragSeekPending=true;
+  var go=function(){ var t=_dragSeekTarget;
+    var done=function(){ vid.removeEventListener('seeked',done); $('placeholder').style.display='none';
+      if(dragging && Math.abs(_dragSeekTarget-t)>0.5/FPS){ go(); } else { _dragSeekPending=false; } };
+    vid.addEventListener('seeked',done); try{vid.currentTime=t;}catch(e){ _dragSeekPending=false; } };
+  go();
 }
 function renderScrub(ep){ dragEp=ep;
   var vr=viewRange();
@@ -689,10 +703,10 @@ function renderScrub(ep){ dragEp=ep;
   updateDurOverlay(ep);
 }
 $('strip').addEventListener('pointermove',function(e){ showHover(e);
-  if(dragging){ var ep=snapFrame(fracToEpochStrip(stripFrac(e))); renderScrub(ep); paintScrubFrame(ep); } });
+  if(dragging){ var ep=snapFrame(fracToEpochStrip(stripFrac(e))); renderScrub(ep); scrubVideo(ep); } });
 $('strip').addEventListener('pointerdown',function(e){ stopShuttle(); dragging=true;
   $('strip').setPointerCapture(e.pointerId); vid.pause();
-  var ep=snapFrame(fracToEpochStrip(stripFrac(e))); renderScrub(ep); paintScrubFrame(ep); showHover(e); });
+  var ep=snapFrame(fracToEpochStrip(stripFrac(e))); renderScrub(ep); scrubVideo(ep); showHover(e); });
 $('strip').addEventListener('pointerup',function(e){ if(!dragging)return; dragging=false;
   var ep=snapFrame(fracToEpochStrip(stripFrac(e)));
   $('hover').style.display='none'; $('htip').style.display='none'; $('durbig').style.display='none';
