@@ -113,6 +113,12 @@ facility did — current numbers at the top). Details and gotchas (libfabric
 ≥ 2.x required, TargetInfo sockaddr patching for non-routed networks) in
 [docs/FINDINGS.md](docs/FINDINGS.md).
 
+**Field notes for engineers:** the honest production report — measured
+numbers, the v1.1.0 reader-lifecycle failure taxonomy, every workaround
+labeled and mapped to the SDK issue it stands in for, and the NMOS
+(IS-04/05/07/08) control-plane roadmap — is in
+**[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)**.
+
 **Cloud-neutral by design:** everything here runs on any cloud (or metal)
 with AVX and RAM for the shared-memory domain. A complete replay plan for
 AWS as a production deployment — a two-VPC design (production + a
