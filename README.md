@@ -113,6 +113,12 @@ facility did — current numbers at the top). Details and gotchas (libfabric
 ≥ 2.x required, TargetInfo sockaddr patching for non-routed networks) in
 [docs/FINDINGS.md](docs/FINDINGS.md).
 
+**Cloud-neutral by design:** everything here runs on any cloud (or metal)
+with AVX and RAM for the shared-memory domain. A complete replay plan for
+AWS — instance mapping, VPC/security-group design, the data-transfer cost
+traps unique to a personal account, native-S3 TAMS, and a 3-day phased
+build — is in **[docs/AWS-BUILD-PLAN.md](docs/AWS-BUILD-PLAN.md)**.
+
 ## Update 2: live MXL → TAMS record (EBU's two flagship projects, united)
 
 The DMF white paper lists the MXL↔TAMS relationship as an open topic and notes
