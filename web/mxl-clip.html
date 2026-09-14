@@ -127,6 +127,11 @@ main{flex:1 1 auto;display:grid;grid-template-columns:1fr 288px;grid-template-ro
 #ph{position:absolute;top:0;bottom:0;width:2px;background:var(--play);box-shadow:0 0 6px rgba(255,255,255,.5);pointer-events:none;z-index:3}
 #ph::before{content:"";position:absolute;top:0;left:-4px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--play)}
 #hover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.4);display:none;pointer-events:none}
+/* markers */
+.mkr{position:absolute;top:15px;bottom:0;width:2px;background:var(--warm);z-index:2;cursor:pointer}
+.mkr::before{content:"";position:absolute;top:-15px;left:-4px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid var(--warm)}
+.mkr:hover::after{content:attr(data-lbl);position:absolute;top:-15px;left:6px;white-space:nowrap;font-family:var(--mono);font-size:9px;color:var(--warm);background:rgba(8,11,20,.9);padding:1px 5px;border-radius:3px}
+.ovmkr{position:absolute;top:0;bottom:0;width:1px;background:var(--warm);opacity:.8;pointer-events:none}
 #htip{position:absolute;bottom:82px;transform:translateX(-50%);display:none;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:4px;pointer-events:none;z-index:6;box-shadow:0 10px 28px rgba(0,0,0,.6)}
 #htipimg{width:240px;height:135px;border-radius:5px;background:#000 center/cover no-repeat}
 #htipt{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--warm);text-align:center;margin-top:3px}
@@ -163,6 +168,28 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
 #qrcard h3{font-size:15px;margin-bottom:3px}#qrcard .s{font-size:12px;color:var(--dim);margin-bottom:16px}
 #qrbox{background:#fff;padding:12px;border-radius:10px;display:inline-block}
 #qrcard button{margin-top:16px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 16px;color:var(--ink);font-size:12px}
+/* first-run intro */
+#intro{position:fixed;inset:0;background:rgba(5,7,12,.82);backdrop-filter:blur(6px);z-index:60;display:none;align-items:center;justify-content:center;padding:20px}
+#intro.show{display:flex;animation:introfade .35s ease}
+@keyframes introfade{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){#intro.show{animation:none}}
+#introcard{max-width:560px;width:100%;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:26px 28px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7)}
+#introcard .ihd{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+#introcard .mark h1{font-size:19px}
+#introcard .itag{font-size:12px;color:var(--dim);letter-spacing:.02em}
+#introcard .itag b{color:var(--signal)}
+.ilead{font-size:14px;line-height:1.6;color:var(--ink);margin-bottom:18px}
+.ilead b{color:var(--ink);font-weight:700}
+.isteps{display:flex;flex-direction:column;gap:11px;margin-bottom:18px}
+.istep{display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--dim)}
+.istep b{color:var(--ink)}
+.istep .in{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--signal);color:#04121a;font-weight:800;font-size:12px;display:grid;place-items:center;margin-top:1px}
+.ikeys{font-size:11px;color:var(--faint);line-height:1.8;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:11px 0;margin-bottom:18px}
+.ikeys b{color:var(--dim);font-family:var(--mono)}
+#introgo{width:100%;background:var(--signal);border:none;border-radius:9px;padding:13px;color:#04121a;font-size:14px;font-weight:750;cursor:pointer}
+#introgo:hover{filter:brightness(1.08)}
+.icred{font-size:11px;color:var(--faint);text-align:center;margin-top:14px;line-height:1.6}
+.icred a{color:var(--signal);text-decoration:none}
 
 @media(max-width:900px){
   main{grid-template-columns:1fr;grid-template-rows:1fr auto auto auto}
@@ -179,6 +206,7 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
   <div class="spacer"></div>
   <div class="badge"><span class="rdot"></span><span id="reclbl" class="mono">connecting…</span></div>
   <div class="ghosts">
+    <a class="ghost" href="#" id="helpbtn" title="how it works">?</a>
     <a class="ghost" href="#" id="themebtn" title="toggle theme">◐</a>
     <a class="ghost" href="/mxl.html">Switcher</a>
   </div>
@@ -233,7 +261,7 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
       <span class="lbl">Zoom</span>
       <div class="z"><button id="zout" title="zoom out (-)">–</button><button id="zin" title="zoom in (+)">+</button></div>
       <span class="zlbl" id="zlbl">2 min view</span>
-      <span class="hint"><b>J K L</b> shuttle &middot; <b>I</b>/<b>O</b> mark &middot; <b>←/→</b> frame &middot; <b>⇧←/→</b> 1s &middot; <b>Space</b> play</span>
+      <span class="hint"><b>J K L</b> shuttle &middot; <b>I</b>/<b>O</b> in/out &middot; <b>M</b> marker &middot; <b>↑/↓</b> jump &middot; <b>←/→</b> frame &middot; <b>Space</b> play</span>
     </div>
   </div>
 
@@ -258,6 +286,20 @@ kbd{font-family:var(--mono);font-size:9px;opacity:.6;border:1px solid currentCol
 </main>
 
 <div id="qr"><div id="qrcard"><h3>Scan to take your clip</h3><div class="s" id="qrsub"></div><div id="qrbox"></div><button id="qrclose">Close</button></div></div>
+
+<div id="intro"><div id="introcard">
+  <div class="ihd"><div class="mark"><div class="glyph"></div><h1>MXL <b>Clipper</b></h1></div>
+    <div class="itag">The first non-linear editor for <b>time-addressable media</b></div></div>
+  <p class="ilead">This is a live show being produced entirely in the cloud — switched, keyed and mixed in <b>EBU&nbsp;MXL</b> shared memory, then written to a <b>BBC&nbsp;TAMS</b> store as it happens. You're editing it <b>while it records</b>.</p>
+  <div class="isteps">
+    <div class="istep"><span class="in">1</span><div><b>Scrub by time, not by file.</b> Drag the filmstrip. Every frame is addressed by its capture timecode, pulled live from the TAMS store.</div></div>
+    <div class="istep"><span class="in">2</span><div><b>Mark in &amp; out.</b> Press <kbd>I</kbd> and <kbd>O</kbd>. Cue off the <b style="color:var(--signal)">PGM audio waveform</b> — a laugh, applause, a beat. Drop <kbd>M</kbd> markers to flag moments.</div></div>
+    <div class="istep"><span class="in">3</span><div><b>Grab the clip.</b> It's cut <b>in your browser</b> — no server render, no upload — and downloads a frame-accurate MP4 in about a second.</div></div>
+  </div>
+  <div class="ikeys"><span class="lbl">Editor keys</span> <b>J K L</b> shuttle · <b>I/O</b> in-out · <b>M</b> marker · <b>↑↓</b> jump markers · <b>←→</b> frame · <b>⇧←→</b> second · <b>Space</b> play · <b>S</b> save</div>
+  <button id="introgo">Start editing →</button>
+  <div class="icred">Built on open standards — EBU MXL + BBC TAMS — on a ~$1/hr cloud cluster. <a href="https://github.com/guycochran/mxl-cloud-production-demo" target="_blank" rel="noopener">source on GitHub ↗</a></div>
+</div></div>
 
 <script>
 "use strict";
@@ -475,7 +517,34 @@ function renderMarks(v){
   if(inE!=null&&outE!=null&&outE>inE){ var a=Math.max(0,(inE-v.lo)/v.span), b=Math.min(1,(outE-v.lo)/v.span);
     band.style.display='block'; band.style.left=(a*100)+'%'; band.style.width=((b-a)*100)+'%'; }
   else band.style.display='none';
+  renderMarkers(v);
 }
+/* ═══ MARKERS ═══ */
+var markers=[];                                    // [{ep, label}] ascending
+function renderMarkers(v){
+  // remove old marker divs, redraw those in view
+  var strip=$('strip'); Array.prototype.slice.call(strip.querySelectorAll('.mkr')).forEach(function(n){n.remove();});
+  markers.forEach(function(mk){ if(mk.ep<v.lo||mk.ep>v.hi)return;
+    var d=document.createElement('div'); d.className='mkr'; d.setAttribute('data-lbl',mk.label);
+    d.style.left=(((mk.ep-v.lo)/v.span)*100)+'%';
+    d.onpointerdown=function(e){e.stopPropagation(); seekEpoch(mk.ep);};
+    strip.appendChild(d);
+  });
+  // overview markers
+  var ovw=$('ovwrap'); Array.prototype.slice.call(ovw.querySelectorAll('.ovmkr')).forEach(function(n){n.remove();});
+  if(ov){ var span=ov.end-ov.start; markers.forEach(function(mk){
+    var d=document.createElement('div'); d.className='ovmkr'; d.style.left=(((mk.ep-ov.start)/span)*100)+'%'; ovw.appendChild(d); }); }
+}
+function addMarker(){ var e=curEpoch(); if(e==null)return;
+  // avoid dupes within 0.3s
+  if(markers.some(function(m){return Math.abs(m.ep-e)<0.3;})) return;
+  markers.push({ep:e,label:'M'+(markers.length+1)}); markers.sort(function(a,b){return a.ep-b.ep;});
+  renderStrip(); renderOverview(); $('viewstate').textContent='marker set'; }
+function jumpMarker(dir){ var e=curEpoch(); if(e==null||!markers.length)return;
+  var target=null;
+  if(dir>0){ for(var i=0;i<markers.length;i++){ if(markers[i].ep>e+0.1){target=markers[i].ep;break;} } }
+  else { for(var j=markers.length-1;j>=0;j--){ if(markers[j].ep<e-0.1){target=markers[j].ep;break;} } }
+  if(target!=null) seekEpoch(target); }
 function renderPlayhead(v){ var c=curEpoch(); if(c==null){$('ph').style.display='none';return;}
   if(c<v.lo||c>v.hi){$('ph').style.display='none';return;}
   $('ph').style.display='block'; $('ph').style.left=(((c-v.lo)/v.span)*100)+'%'; }
@@ -614,14 +683,34 @@ async function doClip(a,b,msg){
     bufs.push(new Uint8Array(await r.arrayBuffer())); prog(0.1+0.6*(i+1)/fs.urls.length); }
   var names=[]; for(var j=0;j<bufs.length;j++){var n='s'+j+'.ts';await ff.writeFile(n,bufs[j]);names.push(n);}
   await ff.writeFile('list.txt',new TextEncoder().encode(names.map(function(n){return "file '"+n+"'"}).join('\n')));
-  var ss=Math.max(0,a-fs.segStart); prog(0.8); msg('assembling clip…');
-  await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),'-c','copy','-movflags','+faststart','-y','out.mp4']);
+  var ss=Math.max(0,a-fs.segStart); prog(0.75); msg('assembling video…');
+  // trim video to the exact clip window (stream copy)
+  await ff.exec(['-f','concat','-safe','0','-i','list.txt','-ss',ss.toFixed(3),'-t',dur.toFixed(3),'-c','copy','-movflags','+faststart','-y','vid.mp4']);
+  // fetch PGM audio for the same window and mux it in → clip WITH SOUND
+  var haveAudio=false;
+  try{
+    msg('adding PGM audio…');
+    var ar=await fetch('/api/mxl/audioseg?from='+Math.floor(a)+'&to='+Math.ceil(b));
+    if(ar.ok){ var aStart=parseFloat(ar.headers.get('X-Audio-Start'));
+      var abuf=new Uint8Array(await ar.arrayBuffer());
+      if(abuf.length>500 && isFinite(aStart)){
+        await ff.writeFile('a.ts',abuf);
+        var ass=Math.max(0,a-aStart);                 // offset into the fetched audio
+        // trim audio to the window, re-encode to AAC (safe), then mux copy with video
+        await ff.exec(['-ss',ass.toFixed(3),'-i','a.ts','-t',dur.toFixed(3),'-vn','-c:a','aac','-b:a','128k','-y','a.m4a']);
+        await ff.exec(['-i','vid.mp4','-i','a.m4a','-c','copy','-map','0:v:0','-map','1:a:0','-shortest','-movflags','+faststart','-y','out.mp4']);
+        haveAudio=true;
+      }
+    }
+  }catch(e){ haveAudio=false; }
+  if(!haveAudio){ await ff.exec(['-i','vid.mp4','-c','copy','-movflags','+faststart','-y','out.mp4']); }
   var data=await ff.readFile('out.mp4'); prog(0.98);
   var blob=new Blob([data.buffer],{type:'video/mp4'}); var el=document.createElement('a');
   el.href=URL.createObjectURL(blob); el.download='mxl-clip-'+tcStr(a).replace(/:/g,'')+'-'+dur.toFixed(0)+'s.mp4';
   document.body.appendChild(el); el.click(); el.remove();
-  for(var k=0;k<names.length;k++){try{await ff.deleteFile(names[k])}catch(e){}} try{await ff.deleteFile('out.mp4');await ff.deleteFile('list.txt')}catch(e){}
-  prog(null); msg('✓ '+fmtDur(dur)+' clip exported ('+(data.length/1e6).toFixed(1)+' MB)');
+  for(var k=0;k<names.length;k++){try{await ff.deleteFile(names[k])}catch(e){}}
+  ['vid.mp4','a.ts','a.m4a','out.mp4','list.txt'].forEach(function(f){try{ff.deleteFile(f)}catch(e){}});
+  prog(null); msg('✓ '+fmtDur(dur)+' clip exported'+(haveAudio?' with audio':'')+' ('+(data.length/1e6).toFixed(1)+' MB)');
 }
 function runClip(a,b,btns){ btns.forEach(function(x){if(x)x.disabled=true;}); var t0=Date.now();
   Promise.resolve().then(function(){return doClip(a,b,function(m){$('msg').textContent=m;});})
@@ -666,6 +755,9 @@ document.addEventListener('keydown',function(e){ if(/input|textarea/i.test(e.tar
   else if(k==='i'){ if(shift){ if(inE!=null)seekEpoch(inE); } else markIn(); }   // Shift+I → go to In
   else if(k==='o'){ if(shift){ if(outE!=null)seekEpoch(outE); } else markOut(); } // Shift+O → go to Out
   else if(k==='x'){inE=outE=null;paintClip();}
+  else if(k==='m'){addMarker();}
+  else if(k==='arrowup'){e.preventDefault();jumpMarker(-1);}
+  else if(k==='arrowdown'){e.preventDefault();jumpMarker(1);}
   else if(k==='s'){if(!$('bSave').disabled)$('bSave').onclick();}
   else if(k==='enter'){if(!$('bGrab').disabled)$('bGrab').onclick();}
   else if(k==='arrowleft'){e.preventDefault(); shift?stepSec(-1):stepFrame(-1);}
@@ -679,6 +771,15 @@ document.addEventListener('keydown',function(e){ if(/input|textarea/i.test(e.tar
 /* ═══ deep link ?clip=IN_OUT ═══ */
 (function(){var m=/[?&]clip=(\d+(?:\.\d+)?)_(\d+(?:\.\d+)?)/.exec(location.search);
   if(m){ setTimeout(function(){inE=parseFloat(m[1]);outE=parseFloat(m[2]);paintClip();seekEpoch(inE);},1600); }})();
+/* ═══ first-run intro overlay ═══ */
+function showIntro(){ $('intro').classList.add('show'); }
+function hideIntro(){ $('intro').classList.remove('show'); localStorage.setItem('mxlclip-introseen','1'); }
+$('introgo').onclick=hideIntro;
+$('intro').onclick=function(e){ if(e.target===$('intro'))hideIntro(); };
+$('helpbtn').onclick=function(e){e.preventDefault();showIntro();};
+document.addEventListener('keydown',function(e){ if(e.key==='Escape')$('intro').classList.remove('show'); });
+if(!localStorage.getItem('mxlclip-introseen')) setTimeout(showIntro,600);
+
 setZoom(120); paintClip();
 </script>
 </body></html>
