@@ -1,0 +1,169 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Switcher — What We Built</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#05070d;color:#eef2ff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+#deck{height:100%;width:100%}
+.slide{position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+  padding:6vh 8vw;opacity:0;transition:opacity .4s}
+.slide.on{display:flex;opacity:1}
+.slide.title{align-items:center;text-align:center}
+h1{font-size:5.2vw;font-weight:800;letter-spacing:-.5px;line-height:1.05}
+h1 .x{color:#ffb400}
+h2{font-size:3vw;font-weight:750;margin-bottom:2.5vh;color:#eef2ff}
+h2 .n{color:#ffb400;font-size:1.5vw;font-weight:800;letter-spacing:2px;display:block;margin-bottom:.6vh}
+.sub{font-size:1.7vw;color:#8b96b5;margin-top:2vh;line-height:1.5;max-width:70ch}
+ul{list-style:none;font-size:1.9vw;line-height:1.9}
+li{padding-left:1.6em;position:relative;margin-bottom:.4vh}
+li::before{content:"▸";color:#ffb400;position:absolute;left:0}
+li b{color:#fff} li .m{color:#8b96b5;font-size:.85em}
+.stat{display:flex;gap:5vw;flex-wrap:wrap;margin-top:3vh}
+.stat div{text-align:center}
+.stat .big{font-size:4vw;font-weight:800;color:#28d17c}
+.stat .lbl{font-size:1.1vw;color:#8b96b5;text-transform:uppercase;letter-spacing:1px}
+img{max-width:100%;max-height:56vh;border-radius:10px;border:1px solid #26314d;margin-top:2vh;object-fit:contain}
+.two{display:flex;gap:3vw;align-items:center}
+.two>div{flex:1;min-width:0}
+.two>div:has(img){flex:0 0 42vw}
+.two img{width:100%;max-height:62vh;min-width:34vw}
+pre{background:#0c1220;border:1px solid #26314d;border-radius:8px;padding:1.4vh 1.2vw;
+  font-family:ui-monospace,Menlo,monospace;font-size:1.15vw;color:#cfd8ef;line-height:1.7;overflow:auto}
+.diag{font-family:ui-monospace,Menlo,monospace;font-size:1.15vw;color:#cfd8ef;white-space:pre;line-height:1.5;background:#0c1220;border:1px solid #26314d;border-radius:10px;padding:3vh 2vw;margin-top:2vh}
+.tag{display:inline-block;background:#0c1220;border:1px solid #26314d;border-radius:6px;padding:.4vh .9vw;font-size:1.1vw;color:#4a9df2;margin:.3vh .3vw}
+.foot{position:fixed;bottom:2.5vh;left:8vw;right:8vw;display:flex;justify-content:space-between;
+  font-size:1vw;color:#3a4667}
+.prog{position:fixed;bottom:0;left:0;height:4px;background:#ffb400;transition:width .3s}
+.hint{position:fixed;bottom:2.5vh;left:50%;transform:translateX(-50%);font-size:.9vw;color:#2a3450}
+</style></head>
+<body>
+<div id="deck">
+
+<section class="slide title">
+  <h1>MXL <span class="x">Switcher</span></h1>
+  <div class="sub" style="font-size:2.1vw;color:#cfd8ef">An uncompressed broadcast production facility<br>that runs entirely in the cloud.</div>
+  <div class="sub">Built on the EBU's MXL shared-memory SDK · IBC 2026 week · <b style="color:#ffb400">mxlswitcher.com</b></div>
+</section>
+
+<section class="slide">
+  <h2><span class="n">THE IDEA</span>What if the control room had no hardware?</h2>
+  <ul>
+    <li>Traditional switching lives in <b>dedicated silicon</b> — SDI crossbars, ASIC compositors.</li>
+    <li>The EBU's <b>MXL</b> project moves uncompressed video as <b>shared-memory grains</b> between processes — the data plane for a software facility.</li>
+    <li><b>The bet:</b> build a real, operator-driven switcher — cameras, guests, graphics, layouts, recording — as pure software on cloud VMs. No compression shortcuts.</li>
+    <li>Give anyone a URL and let them cut a live show from a browser.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h2><span class="n">ARCHITECTURE</span>Three cloud VMs, one uncompressed pipeline</h2>
+  <div class="diag">  CONTRIBUTION (VM2)            PRODUCTION (VM1, 32 vCPU)         VIEWERS
+  ┌────────────────┐           ┌──────────────────────────┐
+  │ guest SRT in   │  MXL      │  /dev/shm  MXL domain     │   WebRTC
+  │ (Larix / phone)│ ═fabric═▶ │  v210 uncompressed        │ ═══════▶  browser
+  │ fabric leg     │ 1.3Gbps   │  selector → layout → keyer│           mxlswitcher.com
+  └────────────────┘           │  → H.264 encode (once)    │
+   studio cams ═SRT═══════════▶│                           │
+                               │  program ═fabric═▶ TAMS ══│═▶ S3 record / clip
+                               └──────────────────────────┘</div>
+  <div class="sub">Every box is generic compute. The video never touches a codec until the final viewer encode — that's the whole point.</div>
+</section>
+
+<section class="slide">
+  <h2><span class="n">IT WORKS — AND IT'S FAST</span>Measured, not claimed</h2>
+  <div class="stat">
+    <div><div class="big">20–30<span style="font-size:1.5vw">ms</span></div><div class="lbl">hard cut · 100/100 soak</div></div>
+    <div><div class="big">~150<span style="font-size:1.5vw">ms</span></div><div class="lbl">SuperSource pane change</div></div>
+    <div><div class="big">1.3<span style="font-size:1.5vw">Gbps</span></div><div class="lbl">uncompressed fabric / flow</div></div>
+    <div><div class="big">10-bit</div><div class="lbl">v210 end to end</div></div>
+  </div>
+  <div class="sub">Frame-accurate TAMS clips verified against burned SMPTE timecode. Cuts that land even while the rig is self-healing in the background.</div>
+</section>
+
+<section class="slide">
+  <h2><span class="n">THE SWITCHER</span>A browser control room</h2>
+  <div class="two">
+    <ul style="font-size:1.6vw">
+      <li><b>PGM / PVW buses</b> with take &amp; flip-flop</li>
+      <li><b>SuperSource matrix</b> — 2-up / PiP / 4-up, tap = take</li>
+      <li><b>HTML5 keyer</b> — graphics composited in the cloud</li>
+      <li><b>Guest contribution</b> — scan a QR, you're an input</li>
+      <li><b>Per-input audio mixer</b> with mix-minus commentary</li>
+    </ul>
+    <div><img src="/api/mxl/thumbs/layout.jpg" alt="live layout" onerror="this.style.display='none'"></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2><span class="n">RECORD &amp; CLIP</span>MXL meets TAMS — the EBU's two projects, united</h2>
+  <div class="two">
+    <div><img src="/mxl-tams.html" onerror="this.replaceWith(Object.assign(document.createElement('img'),{src:'deck-img/tams-scrub-ui.png'}))" style="display:none"><img src="deck-img/tams-scrub-ui.png" alt="TAMS scrub"></div>
+    <ul style="font-size:1.6vw">
+      <li>Live program segmented to <b>TAMS</b> every second → S3.</li>
+      <li>Scrub a 12-hour time machine in the browser.</li>
+      <li>Mark in/out, <b>frame-accurate export</b>, take the clip home.</li>
+      <li>The DMF white paper listed MXL↔TAMS as an open topic. We built it.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide">
+  <h2><span class="n">CONTROL, STANDARDIZED</span>NMOS discovery + a hardware panel</h2>
+  <div class="two">
+    <div><img src="deck-img/nmos-in-registry.png" alt="NMOS registry"></div>
+    <ul style="font-size:1.5vw">
+      <li>Every flow published as <b>NMOS</b> per AMWA <b>BCP-007-03</b> <span class="m">(urn:x-nmos:transport:mxl)</span></li>
+      <li>Discovered live by <b>Bitfocus Buttons</b> — a commercial controller browsing a cloud MXL facility.</li>
+      <li><b>Stream Deck XL</b> cutting the show with real red/green tally.</li>
+      <li class="m">First MXL facility in an NMOS registry, to our knowledge — 3 days after IBC.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide">
+  <h2><span class="n">THE HONEST PART</span>What early-adopter production actually takes</h2>
+  <ul>
+    <li>MXL v1.1.0 has a <b>reader-lifecycle bug</b> — readers wedge when a flow is recreated. We found <b>five variants</b>, characterized each, and reported upstream.</li>
+    <li>Every workaround is <b>labeled and mapped</b> to the fix it stands in for: warm-up line-up, repair cascade, flow stabilizer, self-heal doctors.</li>
+    <li>We shipped mistakes and caught them in our own logs — the field notes say so.</li>
+    <li class="m">docs/FIELD-NOTES.md — the report a first production deployment owes its SDK community.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h2><span class="n">IT'S PORTABLE</span>The cloud doesn't matter</h2>
+  <ul>
+    <li>Ran on <b>Azure</b> for IBC. A complete <b>AWS production plan</b> is in the repo: two-VPC design, native-S3 TAMS, ~$56 to first show.</li>
+    <li>Same <code>tools/</code>, same <code>bring-up-mxl.sh</code> — only the infrastructure vocabulary changes.</li>
+    <li>One-command <b>QUICKSTART</b>: fresh Ubuntu VM → cuttable keyed switcher in ~10 minutes.</li>
+  </ul>
+  <div class="sub">github.com/guycochran/mxl-cloud-production-demo</div>
+</section>
+
+<section class="slide title">
+  <h1>The difference between<br>a <span class="x">demo</span> and a <span class="x">facility</span></h1>
+  <div class="sub" style="font-size:1.9vw">Uncompressed cloud production · self-healing · recorded · standards-controlled.<br>Built in a week on a brand-new SDK — and documented honestly.</div>
+  <div class="sub"><b style="color:#ffb400">mxlswitcher.com</b> · github.com/guycochran/mxl-cloud-production-demo</div>
+</section>
+
+</div>
+<div class="prog" id="prog"></div>
+<div class="foot"><span>MXL Switcher</span><span id="pageno"></span></div>
+<div class="hint">← → or space to navigate · F for fullscreen</div>
+<script>
+var slides=[].slice.call(document.querySelectorAll('.slide')),i=0;
+function show(n){i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach(function(s,k){s.classList.toggle('on',k===i)});
+  document.getElementById('prog').style.width=((i+1)/slides.length*100)+'%';
+  document.getElementById('pageno').textContent=(i+1)+' / '+slides.length;
+  location.hash=i;}
+document.addEventListener('keydown',function(e){
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown')show(i+1);
+  else if(e.key==='ArrowLeft'||e.key==='PageUp')show(i-1);
+  else if(e.key==='Home')show(0);else if(e.key==='End')show(slides.length-1);
+  else if(e.key==='f'||e.key==='F'){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}});
+document.addEventListener('click',function(e){if(e.clientX>window.innerWidth*0.5)show(i+1);else show(i-1);});
+show(parseInt(location.hash.slice(1))||0);
+window.addEventListener('hashchange',function(){var n=parseInt(location.hash.slice(1));if(!isNaN(n)&&n!==i)show(n);});
+</script>
+</body></html>
