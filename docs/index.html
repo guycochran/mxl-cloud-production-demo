@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An independent open-source field project exploring what a live production switcher built around the Media eXchange Layer (MXL) could become.">
+  <meta name="theme-color" content="#07090d">
+  <meta property="og:title" content="Switcher Lab for MXL — Open-source broadcast R&D">
+  <meta property="og:description" content="Real cameras, guests, graphics, multiview, audio, inter-host fabric and TAMS — assembled as a software-defined control room.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="images/demo-camera.png">
+  <title>Switcher Lab for MXL™ — Open-source broadcast R&amp;D</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the project</a>
+
+  <div class="notice">
+    <span class="notice-dot" aria-hidden="true"></span>
+    Independent, MIT-licensed field project — not an official or endorsed MXL project
+  </div>
+
+  <header class="nav shell">
+    <a class="brand" href="#top" aria-label="Switcher Lab for MXL home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span><b>SWITCHER LAB</b><small>FOR MXL™</small></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#idea">The idea</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#proof">Proof</a>
+      <a href="#build">Build it</a>
+    </nav>
+    <a class="nav-cta" href="https://github.com/guycochran/mxl-cloud-production-demo">GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow"><span>OPEN SOURCE</span> / SOFTWARE-DEFINED LIVE PRODUCTION</p>
+        <h1>What if the switcher<br>was <em>shared memory?</em></h1>
+        <p class="lede">A working exploration of a live production control room built around the Media eXchange Layer: real cameras, remote guests, playout, layouts, graphics, audio, multiview, recording and standard control — assembled as software on general-purpose cloud VMs.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/guycochran/mxl-cloud-production-demo">Explore the source <span aria-hidden="true">↗</span></a>
+          <a class="button secondary" href="QUICKSTART.md">Run it in ~10 minutes</a>
+        </div>
+        <p class="hero-note">Built in public by Guy Cochran / Office Hours Global. MIT licensed. Every number below comes from the running facility.</p>
+      </div>
+
+      <div class="hero-visual" aria-label="Animated MXL signal flow">
+        <div class="scope-label">LIVE SIGNAL PATH / 1080p30 v210</div>
+        <div class="signal-stack">
+          <div class="source-card source-a"><span class="pulse red"></span><b>CAM 01</b><small>SRT · LIVE</small></div>
+          <div class="source-card source-b"><span class="pulse green"></span><b>GUEST</b><small>SRT · REMOTE</small></div>
+          <div class="source-card source-c"><span class="pulse blue"></span><b>PLAYOUT</b><small>FILE · AUDIO</small></div>
+        </div>
+        <div class="flow-line line-a"><span></span></div>
+        <div class="flow-line line-b"><span></span></div>
+        <div class="flow-line line-c"><span></span></div>
+        <div class="domain-orbit">
+          <span class="orbit orbit-a"></span><span class="orbit orbit-b"></span>
+          <div class="domain-core"><small>SHARED-MEMORY</small><b>MXL™</b><span>DOMAIN</span></div>
+        </div>
+        <div class="function-ring fn-select">SELECT</div>
+        <div class="function-ring fn-key">KEY</div>
+        <div class="function-ring fn-mix">MIX</div>
+        <div class="output-card"><small>PROGRAM</small><b>PGM</b><span>WebRTC · SRT · TAMS</span></div>
+        <div class="visual-caption"><span>01</span> Media functions exchange grains through the domain instead of passing frames through fixed hardware.</div>
+      </div>
+    </section>
+
+    <section class="ticker" aria-label="Measured project facts">
+      <div class="ticker-track">
+        <span><b>20–30 ms</b> measured hard cuts</span><i></i>
+        <span><b>1.3 Gbps</b> raw inter-host flow</span><i></i>
+        <span><b>10-bit v210</b> inside the domain</span><i></i>
+        <span><b>7 inputs</b> plus live layouts</span><i></i>
+        <span><b>1 encode</b> for the multiview wall</span><i></i>
+        <span><b>$2.11/hr</b> measured three-VM facility</span>
+      </div>
+    </section>
+
+    <section class="section shell" id="idea">
+      <div class="section-heading">
+        <p class="eyebrow">01 / THE IDEA</p>
+        <h2>A switcher becomes a set of replaceable media functions.</h2>
+        <p>In a conventional chain, each box owns a stage of the signal. Here, functions read and write timestamped media grains in a common domain. The UI is not the switcher. The VM is not the switcher. The <em>connected set of functions</em> is the switcher.</p>
+      </div>
+      <div class="principles">
+        <article><span>01</span><h3>Memory is the router</h3><p>Sources, program, previews and the multiview exist as discoverable flows in shared memory. A function can join without re-cabling the facility.</p></article>
+        <article><span>02</span><h3>Compute can move</h3><p>The Fabrics API carries raw grains between hosts. Contribution, production and storage can live on different machines — or different network islands.</p></article>
+        <article><span>03</span><h3>Control can be standard</h3><p>The project exposes MXL flows through NMOS IS-04 / BCP-007-03 and has been driven from a physical Stream Deck through Bitfocus Companion.</p></article>
+      </div>
+    </section>
+
+    <section class="section architecture-section" id="architecture">
+      <div class="shell">
+        <div class="section-heading split-heading">
+          <div><p class="eyebrow">02 / ARCHITECTURE</p><h2>One production.<br>Four ways to follow it.</h2></div>
+          <p>Select a view to trace what changes. The same program can stay live, cross hosts as raw grains, become a time-addressable archive, and surface to standard controllers.</p>
+        </div>
+
+        <div class="mode-tabs" role="tablist" aria-label="Architecture views">
+          <button class="active" role="tab" aria-selected="true" data-mode="live"><span>01</span> LIVE PRODUCTION</button>
+          <button role="tab" aria-selected="false" data-mode="fabric"><span>02</span> INTER-HOST FABRIC</button>
+          <button role="tab" aria-selected="false" data-mode="archive"><span>03</span> TAMS ARCHIVE</button>
+          <button role="tab" aria-selected="false" data-mode="control"><span>04</span> NMOS CONTROL</button>
+        </div>
+
+        <div class="architecture-grid mode-live" id="architecture-diagram">
+          <div class="arch-card sources" data-path="live fabric">
+            <small>CONTRIBUTION</small><h3>Real sources</h3>
+            <ul><li>PTZ camera</li><li>Makito / SDI camera</li><li>Phone &amp; remote guests</li><li>File playout</li></ul>
+            <span class="protocol">SRT / RTSP</span>
+          </div>
+          <div class="arch-arrow arrow-one" aria-hidden="true"><i></i></div>
+          <div class="arch-card production" data-path="live fabric archive control">
+            <small>PRODUCTION VM</small><h3>MXL domain</h3>
+            <div class="chips"><span>SELECTOR</span><span>LAYOUT</span><span>KEYER</span><span>AUDIO</span><span>MULTIVIEW</span></div>
+            <span class="protocol">/dev/shm · v210</span>
+          </div>
+          <div class="arch-arrow arrow-two" aria-hidden="true"><i></i></div>
+          <div class="arch-card destinations" data-path="live">
+            <small>DELIVERY</small><h3>One finished program</h3>
+            <ul><li>WebRTC viewers</li><li>SRT output</li><li>Program multiview</li></ul>
+            <span class="protocol">ENCODE ONCE</span>
+          </div>
+          <div class="arch-card fabric-card" data-path="fabric">
+            <small>FABRICS API</small><h3>Remote memory</h3><p>30 grains/s sustained across hosts at approximately 1.3 Gbps for one 1080p30 v210 flow.</p>
+          </div>
+          <div class="arch-card tams-card" data-path="archive">
+            <small>TIME-ADDRESSABLE</small><h3>TAMS store</h3><p>Live one-second segments, instant timerange clips and shared media objects with zero-copy clip registration.</p>
+          </div>
+          <div class="arch-card nmos-card" data-path="control">
+            <small>CONTROL PLANE</small><h3>NMOS + hardware</h3><p>IS-04 discovery, BCP-007-03 MXL tags, PGM/PVW tally and a Companion module for physical operation.</p>
+          </div>
+        </div>
+
+        <p class="mode-description" id="mode-description">A seven-input selector, live layout compositor, program audio mixer and HTML5 keyer operate against flows in a single shared-memory domain.</p>
+      </div>
+    </section>
+
+    <section class="section shell" id="proof">
+      <div class="section-heading split-heading">
+        <div><p class="eyebrow">03 / PROOF, NOT PROMISE</p><h2>Built, measured<br>and broken in public.</h2></div>
+        <p>This is not a product announcement. It is a reproducible field project built ahead of and exercised during IBC 2026 week — including the failure modes, workarounds and measurements that make an early system useful to other engineers.</p>
+      </div>
+
+      <div class="proof-grid">
+        <figure class="proof-main">
+          <img src="images/demo-camera.png" alt="Live camera passing through the MXL production with cloud keyed graphics">
+          <figcaption><span>LIVE CAMERA</span> Studio camera → SRT → shared-memory domain → selector → HTML5 keyer → WebRTC.</figcaption>
+        </figure>
+        <figure>
+          <img src="images/nmos-in-registry.png" alt="MXL flows visible in an NMOS registry">
+          <figcaption><span>STANDARD DISCOVERY</span> MXL flows exposed as NMOS senders and receivers.</figcaption>
+        </figure>
+        <figure>
+          <img src="images/tams-clip-bin.png" alt="TAMS clip bin created from the live program">
+          <figcaption><span>LIVE TO ARCHIVE</span> A shared TAMS clip bin without duplicating media.</figcaption>
+        </figure>
+      </div>
+
+      <div class="findings-strip">
+        <div><p class="eyebrow">THE USEFUL PART</p><h3>The scars are documented.</h3></div>
+        <p>Reader lifecycle failures, repeat-last-grain wedges, timestamp alignment, stale ring slots, compositor bottlenecks, SRT latency and recovery cascades are written down with the fixes that held.</p>
+        <a class="text-link" href="FINDINGS.md">Read the findings <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+
+    <section class="section capabilities-section">
+      <div class="shell">
+        <div class="section-heading"><p class="eyebrow">04 / WHAT EXISTS TODAY</p><h2>A control room, assembled as code.</h2></div>
+        <div class="capability-grid">
+          <article><span>01</span><h3>Real-time switching</h3><p>PGM/PVW buses, clean IDR-aware cuts and live source thumbnails.</p></article>
+          <article><span>02</span><h3>Open contribution</h3><p>Scan-to-join phone feeds land on an isolated host and cross via fabric.</p></article>
+          <article><span>03</span><h3>Layouts &amp; graphics</h3><p>2-up / PiP composition and HTML5 keying remain live as sources change.</p></article>
+          <article><span>04</span><h3>Program audio</h3><p>Audio-follow-video, contributor adoption, per-input faders and mute.</p></article>
+          <article><span>05</span><h3>Native multiview</h3><p>Eight domain sources composed into a new peer flow and encoded once.</p></article>
+          <article><span>06</span><h3>Live-to-TAMS</h3><p>Record while live, scrub by time, register zero-copy clips and export MP4.</p></article>
+          <article><span>07</span><h3>NMOS discovery</h3><p>IS-04 resources tagged for MXL per AMWA BCP-007-03.</p></article>
+          <article><span>08</span><h3>Physical control</h3><p>A Bitfocus Companion module puts cuts, tally and layouts on Stream Deck.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section build-section shell" id="build">
+      <div class="build-card">
+        <div class="build-copy">
+          <p class="eyebrow">05 / REPRODUCE IT</p>
+          <h2>From fresh Ubuntu VM to a cuttable MXL production in about ten minutes.</h2>
+          <p>The validated quickstart assembles the upstream media-function containers into a browser-watchable baseline: test pattern, playout, selector, HTML5 graphics and WebRTC output. Then add cameras, audio, contribution, layouts, multiview and TAMS one function at a time.</p>
+          <div class="requirements"><span>Ubuntu 22.04 / 24.04</span><span>x86-64 + AVX</span><span>Docker</span><span>~10 GB disk</span></div>
+          <div class="hero-actions"><a class="button primary" href="QUICKSTART.md">Open the quickstart</a><a class="button secondary" href="FIELD-NOTES.md">Read field notes</a></div>
+        </div>
+        <div class="terminal" aria-label="Quickstart commands">
+          <div class="terminal-bar"><span></span><span></span><span></span><small>mxl-quickstart</small></div>
+          <pre><code><span>$</span> git clone https://github.com/
+  guycochran/mxl-cloud-production-demo
+
+<span>$</span> cd mxl-cloud-production-demo
+
+<span>$</span> sudo scripts/quickstart.sh
+
+<b>✓ MXL SWITCHER IS ON AIR</b></code></pre>
+          <button class="copy" type="button" data-copy="git clone https://github.com/guycochran/mxl-cloud-production-demo && cd mxl-cloud-production-demo && sudo scripts/quickstart.sh">COPY COMMAND</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section ecosystem shell">
+      <div class="section-heading split-heading">
+        <div><p class="eyebrow">BUILT ON OPEN WORK</p><h2>This project is a guest<br>in a larger ecosystem.</h2></div>
+        <p>The lab exists because other teams opened the architecture, SDK, media functions and orchestration. Start with their work; use this repository as field evidence and integration glue.</p>
+      </div>
+      <div class="ecosystem-links">
+        <a href="https://tech.ebu.ch/groups/dynamic-media-facility"><small>VISION</small><b>EBU Dynamic Media Facility</b><span>Reference architecture and working group →</span></a>
+        <a href="https://github.com/dmf-mxl/dmf-mxl"><small>DATA PLANE</small><b>Media eXchange Layer</b><span>Official open-source SDK →</span></a>
+        <a href="https://github.com/cbcrc/mxl-hands-on"><small>MEDIA FUNCTIONS</small><b>CBC/Radio-Canada mxl-hands-on</b><span>Containers and exercises →</span></a>
+        <a href="https://github.com/CLOUDflex-broadcast/easy-mxl"><small>ORCHESTRATION</small><b>CLOUDflex easy-mxl</b><span>Approachable domain control →</span></a>
+        <a href="https://specs.amwa.tv/bcp-007-03/"><small>CONTROL</small><b>AMWA BCP-007-03</b><span>NMOS support for MXL →</span></a>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="shell closing-inner">
+        <p class="eyebrow">AN OPEN QUESTION, RUNNING AS CODE</p>
+        <h2>What should an MXL-native<br>switcher become?</h2>
+        <p>Fork it. Reproduce it. Challenge the measurements. Replace a function. Bring a different controller. File what breaks. The point is not to define the answer alone — it is to make the conversation testable.</p>
+        <div class="hero-actions"><a class="button primary" href="https://github.com/guycochran/mxl-cloud-production-demo">Join the work on GitHub <span aria-hidden="true">↗</span></a><a class="button secondary" href="https://github.com/guycochran/mxl-cloud-production-demo/issues">Open an issue</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer shell">
+    <div class="brand footer-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><b>SWITCHER LAB</b><small>FOR MXL™</small></span></div>
+    <p>MIT licensed · Guy Cochran / Office Hours Global · 2026</p>
+    <p class="legal">Media eXchange Layer (MXL) is a trademark of LF Projects, LLC. This independent project is not affiliated with or endorsed by LF Projects, EBU, AMWA, CBC/Radio-Canada or CLOUDflex. Names are used only to identify the upstream projects and compatibility discussed.</p>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>
