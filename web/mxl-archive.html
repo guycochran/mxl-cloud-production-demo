@@ -115,6 +115,10 @@
   .vidwrap{max-width:420px;margin:8px auto 0;border:1px solid var(--line);border-radius:16px;
     overflow:hidden;box-shadow:0 20px 50px -28px rgba(0,0,0,.7)}
   .vidwrap video{width:100%;display:block;background:#000;aspect-ratio:9/16}
+  /* 16:9 responsive YouTube embed */
+  .ytwrap{position:relative;width:100%;aspect-ratio:16/9;margin-top:8px;border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;box-shadow:0 20px 50px -28px rgba(0,0,0,.7);background:#000}
+  .ytwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 
   /* ── credits ── */
   .credits{border-top:1px solid var(--line);padding:clamp(36px,5vw,60px) 0 80px}
@@ -202,7 +206,19 @@
   </section>
 
   <section>
-    <h2><span class="num">03</span> A clip it made</h2>
+    <h2><span class="num">03</span> See it running live</h2>
+    <p class="sub">The switcher driving a real Office Hours Global show. This clip starts on the MXL demo segment — cutting cameras, keying graphics and scrubbing the TAMS recording, live on air.</p>
+    <div class="ytwrap">
+      <iframe src="https://www.youtube-nocookie.com/embed/3Pgc_yGmeUA?start=95&rel=0"
+        title="Office Hours Global — MXL cloud switcher demo (live)"
+        loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    </div>
+    <p class="shotcap" style="text-align:center;margin-top:12px">// Extra Hours · Episode 108 — the MXL demo segment starts at 1:35</p>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span> A clip it made</h2>
     <p class="sub">Cut live through four inputs, pulled from the TAMS store, and exported as a 9:16 Short — 480 frames of exact constant-rate 30fps, straight through the pipeline.</p>
     <div class="vidwrap">
       <video controls playsinline preload="metadata" poster="/archive/img/clipper.png">
@@ -226,6 +242,7 @@
         <span class="chip">Cloudflare Tunnel</span>
         <span class="chip">v210 shared memory</span>
       </div>
+      <p class="shotcap" style="margin-top:22px;max-width:70ch">Media eXchange Layer (MXL) is a trademark of LF Projects, LLC. This independent field project is not affiliated with or endorsed by LF Projects, EBU, AMWA, CBC/Radio-Canada or CLOUDflex — names identify the upstream projects discussed. &nbsp;<a href="/">← project front door</a></p>
       <div class="foot">
         <span>mxlswitcher.com · archive</span>
         <span>Office Hours Global · September 2026</span>
