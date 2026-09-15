@@ -61,10 +61,21 @@ def worker(name, uuid):
             pipe.set_state(Gst.State.PLAYING)
             last = time.time()
             last_sig, last_change = None, time.time()
+            try:
+                ino0 = os.stat(f'/mxl-domain/{uuid}.mxl-flow').st_ino
+            except OSError:
+                ino0 = None
             while True:
+                # flow recreated (guest reconnect/reset) -> our reader is on a
+                # dead generation; rebuild NOW instead of waiting for the stall.
+                try:
+                    if ino0 is not None and os.stat(f'/mxl-domain/{uuid}.mxl-flow').st_ino != ino0:
+                        raise RuntimeError('flow recreated — rebuilding reader')
+                except OSError:
+                    pass
                 sample = sink.emit('try-pull-sample', 3 * Gst.SECOND)
                 if sample is None:
-                    if time.time() - last > 12:
+                    if time.time() - last > 6:
                         raise RuntimeError('stalled (wedged reader or writer gone)')
                     continue
                 buf = sample.get_buffer()
@@ -83,8 +94,8 @@ def worker(name, uuid):
                     sig = data[-64:]
                     if sig != last_sig:
                         last_sig, last_change = sig, time.time()
-                    elif time.time() - last_change > 30:
-                        raise RuntimeError('content frozen 30s (repeat-wedged reader)')
+                    elif time.time() - last_change > 10:
+                        raise RuntimeError('content frozen 10s (repeat-wedged reader)')
                     STATE[name] = {'last': last, 'changed': last_change}
         except Exception as e:
             print(f'{name}: {e}', flush=True)
@@ -96,7 +107,7 @@ def worker(name, uuid):
         except FileNotFoundError:
             pass
         STATE.pop(name, None)  # health.json shows the slot as no-signal
-        time.sleep(5)
+        time.sleep(2)
 
 
 def health():
