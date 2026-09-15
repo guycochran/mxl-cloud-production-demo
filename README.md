@@ -22,6 +22,31 @@ steady **load ~10–11 of 32 cores**; a D16 ran it before the multiview and seco
 camera existed, at ~14/16 — tight. Sizing details in
 [Build one yourself](#build-one-yourself).
 
+## What's in this repo (and what isn't)
+
+This is the **open core**: the MXL/TAMS switcher — contribution ingest, the
+shared-memory domain wiring, the selector/keyer/audio writers, the browser
+switcher UI, multiview, and the TAMS clipper. Everything the standards story
+depends on is here and buildable.
+
+**Camera *control* (PTZ pan/tilt/zoom, presets, voice) is not in this repo.** In
+the live demo that panel is [ProdBots](https://prodbots.com), a separate
+commercial project of ours. The switcher treats camera control as a *replaceable
+media function* — the PTZ tab simply embeds an operator app at `/ptz_op.html` and
+any VISCA / RTSP / SRT camera works as the source. So:
+
+- **The video path is fully open** — a real camera flows through MXL end to end
+  with nothing proprietary in the chain.
+- **To drive PTZ**, plug in your own operator app at that embed point, or use
+  ProdBots. The camera *ingest* ([`tools/cam_ingest.py`](tools/cam_ingest.py)) is
+  here; the *operator console* is the piece you bring.
+
+We kept it this way on purpose: it mirrors the MXL thesis (compose a plant from
+replaceable functions) and lets us open the switcher without giving away ProdBots.
+If you build from this repo, expect a complete switcher with a documented seam
+where camera control plugs in — not the turnkey voice-driven PTZ shown in the
+demo video.
+
 ![Live camera through MXL](docs/images/demo-camera.png)
 *Live PTZ camera (US studio) → SRT → MXL domain in Azure → HTML5 graphics keyed in-cloud →
 WebRTC to the browser. The visitor pans the real camera from the right-hand console.*
