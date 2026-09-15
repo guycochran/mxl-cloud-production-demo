@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Switcher — Cloud Production Lab · Office Hours Global</title>
+<meta name="description" content="An archive of a live, browser-native broadcast switcher running on open standards — EBU MXL shared memory + BBC TAMS — in Azure. Built by Office Hours Global.">
+<meta property="og:title" content="MXL Switcher — Cloud Production Lab">
+<meta property="og:description" content="A live broadcast switcher on open standards (EBU MXL + BBC TAMS), running in the cloud, driven from a browser. Office Hours Global.">
+<style>
+  :root{
+    --bg:#0f1218; --panel:#151a23; --panel-2:#1b212c; --line:#28303d;
+    --ink:#e8edf4; --ink-2:#aab6c6; --ink-3:#6f7d90;
+    --teal:#38c0cc; --teal-dim:#1f6f78; --amber:#e0a13c; --red:#e5484d;
+    --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --disp:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;
+    --body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --maxw:1080px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#eef1f5; --panel:#ffffff; --panel-2:#f4f6f9; --line:#d7dde5;
+      --ink:#141a22; --ink-2:#414d5e; --ink-3:#75818f;
+      --teal:#0e8b97; --amber:#a9741a; --red:#c22d33;
+    }
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--body);line-height:1.6;
+    -webkit-font-smoothing:antialiased}
+  img{max-width:100%;display:block}
+  a{color:var(--teal);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 clamp(18px,4vw,40px)}
+
+  /* ── top status bar ── */
+  .statusbar{border-bottom:1px solid var(--line);background:var(--panel);
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em}
+  .statusbar .wrap{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;
+    padding-top:12px;padding-bottom:12px}
+  .statusbar .brand{color:var(--ink);font-weight:600}
+  .statusbar .brand b{color:var(--teal)}
+  .statusbar .sep{color:var(--ink-3)}
+  .statusbar .off{color:var(--amber);display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+  .statusbar .off .dot{width:8px;height:8px;border-radius:50%;background:var(--amber)}
+
+  /* ── hero ── */
+  .hero{padding:clamp(40px,7vw,84px) 0 clamp(28px,4vw,48px)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--teal);margin-bottom:16px;display:flex;align-items:center;gap:10px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--teal)}
+  h1{font-family:var(--disp);font-weight:600;font-size:clamp(44px,9vw,92px);line-height:.94;
+    letter-spacing:-.015em;text-wrap:balance;margin-bottom:18px}
+  h1 .hl{color:var(--teal)}
+  .lede{font-size:clamp(18px,2.6vw,23px);color:var(--ink-2);max-width:60ch;text-wrap:pretty}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .heroshot{margin:clamp(28px,4vw,44px) 0 8px;border:1px solid var(--line);border-radius:14px;
+    overflow:hidden;box-shadow:0 24px 60px -30px rgba(0,0,0,.7);position:relative}
+  .heroshot img{width:100%}
+  .shotcap{font-family:var(--mono);font-size:12.5px;color:var(--ink-3);margin-top:10px;letter-spacing:.02em}
+  .shotcap b{color:var(--teal);font-weight:500}
+
+  /* ── section ── */
+  section{padding:clamp(38px,6vw,72px) 0;border-top:1px solid var(--line)}
+  h2{font-family:var(--disp);font-weight:600;font-size:clamp(28px,4.6vw,42px);letter-spacing:-.01em;
+    margin-bottom:6px;display:flex;align-items:baseline;gap:14px}
+  h2 .num{font-family:var(--mono);font-size:15px;font-weight:500;color:var(--teal);letter-spacing:0}
+  .sub{color:var(--ink-2);max-width:64ch;margin-bottom:26px;font-size:17px}
+  p{margin-bottom:14px}
+  strong{color:var(--ink);font-weight:600}
+  .mono{font-family:var(--mono)}
+
+  /* ── pillars ── */
+  .pillar{display:grid;grid-template-columns:1fr 1.35fr;gap:clamp(20px,3vw,40px);align-items:center;
+    margin-bottom:clamp(30px,4vw,52px)}
+  .pillar:nth-child(even){grid-template-columns:1.35fr 1fr}
+  .pillar:nth-child(even) .ptext{order:2}
+  .pillar .pshot{border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    box-shadow:0 16px 40px -26px rgba(0,0,0,.7)}
+  .pillar h3{font-family:var(--disp);font-weight:600;font-size:clamp(24px,3.4vw,30px);
+    letter-spacing:-.005em;margin-bottom:8px}
+  .pillar h3 .tag{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--teal);display:block;margin-bottom:4px}
+  .pillar p{color:var(--ink-2);font-size:15.5px;margin-bottom:10px}
+  @media(max-width:720px){
+    .pillar,.pillar:nth-child(even){grid-template-columns:1fr}
+    .pillar:nth-child(even) .ptext{order:0}
+  }
+
+  /* ── spec strip ── */
+  .specs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:8px}
+  .spec{background:var(--panel);padding:18px 20px}
+  .spec .k{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-3);margin-bottom:6px}
+  .spec .v{font-family:var(--disp);font-size:26px;font-weight:600;color:var(--ink);line-height:1}
+  .spec .v small{font-size:14px;color:var(--ink-2);font-family:var(--body);font-weight:400}
+
+  /* ── explainer callout ── */
+  .callout{background:linear-gradient(120deg,color-mix(in srgb,var(--teal) 9%,var(--panel)),var(--panel));
+    border:1px solid var(--teal-dim);border-radius:16px;padding:clamp(26px,4vw,40px);
+    display:flex;flex-wrap:wrap;gap:22px;align-items:center;justify-content:space-between}
+  .callout .ctext{flex:1;min-width:280px}
+  .callout .big{font-family:var(--disp);font-weight:500;font-size:clamp(22px,3.4vw,30px);
+    line-height:1.1;letter-spacing:-.005em;margin-bottom:8px}
+  .callout .big .k{color:var(--teal)}
+  .callout p{color:var(--ink-2);margin:0;font-size:15px}
+  .btn{font-family:var(--mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--teal);color:#06121a;font-weight:600;padding:14px 22px;border-radius:9px;
+    white-space:nowrap;transition:transform .12s ease}
+  .btn:hover{text-decoration:none;transform:translateY(-2px)}
+
+  /* ── video ── */
+  .vidwrap{max-width:420px;margin:8px auto 0;border:1px solid var(--line);border-radius:16px;
+    overflow:hidden;box-shadow:0 20px 50px -28px rgba(0,0,0,.7)}
+  .vidwrap video{width:100%;display:block;background:#000;aspect-ratio:9/16}
+
+  /* ── credits ── */
+  .credits{border-top:1px solid var(--line);padding:clamp(36px,5vw,60px) 0 80px}
+  .credits .who{font-family:var(--disp);font-size:clamp(26px,4vw,36px);font-weight:600;margin-bottom:6px}
+  .credits .who .hl{color:var(--teal)}
+  .credits p{color:var(--ink-2);max-width:60ch}
+  .stack{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:20px}
+  .chip{font-family:var(--mono);font-size:12px;letter-spacing:.03em;color:var(--ink-2);
+    border:1px solid var(--line);border-radius:6px;padding:6px 11px;background:var(--panel)}
+  .chip b{color:var(--teal);font-weight:500}
+  .foot{margin-top:32px;font-family:var(--mono);font-size:12px;color:var(--ink-3);
+    display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;letter-spacing:.02em}
+</style>
+</head>
+<body>
+
+<div class="statusbar">
+  <div class="wrap">
+    <span class="brand"><b>MXL</b> SWITCHER</span>
+    <span class="sep">·</span>
+    <span>an Office Hours Global cloud production lab</span>
+    <span class="off"><span class="dot"></span>ARCHIVE · lab offline</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">EBU MXL · BBC TAMS · Azure · WebRTC</p>
+    <h1>A broadcast switcher that lived <span class="hl">in the cloud</span> and ran in a browser.</h1>
+    <p class="lede">For a few days in September 2026, every frame on this page crossed an <b>MXL shared-memory domain running in Azure</b> — cut live, clipped frame-accurate, and delivered to a browser over WebRTC. No SDI. No proprietary codecs in the middle. Just open standards. This is its archive.</p>
+
+    <figure class="heroshot">
+      <img src="/archive/img/switcher.png" alt="The MXL Switcher live: a studio camera on program with the Office Hours Global lower-third, source thumbnails, cut bar, keyer and mixer." loading="eager" width="1600">
+    </figure>
+    <figcaption class="shotcap">The switcher, live. <b>Program</b> is a real studio camera in the U.S., ingested to Azure, composited out of shared memory, and streamed back to the browser — with burned-in timecode proving it's the genuine feed, not a loop.</figcaption>
+  </header>
+
+  <section>
+    <h2><span class="num">01</span> What it did</h2>
+    <p class="sub">Three broadcast pillars — switch, clip, distribute — all browser-native, all on open standards, all running on Linux VMs in Azure.</p>
+
+    <div class="pillar">
+      <div class="ptext">
+        <h3><span class="tag">Switch · live</span>Cut the show from anywhere</h3>
+        <p>A full production switcher in the browser: preview/program, a keyer with SMPTE test patterns and lower-thirds, 2-UP / PiP / 4-UP layouts, and an audio mixer. Sources live natively in the MXL domain as uncompressed <span class="mono">1080p30 v210</span> — the switch is a pointer flip in shared memory, not a re-encode.</p>
+      </div>
+      <div class="pshot"><img src="/archive/img/multiview.png" alt="MXL multiview wall showing all program sources at once." loading="lazy"></div>
+    </div>
+
+    <div class="pillar">
+      <div class="ptext">
+        <h3><span class="tag">Clip · frame-accurate</span>Grab a highlight, export a Short</h3>
+        <p>A browser NLE reading directly from a <b>BBC TAMS</b> time-addressable store: scrub by timecode, mark in/out on the frame, and export a frame-exact clip <em>with audio</em> — assembled in-browser with ffmpeg.wasm. One toggle turns any moment into a vertical <span class="mono">1080×1920</span> YouTube Short.</p>
+      </div>
+      <div class="pshot"><img src="/archive/img/clipper.png" alt="The MXL clipper — a browser NLE with timeline, waveform and clip bin." loading="lazy"></div>
+    </div>
+
+    <div class="pillar">
+      <div class="ptext">
+        <h3><span class="tag">Distribute · monitor</span>See the whole plant at a glance</h3>
+        <p>A live health wall for every flow, VM and tunnel — grain rates, fabric throughput, decode integrity — so a one-day event can run unattended. The full TAMS editor sits alongside for deep review of the recorded timeline.</p>
+      </div>
+      <div class="pshot"><img src="/archive/img/tams-editor.png" alt="The TAMS timeline editor." loading="lazy"></div>
+    </div>
+
+    <div class="specs">
+      <div class="spec"><div class="k">Camera flow</div><div class="v">1080p30 <small>v210</small></div></div>
+      <div class="spec"><div class="k">Domain</div><div class="v">/dev/shm <small>RAM</small></div></div>
+      <div class="spec"><div class="k">VM fabric</div><div class="v">1.3 <small>Gbps</small></div></div>
+      <div class="spec"><div class="k">Clip export</div><div class="v">CFR 30 <small>exact</small></div></div>
+      <div class="spec"><div class="k">Standards</div><div class="v">MXL <small>+ TAMS</small></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span> Why it matters</h2>
+    <div class="callout">
+      <div class="ctext">
+        <div class="big">The tenth consumer of a camera is a <span class="k">pointer</span>, not a stream.</div>
+        <p>MXL collapses the interior of a software plant to zero-copy, zero-codec — encode/decode only at the true edges. The architecture note explains how that beats NDI / SDI / ST&nbsp;2110 for fan-out, and where the "free" honestly stops.</p>
+      </div>
+      <a class="btn" href="/mxl-explainer.html">Read the note →</a>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span> A clip it made</h2>
+    <p class="sub">Cut live through four inputs, pulled from the TAMS store, and exported as a 9:16 Short — 480 frames of exact constant-rate 30fps, straight through the pipeline.</p>
+    <div class="vidwrap">
+      <video controls playsinline preload="metadata" poster="/archive/img/clipper.png">
+        <source src="/archive/media/mxl-short-demo.mp4" type="video/mp4">
+        Your browser can't play this clip.
+      </video>
+    </div>
+    <p class="shotcap" style="text-align:center;margin-top:12px">// 1080×1920 · H.264 · CFR 30 · exported in-browser via ffmpeg.wasm</p>
+  </section>
+
+  <div class="credits">
+    <div class="wrap" style="padding:0">
+      <div class="who">Built by <span class="hl">Office Hours Global</span></div>
+      <p>A working proof that open broadcast standards — EBU MXL and BBC TAMS — can power a real, cloud-native production plant driven entirely from a browser. Shared for the standards community; the switcher is powered down between events, but everything it did lives here.</p>
+      <div class="stack">
+        <span class="chip"><b>EBU</b> MXL</span>
+        <span class="chip"><b>BBC</b> TAMS</span>
+        <span class="chip">Azure Linux VMs</span>
+        <span class="chip">mediamtx · WebRTC</span>
+        <span class="chip">ffmpeg.wasm</span>
+        <span class="chip">Cloudflare Tunnel</span>
+        <span class="chip">v210 shared memory</span>
+      </div>
+      <div class="foot">
+        <span>mxlswitcher.com · archive</span>
+        <span>Office Hours Global · September 2026</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
