@@ -142,3 +142,32 @@ don't; keep both hosts in one zone (§2).
 - **Full 32-core proof vs. reduced 8-core proof** while quota is pending.
 - **Is this worth building at all before the credits expire, or capture the plan
   and revisit?** This doc is the plan either way.
+
+## 8. Field notes from the GCP multi-cam attempt (2026-09-15)
+
+Real gotchas hit standing up Cam1 + Cam2 + Playout on GCP (all reproducible, all
+worth knowing before you try):
+
+- **Selector requires a uniform grain rate.** A PTZ pushing native **1080p60**
+  lands as a 60/1 flow; the selector rejects the input set with
+  `Input formats do not match — grain_rate 60/1 ≠ 30/1`. Fix: normalize on ingest
+  with `videorate ! video/x-raw,framerate=30/1` (or force `-r 30` on the SRT push).
+- **Never reconfigure a *running* selector.** `stop`→`start` on a live selector to
+  add inputs cascades: the keyer/encoder lose their source and the WebRTC WHIP
+  publish wedges ("stream not found"). Build the full input set at first start,
+  in dependency order (writers → selector → keyer → encoder), the way
+  `scripts/bring-up-mxl.sh` does — do NOT hot-add inputs.
+- **The encoder's `video_flow_uuid` is the KEYER OUTPUT, which is deterministic
+  from the keyer's label/description** (byte-exact), not a random runtime UUID.
+  In `bring-up-mxl.sh` that's `5c73394e-…` (keyer-pgm-flow.json). Point the
+  encoder at the *derived* UUID, and discover UUIDs by label at each step rather
+  than assuming.
+- **Real PTZ → GCP over SRT works.** Pushing `rtsp://192.168.6.89` from a studio
+  box to `srt://<host-ip>:8890?streamid=publish:cam1` landed the live camera on
+  GCP end to end. The PTZ's **built-in SRT sender** is the optimized path (no
+  ffmpeg transcode hop). Only one publisher per SRT stream name — kill any
+  synthetic test pusher on the same `publish:cam1` first.
+- **cam_ingest zombies + SSH `pkill` hazard.** `pkill -f run-camN.sh` self-matches
+  the killing shell; on an already-running box it leaves duplicate ingest
+  supervisors fighting over one flow-id. Use file-based runners whose cmdline
+  carries a unique token, and verify exactly one reader per flow.
