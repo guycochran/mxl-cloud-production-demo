@@ -8,7 +8,23 @@
 > works on Azure works on GCP — portability proven.** The full 32‑core two‑host
 > rig awaits a `CPUS_ALL_REGIONS` quota bump (default 12; see §3).
 
-**Status: single‑host proof DONE; full two‑host rig pending quota.** This plan maps the running Azure facility onto
+> **Two‑host fabric, 2026‑09‑15 (partial):** Quota bump approved (12→48 in ~1 min),
+> full 32‑core Host 1 + 8‑core Host 2 both up in one VPC/zone, and
+> `mxl-fabrics-demo` (libfabric 2.6.0 + MXL v1.1.0) built from source on both. The
+> **fabric link is proven**: initiator on Host 1 connects to the target on Host 2
+> across the VPC (`10.10.0.10 → 10.10.0.11:1313`, tcp provider, no NAT/sockaddr
+> patch needed same‑subnet), the target accepts, and the flow **materializes** in
+> Host 2's `domain_fabric` (`data`, `flow_def.json`, `grains/`). **Grain *transfer*
+> was not confirmed** — the initiator connects, logs "batch size 1080 slices", then
+> emits no rate; the demo tool exposes no transfer diagnostics and `mxl-info`'s
+> "grain count" is the ring size, not an advancing head, so advancement couldn't be
+> measured from outside. Consistent with the FINDINGS note that the fabric layer is
+> finicky and under‑instrumented. **Build recipe gotchas found (missing from
+> JONAS‑FABRIC‑HANDOFF):** must `git clone + bootstrap vcpkg` at `~/vcpkg` first
+> (the preset hardcodes that path); there are **no build presets**, so build with
+> `cmake --build build/Linux-GCC-Release -j$(nproc)`, not `--build --preset`.
+
+**Status: single‑host proof DONE; two‑host fabric link proven, grain‑flow unconfirmed.** This plan maps the running Azure facility onto
 Google Compute Engine, sized to a **$300 free-credit window (expires 2026‑12‑02)**.
 The point is a *portability proof*: the same stack — Linux + shared memory —
 running identically on a third cloud, reinforcing the "no vendor lock-in, general
