@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Why EBU MXL's zero-copy shared-memory interior beats NDI/SDI/2110 for software production fan-out. An architecture note from the Office Hours Global cloud production lab.">
+<style>*{margin:0;padding:0}html{-webkit-text-size-adjust:100%}img{max-width:100%}</style>
+<title>MXL: The Zero-Copy Interior</title>
+<style>
+  :root{
+    --bg:#0f1218; --panel:#151a23; --panel-2:#1b212c; --line:#28303d;
+    --ink:#e8edf4; --ink-2:#aab6c6; --ink-3:#6f7d90;
+    --teal:#38c0cc; --teal-dim:#1f6f78; --amber:#e0a13c; --red:#e5484d; --red-dim:#7d2c30;
+    --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --disp:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;
+    --body:'Inter',system-ui,-apple-system,Segoe UI,sans-serif;
+    --maxw:920px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#eef1f5; --panel:#ffffff; --panel-2:#f4f6f9; --line:#d7dde5;
+      --ink:#141a22; --ink-2:#414d5e; --ink-3:#75818f;
+      --teal:#0e8b97; --teal-dim:#bfe6ea; --amber:#a9741a; --red:#c22d33; --red-dim:#f3cdcf;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1218; --panel:#151a23; --panel-2:#1b212c; --line:#28303d;
+    --ink:#e8edf4; --ink-2:#aab6c6; --ink-3:#6f7d90;
+    --teal:#38c0cc; --teal-dim:#1f6f78; --amber:#e0a13c; --red:#e5484d; --red-dim:#7d2c30;
+  }
+  :root[data-theme="light"]{
+    --bg:#eef1f5; --panel:#ffffff; --panel-2:#f4f6f9; --line:#d7dde5;
+    --ink:#141a22; --ink-2:#414d5e; --ink-3:#75818f;
+    --teal:#0e8b97; --teal-dim:#bfe6ea; --amber:#a9741a; --red:#c22d33; --red-dim:#f3cdcf;
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--body);line-height:1.6;
+    -webkit-font-smoothing:antialiased;margin:0;padding:0}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:clamp(28px,5vw,64px) clamp(18px,4vw,40px) 80px}
+
+  /* ── header ── */
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--teal);margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--teal);display:inline-block}
+  h1{font-family:var(--disp);font-weight:600;font-size:clamp(38px,7vw,68px);line-height:.98;
+    letter-spacing:-.01em;margin:0 0 8px;text-wrap:balance}
+  h1 .hl{color:var(--teal)}
+  .dek{font-size:clamp(17px,2.4vw,21px);color:var(--ink-2);max-width:58ch;margin:0 0 6px;text-wrap:pretty}
+
+  /* ── thesis pull ── */
+  .thesis{margin:40px 0;padding:26px 30px;border-left:3px solid var(--teal);
+    background:linear-gradient(90deg,var(--panel) 0%,transparent 90%);border-radius:0 10px 10px 0}
+  .thesis p{font-family:var(--disp);font-weight:500;font-size:clamp(24px,4vw,34px);line-height:1.12;
+    margin:0;letter-spacing:-.005em;color:var(--ink)}
+  .thesis .k{color:var(--teal)}
+  .thesis .r{color:var(--red)}
+
+  h2{font-family:var(--disp);font-weight:600;font-size:clamp(24px,3.6vw,32px);letter-spacing:-.005em;
+    margin:56px 0 4px;display:flex;align-items:baseline;gap:12px}
+  h2 .num{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--teal);letter-spacing:0}
+  .lead{color:var(--ink-2);margin:6px 0 22px;max-width:62ch}
+
+  p{margin:0 0 14px}
+  strong{color:var(--ink);font-weight:600}
+  .mono{font-family:var(--mono)}
+
+  /* ── diagram ── */
+  .figure{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:8px;margin:22px 0 10px;overflow-x:auto}
+  #diag{display:block;width:100%;height:auto}
+  .figcap{font-size:13px;color:var(--ink-3);margin:2px 4px 0;font-family:var(--mono);letter-spacing:.01em}
+
+  /* ── cost cards ── */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card .cost{font-family:var(--mono);font-size:13px;letter-spacing:.04em;text-transform:uppercase;
+    display:inline-flex;align-items:center;gap:7px;margin-bottom:10px}
+  .card.free .cost{color:var(--teal)}
+  .card.paid .cost{color:var(--amber)}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .card.free .dot{background:var(--teal)}
+  .card.paid .dot{background:var(--amber)}
+  .card h3{font-family:var(--body);font-size:16px;font-weight:600;margin:0 0 6px}
+  .card p{font-size:14.5px;color:var(--ink-2);margin:0}
+
+  /* ── table ── */
+  .tablewrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:12px}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:14.5px}
+  thead th{background:var(--panel-2);text-align:left;padding:14px 16px;font-family:var(--mono);
+    font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  thead th:first-child{color:var(--ink-2)}
+  tbody td{padding:13px 16px;border-bottom:1px solid var(--line);color:var(--ink-2);vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  tbody th{padding:13px 16px;text-align:left;font-weight:600;color:var(--ink);
+    border-bottom:1px solid var(--line);white-space:nowrap;font-family:var(--disp);font-size:18px;letter-spacing:.01em}
+  tbody tr:last-child th{border-bottom:none}
+  .row-mxl th, .row-mxl td{background:color-mix(in srgb,var(--teal) 8%,transparent)}
+  .row-mxl th{color:var(--teal)}
+  .tag{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:5px;white-space:nowrap;display:inline-block}
+  .tag.good{color:var(--teal);background:color-mix(in srgb,var(--teal) 15%,transparent)}
+  .tag.bad{color:var(--red);background:color-mix(in srgb,var(--red) 15%,transparent)}
+  .tag.warn{color:var(--amber);background:color-mix(in srgb,var(--amber) 15%,transparent)}
+
+  /* ── caveat ── */
+  .caveat{margin-top:30px;background:color-mix(in srgb,var(--red) 7%,var(--panel));
+    border:1px solid var(--red-dim);border-radius:12px;padding:22px 26px}
+  .caveat .lbl{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--red);margin:0 0 8px;display:flex;align-items:center;gap:8px}
+  .caveat p{margin:0 0 10px;color:var(--ink-2)}
+  .caveat p:last-child{margin-bottom:0}
+  .caveat strong{color:var(--ink)}
+
+  /* ── footer ── */
+  .foot{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between;
+    font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.03em}
+  .foot .measured{color:var(--teal)}
+
+  .kbd{font-family:var(--mono);font-size:.88em;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:4px;padding:1px 6px;color:var(--ink)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <p class="eyebrow">EBU MXL · Architecture note</p>
+  <h1>The tenth consumer of a camera is a&nbsp;<span class="hl">pointer</span>, not a&nbsp;stream.</h1>
+  <p class="dek">Why zero-copy shared memory changes the economics of a software production plant — and where the "free" honestly stops.</p>
+
+  <div class="thesis">
+    <p>MXL collapses the <span class="k">interior</span> of the plant to zero-copy, zero-codec. Encode and decode happen only at the true <span class="k">edges</span> — camera in, stream out — <span class="r">never in the middle.</span></p>
+  </div>
+
+  <h2><span class="num">01</span> What a "pull" actually costs</h2>
+  <p class="lead">An MXL flow is a ring buffer of grains living in <span class="mono">/dev/shm</span> — tmpfs, which is RAM. The producer writes each frame <em>once</em>. A consumer <span class="mono">mmap()</span>s the same physical pages and reads through a head pointer. So the marginal cost of the Nth reader is:</p>
+
+  <div class="cards">
+    <div class="card free"><div class="cost"><span class="dot"></span>≈ Free</div>
+      <h3>Pixel copies</h3><p>Zero. Every reader maps the <em>same</em> physical RAM. No fan-out duplication of the video itself.</p></div>
+    <div class="card free"><div class="cost"><span class="dot"></span>≈ Free</div>
+      <h3>Codec cycles</h3><p>Zero. The v210 grains sit uncompressed; each reader reads them natively. No decode, no re-encode.</p></div>
+    <div class="card free"><div class="cost"><span class="dot"></span>≈ Free</div>
+      <h3>Added latency</h3><p>~None. A reader sees the frame the instant it's published — no encode / packetize / depacketize pipeline.</p></div>
+    <div class="card paid"><div class="cost"><span class="dot"></span>Paid per user</div>
+      <h3>Memory bandwidth</h3><p>Real, but only when a reader <em>touches</em> pixels (composite, scale). ~166&nbsp;MB/s per 1080p30 v210 read. This — not codecs — is the ceiling.</p></div>
+  </div>
+
+  <h2><span class="num">02</span> Codec-only-at-edges</h2>
+  <p class="lead">Ten switchers pulling the same cameras — each rendering different-language graphics and its own program output. The camera is ingested <strong>once</strong>; the ten readers share its pixels. Only each switcher's <em>own</em> egress encode scales.</p>
+
+  <div class="figure">
+    <canvas id="diag" width="880" height="380" role="img"
+      aria-label="Diagram: one camera is decoded once at ingress into a shared-memory MXL domain. Ten switcher consumers read the same pixels with zero copies. Encoding happens only at each switcher's stream output. NDI, by contrast, would encode once and decode ten times."></canvas>
+  </div>
+  <p class="figcap">// interior = pointer reads · codec cost lives only at ingress + egress</p>
+
+  <h2><span class="num">03</span> Against SDI · ST&nbsp;2110 · NDI</h2>
+  <p class="lead">Each existing option gives you two of the three things you want. MXL is the one that delivers uncompressed <em>and</em> software fan-out — bounded by RAM bandwidth, not codecs.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Transport</th><th>Interior medium</th><th>Per-consumer copy</th><th>Codec cycles</th><th>Latency / hop</th><th>Scope</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <th>SDI</th>
+          <td>Coax, point-to-point</td>
+          <td><span class="tag warn">hardware</span></td>
+          <td><span class="tag good">none</span></td>
+          <td>~0</td>
+          <td>One cable = one signal</td>
+        </tr>
+        <tr>
+          <th>ST&nbsp;2110</th>
+          <td>IP multicast, uncompressed</td>
+          <td><span class="tag warn">network</span></td>
+          <td><span class="tag good">none</span></td>
+          <td>sub-frame + NIC/PTP</td>
+          <td>Whole facility</td>
+        </tr>
+        <tr>
+          <th>NDI</th>
+          <td>IP, <strong>compressed</strong></td>
+          <td><span class="tag bad">bw × N</span></td>
+          <td><span class="tag bad">decode × N</span></td>
+          <td>several ms (codec+net)</td>
+          <td>LAN, flexible</td>
+        </tr>
+        <tr class="row-mxl">
+          <th>MXL</th>
+          <td><strong>Shared memory (RAM)</strong></td>
+          <td><span class="tag good">none · mmap</span></td>
+          <td><span class="tag good">none interior</span></td>
+          <td><strong>~0 (memory read)</strong></td>
+          <td>Single host / NUMA</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The compounding win: a signal that travels <span class="mono">camera → switcher → graphics → multiviewer → record</span> can eat <strong>4–5 encode/decode round-trips in an NDI plant</strong> — generational loss and accumulating latency at every stage. In MXL that same path is <strong>4–5 pointer reads.</strong> And because it's an open EBU spec — not a proprietary codec or a hardware-anchored standard — any process that can <span class="kbd">mmap</span> is a producer or consumer, in <em>any language.</em> That is literally the ten-switchers-in-different-languages case.</p>
+
+  <div class="caveat">
+    <p class="lbl">◈ Where the "free" stops</p>
+    <p>The zero-copy magic is bounded by <strong>one shared-memory domain — a single host / NUMA node.</strong> The moment a flow must reach <em>another machine</em>, you're back to a transport that costs network I/O.</p>
+    <p>Uncompressed is not cheap on the wire: a single <span class="mono">1080p30 v210</span> flow is <strong>~1.2&nbsp;Gbps</strong>; 4K or high frame rates balloon fast. So the real cloud-plant trade is: <strong>keep co-located consumers on one big host</strong> to exploit zero-copy, and pay network only at genuine host boundaries. (It's exactly why the lab's primary node is a 32-core VM rather than a scatter of small ones.)</p>
+    <p>MXL <em>composes</em> with 2110 — it doesn't replace it. MXL is the intra-host exchange layer; 2110 remains the inter-host / facility transport.</p>
+  </div>
+
+  <div class="foot">
+    <span>Office Hours Global · EBU MXL · BBC TAMS · cloud production lab</span>
+    <span class="measured">measured in-lab: CAM Live = 1920×1080p 30/1 v210, VM↔VM fabric ≈ 1.3 Gbps</span>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var c = document.getElementById('diag');
+  var ctx = c.getContext('2d');
+  var DPR = Math.min(window.devicePixelRatio||1, 2);
+  var W = 880, H = 380;
+
+  function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+
+  function draw(){
+    // resize for DPR + responsive
+    var cssW = c.clientWidth || W;
+    var scale = cssW / W;
+    c.width = W*DPR; c.height = H*DPR;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    var teal = css('--teal') || '#38c0cc';
+    var amber = css('--amber') || '#e0a13c';
+    var red = css('--red') || '#e5484d';
+    var ink = css('--ink') || '#e8edf4';
+    var ink2 = css('--ink-2') || '#aab6c6';
+    var ink3 = css('--ink-3') || '#6f7d90';
+    var line = css('--line') || '#28303d';
+    var panel2 = css('--panel-2') || '#1b212c';
+
+    function box(x,y,w,h,r){ctx.beginPath();
+      ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+      ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+    ctx.font = '600 12px Inter, system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+
+    // ── ingress camera (left) ──
+    var camX=24, camY=H/2-26, camW=118, camH=52;
+    ctx.fillStyle = panel2; box(camX,camY,camW,camH,9); ctx.fill();
+    ctx.strokeStyle = amber; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle = ink; ctx.textAlign='center';
+    ctx.font='600 14px Inter, system-ui, sans-serif';
+    ctx.fillText('CAM Live', camX+camW/2, camY+18);
+    ctx.font='11px "JetBrains Mono", monospace'; ctx.fillStyle=ink3;
+    ctx.fillText('1080p30 v210', camX+camW/2, camY+36);
+
+    // ingress codec badge
+    ctx.font='10px "JetBrains Mono", monospace'; ctx.fillStyle=amber;
+    ctx.fillText('▼ decode ×1', camX+camW/2, camY-14);
+
+    // ── shared memory domain (center) ──
+    var domX=232, domY=54, domW=210, domH=H-108;
+    ctx.fillStyle = 'rgba(56,192,204,0.06)';
+    box(domX,domY,domW,domH,14); ctx.fill();
+    ctx.strokeStyle = teal; ctx.lineWidth=1.5;
+    ctx.setLineDash([5,4]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = teal; ctx.textAlign='center';
+    ctx.font='600 13px "Barlow Condensed", sans-serif';
+    ctx.font='700 13px Inter, system-ui, sans-serif';
+    ctx.fillText('MXL SHARED-MEMORY DOMAIN', domX+domW/2, domY+18);
+    ctx.font='10px "JetBrains Mono", monospace'; ctx.fillStyle=ink3;
+    ctx.fillText('/dev/shm · tmpfs (RAM)', domX+domW/2, domY+34);
+
+    // grain ring inside domain
+    var gx=domX+domW/2, gy=domY+domH/2+8, gr=42;
+    ctx.strokeStyle=teal; ctx.lineWidth=2; ctx.globalAlpha=.9;
+    ctx.beginPath(); ctx.arc(gx,gy,gr,0,Math.PI*2); ctx.stroke();
+    ctx.globalAlpha=1;
+    for(var i=0;i<12;i++){
+      var a=(i/12)*Math.PI*2 - Math.PI/2;
+      ctx.fillStyle = i<8 ? teal : line;
+      ctx.beginPath(); ctx.arc(gx+Math.cos(a)*gr, gy+Math.sin(a)*gr, 4, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle=ink2; ctx.font='10px "JetBrains Mono", monospace';
+    ctx.fillText('grains', gx, gy);
+    ctx.fillText('written ×1', gx, gy+13);
+
+    // arrow cam -> domain
+    function arrow(x1,y1,x2,y2,col,w){
+      ctx.strokeStyle=col; ctx.lineWidth=w||2; ctx.fillStyle=col;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      var ang=Math.atan2(y2-y1,x2-x1);
+      ctx.beginPath(); ctx.moveTo(x2,y2);
+      ctx.lineTo(x2-9*Math.cos(ang-0.4),y2-9*Math.sin(ang-0.4));
+      ctx.lineTo(x2-9*Math.cos(ang+0.4),y2-9*Math.sin(ang+0.4));
+      ctx.closePath(); ctx.fill();
+    }
+    arrow(camX+camW, H/2, domX-6, H/2, amber, 2.4);
+
+    // ── consumers (right): stack of switchers ──
+    var n=5, cx=560, cw=150, ch=40, gap=15;
+    var totalH = n*ch + (n-1)*gap;
+    var startY = (H-totalH)/2;
+    var langs=['EN graphics','FR graphics','ES graphics','DE graphics','+ N more…'];
+    for(var s=0;s<n;s++){
+      var y=startY+s*(ch+gap);
+      // zero-copy read line from domain
+      ctx.strokeStyle=teal; ctx.globalAlpha=.55; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(domX+domW, gy);
+      ctx.bezierCurveTo(cx-40, gy, cx-40, y+ch/2, cx-6, y+ch/2); ctx.stroke();
+      ctx.globalAlpha=1;
+      // pointer dot at read
+      ctx.fillStyle=teal; ctx.beginPath(); ctx.arc(cx-6,y+ch/2,3,0,Math.PI*2); ctx.fill();
+
+      var isMore = (s===n-1);
+      ctx.fillStyle = panel2; box(cx,y,cw,ch,8); ctx.fill();
+      ctx.strokeStyle = isMore?ink3:line; ctx.lineWidth=1;
+      if(isMore){ctx.setLineDash([3,3]);} ctx.stroke(); ctx.setLineDash([]);
+      ctx.textAlign='left';
+      ctx.fillStyle=isMore?ink3:ink; ctx.font='600 12.5px Inter, system-ui, sans-serif';
+      ctx.fillText('Switcher '+(isMore?'':(s+1)), cx+12, y+15);
+      ctx.fillStyle=ink3; ctx.font='10px "JetBrains Mono", monospace';
+      ctx.fillText(langs[s], cx+12, y+29);
+
+      // egress encode badge (skip for "more")
+      if(!isMore){
+        arrow(cx+cw, y+ch/2, cx+cw+26, y+ch/2, red, 1.8);
+        ctx.fillStyle=red; ctx.font='9px "JetBrains Mono", monospace'; ctx.textAlign='left';
+        ctx.fillText('enc', cx+cw+8, y+ch/2-9);
+      }
+    }
+
+    // label: read cost
+    ctx.textAlign='center'; ctx.fillStyle=teal;
+    ctx.font='700 11px "JetBrains Mono", monospace';
+    ctx.fillText('zero-copy reads', (domX+domW+cx)/2, startY-8);
+    ctx.fillStyle=red; ctx.textAlign='left';
+    ctx.fillText('encode ×N', cx+cw-2, startY-8);
+
+    // caption strip bottom
+    ctx.textAlign='center'; ctx.fillStyle=ink3;
+    ctx.font='10px "JetBrains Mono", monospace';
+    ctx.fillText('decode paid ONCE at ingress   ·   interior = pointer reads   ·   encode paid ONLY at each egress',
+      W/2, H-16);
+  }
+
+  draw();
+  var ro = new ResizeObserver(draw); ro.observe(c);
+  // redraw on theme change
+  var mo = new MutationObserver(draw);
+  mo.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  if(window.matchMedia){window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);}
+})();
+</script></body>
+</html>
