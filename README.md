@@ -22,6 +22,12 @@ steady **load ~10–11 of 32 cores**; a D16 ran it before the multiview and seco
 camera existed, at ~14/16 — tight. Sizing details in
 [Build one yourself](#build-one-yourself).
 
+**Prefer to *own* it?** Nothing here needs the cloud — the whole facility is Linux
++ shared memory + software encode (no GPU, no SDI, no capture cards). A capable
+single-box studio is **~$2,500 of commodity hardware** (a Ryzen 9 7950X has the
+required AVX-512). Full COTS spec + cloud-vs-own break-even:
+**[docs/ON-PREM-COTS.md](docs/ON-PREM-COTS.md)**.
+
 ## What's in this repo (and what isn't)
 
 This is the **open core**: the MXL/TAMS switcher — contribution ingest, the
