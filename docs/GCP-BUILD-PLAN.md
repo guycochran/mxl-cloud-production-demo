@@ -1,6 +1,14 @@
 # Building the MXL Cloud Production Demo on GCP
 
-**Status: scoped, not yet built.** This plan maps the running Azure facility onto
+> **✅ VERIFIED 2026‑09‑15.** The `scripts/quickstart.sh` path ran clean end‑to‑end
+> on a fresh GCP **n2‑standard‑8** (us‑west1‑a, Ubuntu 24.04, AVX‑512): MXL
+> switcher ON AIR, keyer lower‑third rendering, live CUT/pattern control, full
+> flow set in `/dev/shm/mxl/domain_1`, WebRTC program served to the browser.
+> Proof: `docs/images/screenshots/gcp-on-air.png`. **The same one command that
+> works on Azure works on GCP — portability proven.** The full 32‑core two‑host
+> rig awaits a `CPUS_ALL_REGIONS` quota bump (default 12; see §3).
+
+**Status: single‑host proof DONE; full two‑host rig pending quota.** This plan maps the running Azure facility onto
 Google Compute Engine, sized to a **$300 free-credit window (expires 2026‑12‑02)**.
 The point is a *portability proof*: the same stack — Linux + shared memory —
 running identically on a third cloud, reinforcing the "no vendor lock-in, general
@@ -50,21 +58,24 @@ $300 is generous for a *proof* and tight for *always-on*. The math:
 - **Credits expire 2026‑12‑02** — this is a time-boxed proof, not infrastructure
   to lean on. Do the run, capture it, tear down.
 
-## 3. The one real blocker to clear first: vCPU quota
+## 3. The one real blocker: the GLOBAL CPU quota (`CPUS_ALL_REGIONS`)
 
-New GCP projects (even upgraded, standard billing) often ship with a **low
-regional CPU quota** — sometimes 24 or fewer. A 32-vCPU Host 1 + 8-vCPU Host 2 =
-**40 vCPU in one region**, which will likely exceed the default.
+**Confirmed in practice 2026‑09‑15:** the gate is *not* the regional quota (us‑west1
+`CPUS`/`N2_CPUS` were already 100). It's the **global `CPUS_ALL_REGIONS` cap, which
+defaulted to 12** on this just‑upgraded account. Host 2 (n2‑standard‑8) consumed 8
+of it; Host 1 (n2‑standard‑32) needs 32 → **blocked** with:
+`Quota 'CPUS_ALL_REGIONS' exceeded. Limit: 12.0 globally.` A 32 + 8 = **40 vCPU**
+rig needs this raised.
 
-- **Free-trial accounts can't request increases and are capped at 8 cores.** The
-  console screenshot shows **"upgraded to a full account"**, so quota *increase
-  requests are available* — but the default may still block 40 vCPU.
-- **Action, day one:** Console → IAM & Admin → Quotas → filter "N2 CPUs" (or
-  "CPUs") in the target region → request **48** (headroom over 40). These
-  approve quickly, but file it before build day so it's not a surprise.
-- If quota is slow, a **fallback proof** fits under 8 vCPU trivially: run a
-  reduced single-host demo (`n2-standard-8`, fewer sources) to prove portability,
-  then scale to the full 32-core rig once quota lands.
+- **Free-trial accounts can't request increases and are capped at 8 cores.** This
+  is an **upgraded/full account**, so increase requests are available.
+- **Action:** Console → IAM & Admin → Quotas → filter **"CPUs (all regions)"**
+  (`CPUS_ALL_REGIONS`, *not* the regional one) → Edit Quotas → request **48**
+  (headroom over 40). Upgraded accounts usually auto‑approve in minutes–hours.
+  The CLI in SDK 584 has no quota‑update verb; use the Console.
+- **The fallback proof is already done** (see the banner at the top): the full
+  keyed switcher runs under 8 vCPU, so portability is proven *now*; the 32‑core
+  rig only adds headroom for two real cameras + multiview + guests.
 
 ## 4. Per-host software builds (identical to Azure/AWS)
 
