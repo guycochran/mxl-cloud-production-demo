@@ -319,6 +319,12 @@ published spec. That's the difference between a demo and a facility. Full
 control-plane roadmap (IS-05 routing, IS-07 tally, IS-08 audio) in
 [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
+> **Coming back after teardown, or rebuilding elsewhere?** Start with
+> **[docs/RESUME.md](docs/RESUME.md)** (warm-start map) and
+> **[docs/FINDINGS.md](docs/FINDINGS.md)** §12–17 (the week's operational
+> lessons: the reader-wedge taxonomy, the flow stabilizer, measurement
+> doctrine, self-heal coordination, the runbook, and standards/NMOS).
+
 ## Build one yourself
 
 **Fastest path: [docs/QUICKSTART.md](docs/QUICKSTART.md)** — one script,

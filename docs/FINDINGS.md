@@ -221,3 +221,132 @@ Lessons:
   model (x86-64-v2, no AVX), every libmxl call SIGILLs (`vxorps`). Set the
   hypervisor CPU model to `host`. A runtime CPU-feature check with a clear
   message would make demo-day failures comprehensible.
+
+## 12. The reader-lifecycle bug is a family — the full taxonomy
+
+§6 established that a reader wedges when its source flow is recreated. In a
+week of production it revealed **five distinct species**, each needing a
+different detector. This is the single most important thing we learned and
+the strongest upstream candidate.
+
+| Species | What you see | What rate/head/thumb checks say | Detector that actually works |
+|---|---|---|---|
+| **Recreation wedge** | reader silent forever after a writer restart | "attached", head advances on the *writer* side | per-reader delivery timestamp (no buffers in >N s) |
+| **Repeat-delivery wedge** | full 30 fps of the *same* grain | all green — grains tick, head fresh, thumbs "update" | unique-content count (md5 a slice) / byte-identical decoded frames |
+| **Frozen-slices** (+ stealth variant) | fabric target grains tick but slice payload stalls; log may stay live | grains/s = 30 | `avg slices/grain` decaying below 1080 |
+| **Stale-attach lag** | a *fresh* reader on a healthy flow delivers late/nothing for seconds–minutes ("first cut to that source is a dud") | flow is fine; only the new reader is behind | first-activation content check within ~2.5 s |
+| **Fresh-attach-dead flow** | a flow enters a state where *every* new reader gets nothing despite a live writer | flow head fresh, writer healthy | N consecutive failed fresh attaches → **bounce the writer**, not the reader |
+
+**The load-bearing insight:** rate, head-freshness, and thumbnail-updating
+checks *all read green through several of these species.* The only honest
+detectors are **content-uniqueness** at the domain and **byte-identical
+decoded-frame counting** at the encoded output (see §14).
+
+## 13. The architectural fix: a flow stabilizer (indirection)
+
+Every mitigation in §12 is a bandage. The real fix is `flow_stabilizer.py`:
+a per-input relay that reads the **volatile** source flow and writes a
+**stable** flow that is created once and never recreated. When the volatile
+side churns, it swaps only its own reader in place — the sink and the stable
+flow never stop, so every downstream consumer (selector, layout panes,
+thumbs, probe) is permanently insulated from recreation.
+
+Design lessons paid for the hard way:
+- **Separate the output clock from the input.** v1 passed input timestamps
+  through; a stalled or bursty source made the stable flow's timeline jump.
+  v-final drives output from a **fixed 30 fps grid slewed to the wall clock**
+  and *drops* ahead-of-realtime arrivals — the output timeline is monotonic
+  and real-time *by construction*, which structurally kills the re-lock class.
+- **The stabilizer process must be immortal.** A supervisor respawn would
+  recreate the stable flow — the exact failure it exists to prevent. Any
+  GStreamer error/EOS swaps the reader instead of exiting (with a bounded
+  "N dry swaps → last-resort exit" backstop).
+- **Detect recreation by directory inode change**, not by silence — an idle
+  guest is silent legitimately; a recreated flow has a new inode.
+- **Proven in isolation** (a single persistent reader rode a full volatile
+  kill+recreate) but **not battle-tested under a live show** — we rolled it
+  back after iterating on it too aggressively mid-demo. It is the right
+  post-v1.1.0 topology; deploy it from day one on a fresh build rather than
+  retrofitting under fire.
+
+## 14. Measurement doctrine: rate metrics lie
+
+If you take one operational lesson: **"is it flowing" is not "is it good."**
+
+- **Grain rate, head freshness, thumbnail-updates** all stay green through a
+  repeat-delivery wedge. They measure *motion of the plumbing*, not *change
+  of the content*.
+- **Content uniqueness** (hash a fixed slice of each grain; count distinct
+  per second) catches repeat-wedges at the domain. `grain_probe.py` does this
+  across every flow.
+- **Byte-identical decoded frames** (`ffmpeg signalstats YDIF==0`) is the only
+  honest program-integrity signal: x264 emits skip-blocks for truly repeated
+  input, so a wedged encoder decodes byte-identical, while real video —
+  always carrying sensor noise — never does. **Similarity metrics
+  (mpdecimate) FALSE-FIRE on static scenes** (a locked-off night shot) — we
+  shipped that mistake, it needlessly restarted a healthy encoder, and we
+  caught it in its own log. YDIF has no such failure mode.
+- **Hash the CENTRE of the frame, not the top.** Letterboxed 2-ups and keyed
+  frames have static top rows; the first 4 KB of a 1080p v210 buffer is under
+  one scanline. Off-centre hashing reports false "frozen".
+
+## 15. Self-heal reflexes need a single arbiter
+
+We accreted watchdogs under fire — repair cascade, guest-leg doctor,
+layout wedge-watch, take-check, fps-doctor, selector-doctor, startup repair.
+Individually each is sound. **Together, uncoordinated, they amplify.**
+
+- A stale guest branch tripped the layout take-check → engine respawn →
+  startup repair cascade → a cascade-embedded warm-up that flashed **all six
+  inputs on air** → the churn re-tripped the babysitter → repeat. 38 repair
+  events in 30 minutes, visible on program.
+- **Fixes that worked:** make the warm-up **manual-only** (never ride a
+  cascade); make take-check **log-only** (a stale pane is honest; a respawn
+  storm is not); cap each reflex with **per-branch strike files + cooldowns**;
+  and — the rule — **no cascade on a timer**, only on a deliberate trigger
+  (human, a doctor healing a *confirmed* fault, or a respawn *this instant*).
+- **The design lesson:** past a handful of self-heal reflexes, they need one
+  supervisor with a **global action budget**, not N independent loops. A
+  cascade is a dice roll (it rebuilds readers that were fine); fire it only
+  when something *knows* the chain is broken.
+- **A warm-up ("line-up") sweep is legitimate** — activating every selector
+  slot briefly so no reader is cold on first cut, exactly like a TD walking
+  the rail before air. Just keep it off the automatic paths.
+
+## 16. Operational recipes (the runbook)
+
+- **mediamtx wedges silently** — accepts SRT publishes but stops serving
+  readers. Recipe: `docker restart mediamtx` + re-publish. Killed a camera
+  once; not obvious from any status.
+- **A "slow but flowing" fabric leg** (e.g. 4.3 grains/s while the writer
+  sends a clean 30) trips *no* doctor — no missed-grain spam, no frozen
+  slices, head stays fresh. Only a rate probe catches it; bounce the leg.
+- **Thumbnail readers wedge on guest reset** like any other reader. Heal them
+  as aggressively as program (stall 6 s, frozen-content 10 s, inode-recreate
+  check) — a frozen *preview* makes an operator distrust a *live* source and
+  not cut to it. Lower stakes, but it breaks confidence.
+- **Cloudflare 100s edge timeout** can 502 a long repair mid-flight — drive
+  repairs against the local backend (`127.0.0.1:3013`), not the public URL.
+- **Cloudflare blocks the python-urllib UA** (CF-1010) — any in-domain tool
+  polling the public API needs a browser-like `User-Agent`, or use localhost.
+- **The status API's 500 ms micro-cache lies right after a cut** — a client
+  that adopts the cached snapshot immediately after acting scrambles its own
+  bus state. Hold local state ~1.2 s after an action before trusting the poll.
+
+## 17. Standards & control plane (what we proved)
+
+- **NMOS discovery works today.** `tools/nmos_node.py` is a stdlib IS-04 v1.3
+  Node presenting every MXL flow as a standard Sender/Receiver — transport
+  `urn:x-nmos:transport:mxl`, `mxl_domain_id`/`mxl_flow_id` tags per **AMWA
+  BCP-007-03** (published v1.0), live PGM/PVW tally as grouphint tags.
+  Registered into an nmos-cpp registry, **Bitfocus Buttons discovered the
+  cloud facility** — first MXL facility in an NMOS registry that we know of.
+- **A hardware panel is one Companion module away.** `companion-module-mxl-switcher/`
+  drives a Stream Deck XL with real red/green tally over the switcher's REST.
+  Confirmed on hardware (Companion 5.0.5). Buttons 1.7 won't sideload custom
+  modules (signed-only) and its import wants a ZIP backup, not a
+  `.companionconfig` — so panel = classic Companion, standards story = Buttons.
+- **The gap to full facility:** we built IS-04 (discovery). The next rung is an
+  **IS-05 connection shim** so a controller can *route* us, then IS-07 tally
+  and IS-08 audio. Each is independently demoable without touching the data
+  plane. That sequence turns "a demo" into "a facility."
