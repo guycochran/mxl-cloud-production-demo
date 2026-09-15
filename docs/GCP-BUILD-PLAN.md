@@ -171,3 +171,35 @@ worth knowing before you try):
   the killing shell; on an already-running box it leaves duplicate ingest
   supervisors fighting over one flow-id. Use file-based runners whose cmdline
   carries a unique token, and verify exactly one reader per flow.
+
+## 9. Real cameras on GCP — proven, + the one open bug (2026-09-15)
+
+**Achieved (all verified):**
+- **Real studio PTZ (PTZOptics F63, 192.168.6.89) live on GCP** — RTSP→SRT relay
+  (`mxl-cam-push`, `-c:v copy`, latency=200) → GCP mediamtx → cam_ingest → MXL
+  `/dev/shm`. Pulled a full clean 1080p frame from the domain flow
+  (`gcp-real-ptz-on-gcp.jpg`).
+- **Makito X4 Cam 2 (192.168.8.177)** repointed Azure→GCP via its REST API
+  (`PUT /apis/streams/2`, address→34.83.212.72, latency 200) — held **13+ min
+  stable, 12.7 Mbps, 1 reconnection**. (Stream 1 "Extra Hours SRT"=YouTube, untouched.)
+- **SRT latency for WAN:** the Azure 20ms (tuned for ~6ms studio↔VM LAN) was too
+  tight for the studio→GCP-Oregon internet hop; **200ms** made both feeds hold.
+- **Selector cuts 4 real inputs** — verified its OUTPUT flow carries the live PTZ
+  frame (grabbed directly). Clean domain = 8 flows.
+
+**The one open bug — `mxl2webrtc` WHIP egress on the minimal quickstart:**
+Reproduced ~10× across reboots + clean domains + correct ordering. Upstream is
+perfect (cameras land, selector/keyer/encoder run, domain clean), and the encoder
+logs `WHIP handshake complete — streaming to MediaMTX`, but the browser gets
+`stream not found` — mediamtx never serves the `mxl2webrtc` path. Suspect the
+containerized WHIP client ↔ this mediamtx (host.docker.internal resolution / WHIP
+path / version). **The Azure rig avoids this** because it runs the full backend +
+`/api/mxl/repair` orchestration (encoder re-attach), which the quickstart lacks.
+**Fix path:** replicate the full `scripts/bring-up-mxl.sh` + backend on cloud
+(the AWS recorded build), don't hot-reconfigure the minimal quickstart.
+
+**Gotcha that caused hours of freezes:** repeatedly reconfiguring the live
+selector/keyer/encoder littered `/dev/shm` with **45 stale `.mxl-flow` dirs**;
+readers/encoder then read stale duplicates → frozen program. A reboot (wipes
+tmpfs) + ONE ordered bring-up = clean 8-flow domain. **Never hot-reconfigure;
+bring up once, in order.**
