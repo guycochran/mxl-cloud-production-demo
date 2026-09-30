@@ -28,6 +28,12 @@ single-box studio is **~$2,500 of commodity hardware** (a Ryzen 9 7950X has the
 required AVX-512). Full COTS spec + cloud-vs-own break-even:
 **[docs/ON-PREM-COTS.md](docs/ON-PREM-COTS.md)**.
 
+**📚 Learn MXL:** we wrote down everything we learned running this live — indexed and readable at **[mxlswitcher.com](https://mxlswitcher.com)**:
+- **[Field Findings](https://mxlswitcher.com/findings.html)** — the reader-lifecycle bug taxonomy, cross-host fabric numbers, the flow-stabilizer fix, and why rate metrics lie. Measured, not guessed.
+- **[MXL → TAMS recipe](https://mxlswitcher.com/tams.html)** — live program to a clippable time-addressable store.
+- **[Learn MXL](https://mxlswitcher.com/learn.html)** — a guided reading path through the canonical EBU/AMWA/CBC sources.
+- **[Glossary](https://mxlswitcher.com/glossary.html)** · **[The journey](https://mxlswitcher.com/journey.html)** · **[Why shared memory is the future](https://mxlswitcher.com/future.html)** · run it on **[AWS](https://mxlswitcher.com/aws.html)** or **[GCP](https://mxlswitcher.com/gcp.html)**.
+
 ## What's in this repo (and what isn't)
 
 This is the **open core**: the MXL/TAMS switcher — contribution ingest, the
