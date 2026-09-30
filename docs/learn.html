@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A guided reading path for learning the Media eXchange Layer (MXL) and the Dynamic Media Facility: the vision, the SDK, the control plane, learn-by-doing, and who's shipping it — in the order that makes sense.">
+<title>Learn MXL — a guided reading path · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/learn.html">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Learn MXL — a guided reading path">
+<meta property="og:description" content="Start here to understand MXL: the vision (EBU DMF), the code (MXL SDK), the control plane (AMWA NMOS), learn-by-doing (CBC), and who shipped it at IBC 2026 — in order.">
+<meta property="og:url" content="https://mxlswitcher.com/learn.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Learn MXL — a guided reading path">
+<meta name="twitter:description" content="The canonical MXL sources, curated into a reading order: vision → code → control → hands-on → the field.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"LearningResource",
+"name":"Learn MXL — a guided reading path",
+"description":"A curated curriculum for learning the EBU/AMWA Media eXchange Layer, ordered from vision to implementation to adoption.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"about":[{"@type":"Thing","name":"Media eXchange Layer (MXL)"},{"@type":"Thing","name":"EBU Dynamic Media Facility"}]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc">
+  <article class="prose">
+    <p class="eyebrow">Start here</p>
+    <h1>Learn MXL — a guided reading path</h1>
+    <p class="lede">There's plenty of MXL material now — but scattered across specs, repos and press releases. This is the <b>order we wish we'd read it in</b>: the vision, then the code, then the control plane, then learn-by-doing, then who's shipping it. Each step links out to the canonical source with a note on <em>why</em> you'd read it.</p>
+    <p class="byline"><span>Curated by Office Hours Global</span><span>Updated 2026-09-30</span></p>
+
+    <h2>The curriculum</h2>
+    <div class="cards">
+      <a class="card" href="https://tech.ebu.ch/groups/dynamic-media-facility" target="_blank" rel="noopener">
+        <span class="step">01 · The vision</span>
+        <h3>EBU Dynamic Media Facility</h3>
+        <p>Why any of this exists: the reference architecture for a software-defined broadcast facility. Read this first — MXL is the data plane of this vision.</p>
+        <span class="ext">tech.ebu.ch ↗</span>
+      </a>
+      <a class="card" href="https://github.com/dmf-mxl/mxl" target="_blank" rel="noopener">
+        <span class="step">02 · The code</span>
+        <h3>The MXL SDK</h3>
+        <p>The open-source (Apache-2.0) C++ library itself — the Flow API and Fabric API for zero-copy media exchange through shared memory. Launched by the EBU in 2025.</p>
+        <span class="ext">github.com/dmf-mxl ↗</span>
+      </a>
+      <a class="card" href="https://specs.amwa.tv/bcp-007-03/" target="_blank" rel="noopener">
+        <span class="step">03 · The control plane</span>
+        <h3>AMWA BCP-007-03</h3>
+        <p>How MXL flows are discovered and routed by standard controllers: NMOS support for MXL. The bridge from "it works" to "it's a facility."</p>
+        <span class="ext">specs.amwa.tv ↗</span>
+      </a>
+      <a class="card" href="https://github.com/cbcrc/mxl-hands-on" target="_blank" rel="noopener">
+        <span class="step">04 · Learn by doing</span>
+        <h3>CBC/Radio-Canada mxl-hands-on</h3>
+        <p>Four guided exercises from single-writer setups to full GStreamer DMF workflows. The fastest way to actually run MXL yourself.</p>
+        <span class="ext">github.com/cbcrc ↗</span>
+      </a>
+      <a class="card" href="https://github.com/CLOUDflex-broadcast/easy-mxl" target="_blank" rel="noopener">
+        <span class="step">05 · The easy on-ramp</span>
+        <h3>CLOUDflex easy-mxl</h3>
+        <p>Turn any Ubuntu/Docker box into a working MXL domain in minutes, with a live web UI showing flow writers, latency and health.</p>
+        <span class="ext">github.com/CLOUDflex-broadcast ↗</span>
+      </a>
+      <a class="card" href="https://www.svgeurope.org/blog/headlines/mxl-wins-content-creation-category-at-ibc-2026-innovation-awards/" target="_blank" rel="noopener">
+        <span class="step">06 · Who's shipping it</span>
+        <h3>MXL at IBC 2026</h3>
+        <p>MXL won the IBC 2026 Innovation Award for Content Creation. Grass Valley, Matrox, Riedel, Evertz and the Qvest showcase all demoed it live — see <a href="/#field">the field</a>.</p>
+        <span class="ext">svgeurope.org ↗</span>
+      </a>
+    </div>
+
+    <h2>Then read our field notes</h2>
+    <p>Once the canonical sources make sense, the interesting question is: <em>what actually happens when you run it?</em> That's where this site earns its keep — we built a full browser-native switcher on MXL and wrote down everything we learned.</p>
+    <div class="cards">
+      <a class="card" href="/findings.html">
+        <span class="step">Field findings</span>
+        <h3>Running MXL as a real production →</h3>
+        <p>The reader-lifecycle bug taxonomy, cross-host fabric at 1.3 Gbps, the flow-stabilizer fix, and why rate metrics lie. Measured, not guessed.</p>
+      </a>
+      <a class="card" href="/tams.html">
+        <span class="step">Architecture</span>
+        <h3>MXL → TAMS: the full recipe →</h3>
+        <p>How a live MXL program lands in a time-addressable store — playable and clippable while the show is still recording.</p>
+      </a>
+      <a class="card" href="/glossary.html">
+        <span class="step">Reference</span>
+        <h3>MXL concepts, defined →</h3>
+        <p>Grain, flow, domain, fabric, zero-copy, TAMS, NMOS, v210 — the vocabulary, in plain English.</p>
+      </a>
+      <a class="card" href="/future.html">
+        <span class="step">Point of view</span>
+        <h3>Why shared memory is the future →</h3>
+        <p>What the shift from fixed hardware chains to composable software functions means for cost, remote production, and who gets to make broadcast.</p>
+      </a>
+    </div>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. Links to EBU, AMWA, CBC/Radio-Canada and CLOUDflex identify upstream projects; this independent site is not affiliated with or endorsed by them.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="https://github.com/guycochran/mxl-cloud-production-demo">GitHub ↗</a></span>
+</footer>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A working MXL → TAMS recipe: how a live MXL program lands in a Time-Addressable Media Store, playable and clippable while the show is still recording. The mapping, the bring-up, and ten gotchas earned the hard way.">
+<title>MXL → TAMS: the full recipe · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/tams.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MXL → TAMS: the full recipe">
+<meta property="og:description" content="How a live MXL program lands in a Time-Addressable Media Store — playable and clippable while the show is still being recorded. The mapping, bring-up, and gotchas.">
+<meta property="og:url" content="https://mxlswitcher.com/tams.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MXL → TAMS: the full recipe">
+<meta name="twitter:description" content="A working MXL-to-TAMS bridge: live program to time-addressable store, clippable mid-show. The mapping + ten gotchas.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"MXL to TAMS: the full recipe",
+"description":"A working implementation bridging the EBU Media eXchange Layer to a BBC/AMWA Time-Addressable Media Store, with live clipping during recording.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/tams.html",
+"image":"https://mxlswitcher.com/images/demo-camera.png",
+"keywords":"TAMS, Time-Addressable Media Store, MXL, BBC, Eyevinn tams-gateway, MinIO, CouchDB, HLS, clipping",
+"about":[{"@type":"Thing","name":"Time-Addressable Media Store (TAMS)"},{"@type":"Thing","name":"Media eXchange Layer (MXL)"}]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#arch">Architecture</a>
+    <a href="#map">The mapping</a>
+    <a href="#bringup">Bring-up</a>
+    <a href="#gotchas">Gotchas we earned</a>
+    <a href="#limits">Honest limits</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Architecture note</p>
+    <h1>MXL → TAMS: the full recipe</h1>
+    <p class="lede">The DMF white paper notes <em>"MXL Grains can be grouped as TAMS Flow Segments"</em> — and leaves the rest open. This is the working implementation: the <b>live MXL program lands in a Time-Addressable Media Store</b>, playable and clippable <b>while the show is still being recorded</b>.</p>
+    <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>~90 lines of Python + one ffmpeg</span><span>Source: <a href="TAMS.md">TAMS.md</a></span></p>
+    <p>Everything here is demo-grade by intent — small, readable, and honest about its shortcuts — but the timing model and the store semantics are the real thing.</p>
+
+    <h2 id="arch">Architecture</h2>
+    <pre><code>VM1 (production)        VM2 (fabric receiver)          VM3 (TAMS store)
+────────────────        ─────────────────────          ────────────────
+camera → selector →     Keyer PGM flow arrives          tams-gateway :8000
+keyer → "Keyer PGM" ─►  via MXL Fabrics into            (Eyevinn, build from
+flow in /dev/shm   TCP  /dev/shm/mxl/domain_fabric       source)
+                        ├─ mxl2webrtc → mediamtx :8554  MinIO :9000 (media + thumbs)
+                        ├─ ffmpeg segmenter             CouchDB (segment metadata)
+                        │   1 s MPEG-TS → /srv/tams-spool
+                        └─ tams_shipper.py ───────────► PUT segments + timeranges
+                        browser scrub page ───────────► HLS timerange playback</code></pre>
+    <p>All hosts are NTP-synced. That single fact is what makes the rest work: the segmenter stamps wall-clock epochs into filenames, the shipper turns them into TAMS timeranges, and the in-picture cloud-keyed clock matches the timerange it plays back from — we verified a frame pulled from 11½ minutes in the past, to the second.</p>
+
+    <h2 id="map">The mapping</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>MXL</th><th>TAMS</th></tr></thead>
+      <tbody>
+        <tr><td>Flow (Keyer PGM, v210 @ 30 grains/s)</td><td>Flow <code>7a350001-…</code> (H.264 in TS)</td></tr>
+        <tr><td>30 grains</td><td>one 1-second Flow Segment</td></tr>
+        <tr><td>grain index / TAI time</td><td>segment timerange <code>[epoch:0_epoch+1:0)</code></td></tr>
+        <tr><td>—</td><td>clips = <strong>new flows</strong> re-registering the same media objects under the clip's timerange (zero bytes copied; the store refcounts, so deleting a clip never touches the archive)</td></tr>
+      </tbody>
+    </table></div>
+    <p>The H.264 detour (grains → encoder → TS → store) is a pragmatic shortcut. The white-paper-literal version — a grain-native segmenter grouping v210 grains into Flow Segments with no transcode — is the natural next step, and the code paths here don't preclude it.</p>
+
+    <h2 id="bringup">Bring-up</h2>
+    <p><strong>VM3 — the store</strong> (three containers): <a href="https://github.com/Eyevinn/tams-gateway">Eyevinn tams-gateway</a> on :8000 (build from source — no published image), MinIO on :9000 with bucket <code>tams-media</code> and a public-read <code>thumbs/</code> prefix, and CouchDB for metadata. Register one flow via the gateway API.</p>
+    <p><strong>VM2 — the bridge</strong> (two processes, both dumb on purpose):</p>
+    <pre><code># segmenter: cut the program into 1 s epoch-named TS segments
+while :; do
+  ffmpeg -hide_banner -loglevel error -rtsp_transport tcp \
+    -i rtsp://127.0.0.1:8554/mxl2webrtc -c copy \
+    -f segment -segment_time 1 -segment_format mpegts \
+    -reset_timestamps 1 -strftime 1 /srv/tams-spool/seg-%s.ts
+  sleep 3
+done</code></pre>
+    <p>Per segment the shipper does exactly what the TAMS spec intends: <code>POST /flows/{id}/storage</code> → gateway allocates an object id → <code>PUT</code> the bytes to object storage → <code>POST /flows/{id}/segments</code> with <code>{object_id, timerange}</code>. It also cuts one ~5 KB jpeg per second, and batches each completed minute into a <strong>storyboard sprite</strong> (a 10×6 sheet of tiles) — the scrub bar fetches one sprite per minute instead of one jpg per hovered second.</p>
+    <p><strong>Playback</strong> is the store's own HLS endpoint: ask for a timerange, get a playlist. A 15 s clip of the live show exports to MP4 in ~1.5 s — segment concat, no re-encode, because the clip <em>already exists</em> as a timerange.</p>
+
+    <h2 id="gotchas">Gotchas we earned (read before replicating)</h2>
+    <ol>
+      <li><strong>Ship media over the fastest path, not the pretty one.</strong> The gateway's presigned URLs pointed at our public tunnel; 750 KB/s of PUTs through a Cloudflare tunnel couldn't hold realtime. Upload directly to MinIO using the gateway-allocated object key; keep public URLs for browser playback only.</li>
+      <li><strong>The gateway ignores <code>?reverse=true</code> on <code>/segments</code></strong> (returns oldest first). Query a timerange near <em>now</em> instead — this masqueraded as "the recording froze two hours ago."</li>
+      <li><strong>Registration order doesn't matter — exploit it.</strong> Segments are timerange-keyed, so ship 4-wide in parallel to hold 1 s cadence. Skip files younger than ~2.5 s (still being written) and runt segments.</li>
+      <li><strong>Prune all three halves.</strong> Segments, thumbs/sprites in S3, <em>and</em> clip flows whose timerange aged out — otherwise the shared clip bin fills with clips whose media no longer exists.</li>
+      <li><strong>Bound the archive playlist you hand the player.</strong> A full 2 h window is a ~3 MB m3u8 with ~7,200 entries — hls.js turns to molasses. Default to a 30 min window, full archive on request.</li>
+      <li><strong>Thumbnails: nearest-available, never exact.</strong> The newest ~10 s lag and 1 s holes happen; walk outward ±1..±4 s to the nearest existing frame.</li>
+      <li><strong>Cloudflare bans Python's default urllib User-Agent</strong> (error 1010) — set a custom UA on gateway requests through a tunnel.</li>
+      <li><strong>Bodyless DELETEs must not declare <code>Content-Type: application/json</code></strong> — the gateway 400s them. Timeranges in query strings must be raw (no percent-encoding); flow/segment DELETEs return 202 and apply async.</li>
+      <li><strong>A new public object prefix needs the bucket policy extended</strong> — MinIO anonymous read is per-prefix; <code>sprites/*</code> 403'd until added.</li>
+      <li><strong>Keep the spool bounded.</strong> If the store is unreachable, drop oldest beyond ~600 segments; the show must not fill the disk.</li>
+    </ol>
+
+    <h2 id="limits">Honest limits</h2>
+    <p>Single flow, no auth on the store (NSG/IP-locked instead), H.264 mezzanine rather than grain-native segments, and the segmenter trusts the encoder's 30 fps cadence rather than reading grain indices. All fixable; <strong>none blocked by TAMS or MXL themselves</strong> — which is rather the point.</p>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. TAMS is developed by the BBC and standardised via AMWA. This independent project is not affiliated with or endorsed by any of them.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/findings.html">Field findings</a> · <a href="https://github.com/bbc/tams">TAMS spec ↗</a></span>
+</footer>
+</body>
+</html>

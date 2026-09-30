@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A plain-English glossary of MXL and software-defined production terms: grain, flow, domain, shared memory, zero-copy, Fabrics API, TAMS, NMOS, v210, DMF. What each means and why it matters.">
+<title>MXL concepts, defined — a glossary · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/glossary.html">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MXL concepts, defined — a glossary">
+<meta property="og:description" content="Grain, flow, domain, zero-copy, Fabrics API, TAMS, NMOS, v210, DMF — the vocabulary of software-defined production, in plain English.">
+<meta property="og:url" content="https://mxlswitcher.com/glossary.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MXL concepts, defined">
+<meta name="twitter:description" content="A plain-English glossary of MXL and software-defined production terms.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"DefinedTermSet",
+"name":"MXL concepts glossary",
+"description":"Glossary of Media eXchange Layer and software-defined production terminology.",
+"hasDefinedTerm":[
+{"@type":"DefinedTerm","name":"Grain","description":"A single timestamped unit of media — one video frame or an audio block — the atomic element MXL exchanges."},
+{"@type":"DefinedTerm","name":"Flow","description":"A continuous sequence of grains of one media type, held as a ring buffer in shared memory and indexed by TAI time."},
+{"@type":"DefinedTerm","name":"MXL Domain","description":"A shared-memory region on a host where flows live and any media function can discover and read them."},
+{"@type":"DefinedTerm","name":"Zero-copy","description":"Reading media directly from shared memory without copying it, so the Nth consumer of a source costs a pointer, not another stream."},
+{"@type":"DefinedTerm","name":"TAMS","description":"Time-Addressable Media Store — a store where media is addressed by timerange, enabling clipping by time reference without copying bytes."}
+]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc">
+  <article class="prose">
+    <p class="eyebrow">Reference</p>
+    <h1>MXL concepts, defined</h1>
+    <p class="lede">The vocabulary of shared-memory, software-defined production — in plain English, with a note on <b>why each one matters</b>. If a term on this site is unfamiliar, it's here.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Companion to <a href="/learn.html">Learn MXL</a> &amp; <a href="/findings.html">Field Findings</a></span></p>
+
+    <dl class="gloss">
+      <dt>Grain</dt>
+      <dd>A single timestamped unit of media — one video frame, or a block of audio samples. The atomic thing MXL moves around. Because every grain carries a TAI timestamp, position in a stream is a <em>time</em>, not a queue slot.</dd>
+
+      <dt>Flow</dt>
+      <dd>A continuous sequence of grains of one media type (e.g. a camera's 1080p30 video). In MXL a flow is a small <strong>ring buffer in shared memory</strong> — often just a handful of grains deep — indexed by TAI time. Producers write into it; any number of consumers read from it.</dd>
+
+      <dt>MXL Domain</dt>
+      <dd>The shared-memory region (on a host, typically under <code>/dev/shm/mxl</code>) where flows live. A media function joins the domain and can immediately discover and read every flow in it — no cabling, no re-routing. The domain <em>is</em> the router.</dd>
+
+      <dt>Media function</dt>
+      <dd>A small, single-purpose program that reads and/or writes flows: a selector, a keyer, an audio mixer, a multiviewer compositor. A "switcher" is just a connected set of these functions — not a box.</dd>
+
+      <dt>Zero-copy</dt>
+      <dd>Reading media straight out of shared memory without copying the bytes. The consequence that matters: the tenth consumer of a camera is a <strong>pointer, not another stream</strong>. Fan-out is nearly free, unlike NDI/SDI/ST-2110 where each consumer is another copy on the wire.</dd>
+
+      <dt>Fabrics API</dt>
+      <dd>MXL's mechanism for extending a domain <em>across hosts</em>. Grains written on one machine appear in another machine's shared memory over the network (built on libfabric). In our tests: 1.3 Gbps of live 1080p30 with the receiving host's CPU ~idle, because remote writes land directly in the destination ring. <a href="/findings.html#s7">See the numbers →</a></dd>
+
+      <dt>v210</dt>
+      <dd>A 10-bit uncompressed YUV 4:2:2 pixel format — the "mezzanine" quality carried inside the domain so functions never compound compression artifacts. Encoding happens <em>once</em>, at the edge, for delivery.</dd>
+
+      <dt>TAMS <span class="pron">Time-Addressable Media Store</span></dt>
+      <dd>A store where media is addressed by <strong>timerange</strong> rather than by file. A clip is just a new reference to an existing timerange — zero bytes copied. Pairs naturally with MXL's TAI-indexed grains: record the live program and clip from it while the show is still going. <a href="/tams.html">The full recipe →</a></dd>
+
+      <dt>NMOS <span class="pron">AMWA IS-04 / IS-05 …</span></dt>
+      <dd>The AMWA family of specs for discovering, connecting and controlling networked media. <strong>BCP-007-03</strong> defines how MXL flows appear to standard NMOS controllers — the path from "a demo" to "a facility a broadcast controller can operate."</dd>
+
+      <dt>DMF <span class="pron">Dynamic Media Facility</span></dt>
+      <dd>The EBU's reference architecture for a software-defined broadcast facility built from composable media functions. MXL is its data plane; TAMS its store; NMOS its control plane. <a href="/learn.html">Where to start →</a></dd>
+
+      <dt>Reader-lifecycle wedge</dt>
+      <dd>A family of failure modes where a flow reader silently stops delivering fresh content — while rate and head-freshness metrics still read green. The single most important operational lesson from running MXL live; it has (at least) five distinct species. <a href="/findings.html#s12">The taxonomy →</a></dd>
+    </dl>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. These definitions are an independent explainer, not official specification text; consult the <a href="/learn.html">canonical sources</a> for authoritative definitions.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/learn.html">Learn MXL</a></span>
+</footer>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Field findings from running the EBU Media eXchange Layer (MXL) as a real remote broadcast production in the cloud: the reader-lifecycle bug taxonomy, cross-host fabric numbers, the flow-stabilizer fix, and the measurement doctrine that tells you when a live feed is actually good.">
+<title>Field Findings — running MXL as a real production · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/findings.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Field Findings — running MXL as a real production">
+<meta property="og:description" content="Measured, hard-won lessons from building a browser-native broadcast switcher on MXL + TAMS: the reader-lifecycle bug taxonomy, cross-host fabric at 1.3 Gbps, and why rate metrics lie.">
+<meta property="og:url" content="https://mxlswitcher.com/findings.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Field Findings — running MXL as a real production">
+<meta name="twitter:description" content="The reader-lifecycle bug taxonomy, cross-host fabric numbers, and the measurement doctrine, from a real MXL cloud production.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"Field Findings — running MXL as a real remote production",
+"description":"Measured engineering findings from operating the EBU Media eXchange Layer (MXL) v1.1 as a live cloud broadcast production: timing model, reader-lifecycle bug taxonomy, cross-host fabric, and measurement doctrine.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/findings.html",
+"image":"https://mxlswitcher.com/images/demo-camera.png",
+"keywords":"MXL, Media eXchange Layer, TAMS, GStreamer, NMOS, libfabric, broadcast, shared memory, reader lifecycle",
+"about":[{"@type":"Thing","name":"Media eXchange Layer (MXL)"},{"@type":"Thing","name":"MXL Fabrics API"}]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#s1">1 · Remote sources stutter when cut</a>
+    <a href="#s2">2 · Don't stamp arrival time</a>
+    <a href="#s3">3 · Robustness when grains are missing</a>
+    <a href="#s4">4 · The hidden 2 s jitterbuffer</a>
+    <a href="#s5">5 · mxlsink needs a flow-id</a>
+    <a href="#s6">6 · Readers wedge on flow recreation</a>
+    <a href="#s7">7 · Cross-host fabric</a>
+    <a href="#s8">8 · A broadcast encoder as a source</a>
+    <a href="#s9">9 · The real cost of software media</a>
+    <a href="#s10">10 · MXL-native multiviewer</a>
+    <a href="#s11">11 · Assorted</a>
+    <a href="#s12">12 · The reader-lifecycle bug family</a>
+    <a href="#s13">13 · The fix: a flow stabilizer</a>
+    <a href="#s14">14 · Measurement doctrine</a>
+    <a href="#s15">15 · Self-heal needs one arbiter</a>
+    <a href="#s16">16 · Operational runbook</a>
+    <a href="#s17">17 · Standards &amp; control plane</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Field findings</p>
+    <h1>Running MXL as a real remote production</h1>
+    <p class="lede">Notes from building a browser-native broadcast switcher on the <b>Media eXchange Layer</b> — September 2026, MXL SDK v1.1 era, stock <code>ghcr.io/cbcrc</code> images on Azure. <b>Everything below was measured, not guessed</b>, and offered back as feedback to the MXL / mxl-hands-on / easy-mxl projects.</p>
+    <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>MXL SDK v1.1 · Azure D8s_v5 → D32s_v5</span><span>Source: <a href="FINDINGS.md">FINDINGS.md</a></span></p>
+
+    <h2 id="s1"><span class="n">1</span>Remote sources stutter when cut — and why</h2>
+    <p>MXL grains are indexed by <strong>TAI timestamp</strong>, not queue order. A remote camera's grains arrive ~transport-latency late, so a naive gateway writes them at indices behind the locally-generated flows' heads. A reader that aligns multiple flows (the input selector reads near "now") then finds the remote flow's grain <strong>not yet written</strong> → <code>TOO EARLY</code> / EAGAIN → the slot stutters, while single-flow reads of the same camera are flawless.</p>
+    <div class="key"><b class="tag">The fix that worked</b><p>Re-publish the remote flow with its PTS shifted so its head aligns with the local flows — a "latency normalizer." Two generations: <code>cam_relay.py</code> (fixed offset, hard-codes transport delay) and <code>cam_ingest.py</code> (own RTSP ingest, offset locked from the first buffer, self-tuning with slow drift re-sync — the keeper).</p></div>
+    <p>Upstream suggestion: the selector could read at <code>min(head)</code> across its inputs, or accept a per-slot read offset.</p>
+
+    <h2 id="s2"><span class="n">2</span>Don't stamp arrival time into grain indices</h2>
+    <p>The first version of <code>cam_ingest.py</code> stamped each buffer at <strong>arrival time</strong>. Under motion (camera pans), encoder bitrate spikes and network jitter grows; arrival jitter quantized directly into grain indices produces doubled/skipped grains — visible stutter exactly when the camera moves. <strong>Keep the stream's own regular PTS cadence and add one constant offset.</strong> Verified with a scripted VISCA pan + per-frame YDIF analysis: zero duplicate frames in motion after the fix.</p>
+
+    <h2 id="s3"><span class="n">3</span>Robustness when grains are missing — measured</h2>
+    <p>Flows are small rings (6 grains for 1080p30 video here). If a writer skips an index (or a reader races a write), the reader gets <strong>whatever is still in that ring slot</strong> — with a switcher upstream that can be a frame of the <em>previous source</em>. We recorded the program and caught two single-frame luma spikes (YAVG 38.8 → 58.6 → 38.8): one frame of test pattern flashing inside camera program.</p>
+    <div class="key"><b class="tag">Mitigation</b><p>Write the normalized flow ~2 grains ahead of "now" so aligned readers never race the writer. After the margin: 90 s / 2,685 frames, zero spikes. A reader-side "index was never committed" signal would let apps freeze-last-frame instead of showing stale content.</p></div>
+
+    <h2 id="s4"><span class="n">4</span>The 2-second jitterbuffer hiding in <code>uridecodebin</code></h2>
+    <p>The stock HLS/RTSP gateway builds <code>uridecodebin</code> with defaults; for RTSP inputs that means <code>rtspsrc latency=2000</code> — a silent 2 s of latency. Setting it in <code>source-setup</code> (150–200 ms works fine over SRT + LAN-quality links) removed almost all of our glass-to-glass latency. Result: the camera OSD clock and the cloud-keyed clock read the <strong>same second</strong> in a single program frame.</p>
+
+    <h2 id="s5"><span class="n">5</span><code>mxlsink</code> needs an explicit <code>flow-id</code></h2>
+    <p>An empty <code>flow-id</code> fails deep in negotiation as <code>not-negotiated (-4)</code> with the real error (<code>Flow ID is invalid: invalid length: expected length 32</code>) only visible at <code>GST_DEBUG=mxlsink:5</code>. Cost us a night of blaming caps. A fail-fast property check with a clear message would save others the same.</p>
+
+    <h2 id="s6"><span class="n">6</span>Readers wedge when a source flow is recreated</h2>
+    <p>Restarting any writer recreates its flow file; downstream readers (selector, keyer, encoder) keep stale handles and stall silently — status APIs still say <code>running</code>, no error surfaced. Recovery is a <strong>downstream cascade restart</strong> in dependency order. Upstream suggestions: readers could detect flow-file replacement and re-open; status APIs should report a stalled read. <em>(This bug turned out to be a whole family — see §12.)</em></p>
+
+    <h2 id="s7"><span class="n">7</span>Cross-host fabric: it works, and the receiving host is idle</h2>
+    <p>We bridged the domain across VMs with the Fabrics API (TCP provider) and ran it as a three-node cluster (production VM → fabric peer VM → isolated "island" VM):</p>
+    <ul>
+      <li><strong>30 grains/s sustained</strong> shipping the live 1080p30 v210 program (~1.3 Gbps), zero drops over 100k+ grains per leg, bidirectional legs concurrently.</li>
+      <li><strong>Initiator ~10% of one core; target ~0% CPU</strong> — remote writes land in the destination ring without the receiving host's CPU in the data path.</li>
+      <li>Destination write-age 0.2–8 ms; with both hosts on NTP, the remote flow's head index equalled the local flows' heads — the stock input selector cut the fabric-delivered flow on air with no special handling.</li>
+      <li><strong>libfabric ≥ 2.x is required</strong> (<code>FI_SOCKADDR_IP</code>): Ubuntu 24.04's packaged 1.17 — and even 1.22 — fail; we built 2.6.0 from the release tarball.</li>
+      <li><strong>Non-routed networks:</strong> TargetInfo embeds the target's <em>private</em> bind sockaddr. Patching the address bytes ([4:8] of the base64 blob) to the target's public IP lets the initiator connect across unpeered VNets through cloud NAT at full rate — the exact recipe for cross-region or cross-cloud fabric.</li>
+    </ul>
+    <p>Upstream suggestion: a supported "advertised address" field in TargetInfo would make NAT traversal first-class instead of a byte-patch.</p>
+
+    <h2 id="s8"><span class="n">8</span>A broadcast contribution encoder as an MXL source</h2>
+    <p>A static camera joins the selector without a studio-side re-encode hop: SDI camera → Haivision Makito X4 (1080i→1080p30, HEVC Main10, 20 Mbps) → SRT caller to the cloud VM's MediaMTX → GStreamer ingest → v210 flow → selector. Three lessons:</p>
+    <ul>
+      <li><strong>gst-libav defaults to slice threading in live pipelines.</strong> With a single-slice stream that means one core; HEVC 1080p30 10-bit missed realtime by ~30% on a loaded box. Fix: <code>avdec_h265 thread-type=frame max-threads=4</code>. After: 30.00 fps, mapping error under 60 ms over 10+ minutes.</li>
+      <li><strong>Don't "fix" decoder threading encoder-side with multi-slice.</strong> 4 slices broke MediaMTX's H.265-in-TS framing. Keep <code>slices=1</code> when MediaMTX is the SRT server.</li>
+      <li><strong>29.97 vs the domain's exact 30/1 grain rate is real:</strong> a <code>videorate</code> element re-times the stream, or caps negotiation fails outright against a 30/1 flow.</li>
+    </ul>
+
+    <h2 id="s9"><span class="n">9</span>The real cost of software media on a shared VM</h2>
+    <p>Running the whole chain — CEF keyer, x264 WebRTC encoder, two camera decodes, plus a fabric leg — on one 8-vCPU VM ran it at ~13/8 load. Under visitor load the CEF keyer (software render, no GPU) lost its cores and its output flow froze the public program. Two fixes, no bigger box:</p>
+    <ul>
+      <li><strong>HEVC → H.264 for the contribution camera.</strong> Software HEVC decode cost ~1.3 cores; H.264 High costs ~0.5, invisible in 4:2:0-8-bit WebRTC output. When a software decoder is on the critical path, codec choice is a scheduling decision, not just a bitrate one.</li>
+      <li><strong>Each <code>mxlsrc</code> SHM reader busy-spins a full core.</strong> The audio-follow-video writer held two of them and alone accounted for ~2 cores. A polling SHM reader is not free even when the media it carries is silence — account for readers, not just writers.</li>
+    </ul>
+    <p>Result: load fell from ~13/8 to ~4/8; the freezes stopped.</p>
+
+    <h2 id="s10"><span class="n">10</span>An MXL-native multiviewer: compose in the domain, encode once</h2>
+    <p>A 3×3 production multiview built the way a hardware switcher does it — as a flow, not nine video players. One CPU compositor reads all seven switcher inputs plus the keyed program straight out of shared memory and writes the wall back to the domain as a new v210 flow; a single x264 leg encodes that one flow for every viewer. No GPU, and no source is ever decoded.</p>
+    <pre><code> CONTRIBUTIONS                 MXL SHARED-MEMORY DOMAIN
+ Cam 1 (SRT) ─► ingest ──────► Cam 1  ─┐
+ Cam 2 (SRT) ─► ingest ──────► Cam 2   │
+ Episode ────► file-player ──► Playout │  8× mxlsrc
+ Guest 1 ─(fabric)──────────► Guest 1  ├─► compositor (CPU)
+ Guest 2 ─(fabric)──────────► Guest 2  │   3×3 · 640×360 tiles
+ Test gen ───────────────────► Pattern │   1080p v210
+ layout compositor ──────────► Layout  │      │ mxlsink
+ HTML5 keyer ────────────────► Keyer ─┘      ▼
+                             "Multiview PGM" flow (a peer flow:
+                              listable, probeable, even cuttable)
+                                           │ mxlsrc
+                                           ▼
+                        ONE encoder for all 8 tiles:
+                        x264 ─ MPEG-TS ─ SRT ─ MediaMTX ─ WebRTC</code></pre>
+    <p>Cost: ~2 cores of a D32s_v5 at 15 fps, ~3.5 at 30 fps. We ran 30 for a day and went back to 15 — with the full chain beside it the box hit load 14/32 and the <em>program</em> encoder stuttered under thread contention during a live demo. <strong>A multiview is the first thing to de-rate when the program is the product.</strong> Note the recursion: compositor input #7 is itself a composited flow (the layout engine) — domain flows compose like any other source.</p>
+    <ul>
+      <li><strong><code>compositor ignore-inactive-pads=true</code> EOS's instantly at startup</strong> — a <code>latency=</code> timeout handles absent sources correctly.</li>
+      <li><strong>A live <code>mpegtsmux</code> in app code needs pipeline latency handling</strong> that <code>gst-launch</code> does for free: handle the <code>latency</code> bus message, keep an <code>identity</code> between mux and <code>srtsink</code>.</li>
+      <li><strong>MediaMTX silently discards SRT payloads that aren't 1316-byte aligned.</strong> <code>alignment=7</code> is mandatory; ffmpeg's default hides this, which is exactly why it's hard to spot.</li>
+    </ul>
+
+    <h2 id="s11"><span class="n">11</span>Assorted</h2>
+    <ul>
+      <li><strong>CEF/HTML5 keyer on CPU tops out ~50 fps at 1080p</strong> (SwiftShader, no GPU on Azure D-series). Run at 1080p30 or use a GPU instance.</li>
+      <li><strong>hls2mxl silently stops at VOD EOS</strong> (status still <code>running</code>); live RTSP input works well.</li>
+      <li><strong>Selector defaults to 3 inputs</strong> — it's the container's <code>MAX_INPUTS</code> env, not a hard limit (we run 7).</li>
+      <li><strong>Any NAT/cloud WebRTC deployment needs</strong> <code>MTX_WEBRTCADDITIONALHOSTS=&lt;public-ip&gt;</code> or viewers get only private ICE candidates (black video).</li>
+      <li><strong>Prebuilt images assume AVX.</strong> On a QEMU VM with the default CPU model, every libmxl call SIGILLs (<code>vxorps</code>). Set the hypervisor CPU model to <code>host</code>.</li>
+    </ul>
+
+    <h2 id="s12"><span class="n">12</span>The reader-lifecycle bug is a family — the full taxonomy</h2>
+    <p>§6 established that a reader wedges when its source flow is recreated. In a week of production it revealed <strong>five distinct species</strong>, each needing a different detector. This is the single most important thing we learned.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Species</th><th>What you see</th><th>What rate/head checks say</th><th>Detector that actually works</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Recreation wedge</strong></td><td>reader silent forever after a writer restart</td><td>"attached", head advances on the writer side</td><td>per-reader delivery timestamp (no buffers in &gt;N s)</td></tr>
+        <tr><td><strong>Repeat-delivery wedge</strong></td><td>full 30 fps of the same grain</td><td>all green — grains tick, head fresh, thumbs "update"</td><td>unique-content count (md5 a slice)</td></tr>
+        <tr><td><strong>Frozen-slices</strong> (+ stealth)</td><td>target grains tick but slice payload stalls</td><td>grains/s = 30</td><td><code>avg slices/grain</code> decaying below 1080</td></tr>
+        <tr><td><strong>Stale-attach lag</strong></td><td>a fresh reader delivers late/nothing for seconds ("first cut is a dud")</td><td>flow is fine; only the new reader is behind</td><td>first-activation content check within ~2.5 s</td></tr>
+        <tr><td><strong>Fresh-attach-dead flow</strong></td><td>every new reader gets nothing despite a live writer</td><td>flow head fresh, writer healthy</td><td>N failed fresh attaches → bounce the writer</td></tr>
+      </tbody>
+    </table></div>
+    <div class="key"><b class="tag">The load-bearing insight</b><p>Rate, head-freshness, and thumbnail checks <em>all read green through several of these species.</em> The only honest detectors are <strong>content-uniqueness</strong> at the domain and <strong>byte-identical decoded-frame counting</strong> at the encoded output (see §14).</p></div>
+
+    <h2 id="s13"><span class="n">13</span>The architectural fix: a flow stabilizer</h2>
+    <p>Every mitigation in §12 is a bandage. The real fix is <code>flow_stabilizer.py</code>: a per-input relay that reads the <strong>volatile</strong> source flow and writes a <strong>stable</strong> flow that is created once and never recreated. When the volatile side churns, it swaps only its own reader in place — the sink and stable flow never stop, so every downstream consumer is permanently insulated.</p>
+    <ul>
+      <li><strong>Separate the output clock from the input.</strong> v1 passed input timestamps through; a stalled source made the stable flow jump. v-final drives output from a fixed 30 fps grid slewed to the wall clock and drops ahead-of-realtime arrivals — monotonic and real-time by construction.</li>
+      <li><strong>The stabilizer process must be immortal.</strong> A supervisor respawn would recreate the stable flow — the exact failure it prevents. Any error swaps the reader instead of exiting.</li>
+      <li><strong>Detect recreation by directory inode change</strong>, not by silence — an idle guest is silent legitimately; a recreated flow has a new inode.</li>
+    </ul>
+    <p><strong>Proven in isolation</strong> but not battle-tested under a live show (we rolled it back after iterating too aggressively mid-demo). It is the right post-v1.1.0 topology — deploy it from day one on a fresh build rather than retrofitting under fire.</p>
+
+    <h2 id="s14"><span class="n">14</span>Measurement doctrine: rate metrics lie</h2>
+    <p>If you take one operational lesson: <strong>"is it flowing" is not "is it good."</strong></p>
+    <ul>
+      <li><strong>Grain rate, head freshness, thumbnail-updates</strong> all stay green through a repeat-delivery wedge. They measure motion of the plumbing, not change of the content.</li>
+      <li><strong>Content uniqueness</strong> (hash a fixed slice of each grain; count distinct per second) catches repeat-wedges at the domain.</li>
+      <li><strong>Byte-identical decoded frames</strong> (<code>ffmpeg signalstats YDIF==0</code>) is the only honest program-integrity signal — x264 emits skip-blocks for truly repeated input, while real video always carries sensor noise. <strong>Similarity metrics (mpdecimate) FALSE-FIRE on static scenes</strong> — we shipped that mistake and it needlessly restarted a healthy encoder.</li>
+      <li><strong>Hash the CENTRE of the frame, not the top.</strong> Letterboxed 2-ups have static top rows; off-centre hashing reports false "frozen".</li>
+    </ul>
+
+    <h2 id="s15"><span class="n">15</span>Self-heal reflexes need a single arbiter</h2>
+    <p>We accreted watchdogs under fire — repair cascade, guest-leg doctor, layout wedge-watch, fps-doctor, selector-doctor. Individually each is sound. <strong>Together, uncoordinated, they amplify.</strong> A stale guest branch once tripped a respawn storm — 38 repair events in 30 minutes, visible on program.</p>
+    <ul>
+      <li><strong>Fixes that worked:</strong> make warm-up manual-only (never ride a cascade); make take-check log-only; cap each reflex with per-branch strike files + cooldowns; and the rule — <strong>no cascade on a timer</strong>, only on a deliberate trigger.</li>
+      <li><strong>The design lesson:</strong> past a handful of self-heal reflexes, they need one supervisor with a <strong>global action budget</strong>, not N independent loops. A cascade is a dice roll; fire it only when something <em>knows</em> the chain is broken.</li>
+    </ul>
+
+    <h2 id="s16"><span class="n">16</span>Operational recipes (the runbook)</h2>
+    <ul>
+      <li><strong>mediamtx wedges silently</strong> — accepts SRT publishes but stops serving readers. Recipe: <code>docker restart mediamtx</code> + re-publish.</li>
+      <li><strong>A "slow but flowing" fabric leg</strong> (4.3 grains/s while the writer sends a clean 30) trips no doctor — only a rate probe catches it; bounce the leg.</li>
+      <li><strong>Thumbnail readers wedge on guest reset</strong> like any other reader — a frozen preview makes an operator distrust a live source and not cut to it.</li>
+      <li><strong>Cloudflare 100 s edge timeout</strong> can 502 a long repair mid-flight — drive repairs against the local backend, not the public URL.</li>
+      <li><strong>The status API's 500 ms micro-cache lies right after a cut</strong> — hold local state ~1.2 s after an action before trusting the poll.</li>
+    </ul>
+
+    <h2 id="s17"><span class="n">17</span>Standards &amp; control plane (what we proved)</h2>
+    <ul>
+      <li><strong>NMOS discovery works today.</strong> A stdlib IS-04 v1.3 Node presents every MXL flow as a standard Sender/Receiver — transport <code>urn:x-nmos:transport:mxl</code>, tags per <strong>AMWA BCP-007-03</strong>. Registered into an nmos-cpp registry, Bitfocus Buttons discovered the cloud facility — the first MXL facility in an NMOS registry that we know of.</li>
+      <li><strong>A hardware panel is one Companion module away.</strong> A custom module drives a Stream Deck XL with real red/green tally over the switcher's REST. Confirmed on hardware.</li>
+      <li><strong>The gap to a full facility:</strong> we built IS-04 (discovery). The next rungs are an IS-05 connection shim (so a controller can route us), then IS-07 tally and IS-08 audio. Each is independently demoable. That sequence turns "a demo" into "a facility."</li>
+    </ul>
+
+    <div class="disclaim">Media eXchange Layer (MXL) is a trademark of LF Projects, LLC. This independent project is not affiliated with or endorsed by LF Projects, EBU, AMWA or CBC/Radio-Canada. These are field notes offered as feedback to the open-source community.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/learn.html">Learn MXL</a> · <a href="https://github.com/guycochran/mxl-cloud-production-demo">GitHub ↗</a></span>
+</footer>
+</body>
+</html>

@@ -5,9 +5,17 @@
 User-agent: *
 Allow: /$
 Allow: /index.html
+Allow: /findings.html
+Allow: /learn.html
+Allow: /tams.html
+Allow: /glossary.html
+Allow: /journey.html
+Allow: /future.html
+Allow: /changelog.html
 Allow: /mxl-archive.html
 Allow: /mxl-explainer.html
 Allow: /styles.css
+Allow: /article.css
 Allow: /site.js
 Allow: /images/
 

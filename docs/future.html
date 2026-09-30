@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Why shared memory is the future of live production. The shift from fixed hardware chains to composable software media functions — what it means for cost, remote production, and who gets to make broadcast.">
+<title>Why shared memory is the future of live production · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/future.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Why shared memory is the future of live production">
+<meta property="og:description" content="The shift from fixed hardware chains to composable software media functions — what it means for cost, remote production, and who gets to make broadcast.">
+<meta property="og:url" content="https://mxlswitcher.com/future.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Why shared memory is the future of live production">
+<meta name="twitter:description" content="From fixed hardware chains to composable software functions — the case for MXL and the software-defined facility.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"OpinionNewsArticle",
+"headline":"Why shared memory is the future of live production",
+"description":"An argument that software-defined production built on shared-memory media exchange (MXL) changes the economics and accessibility of live broadcast.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/future.html",
+"image":"https://mxlswitcher.com/images/demo-camera.png",
+"about":[{"@type":"Thing","name":"Media eXchange Layer (MXL)"},{"@type":"Thing","name":"software-defined broadcast"}]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc">
+  <article class="prose">
+    <p class="eyebrow">Point of view</p>
+    <h1>Why shared memory is the future of live production</h1>
+    <p class="lede">The switcher has been a box for forty years. The most interesting idea in broadcast right now is that it <b>doesn't have to be</b> — and the mechanism is almost boring: media functions sharing memory instead of passing frames down a wire.</p>
+    <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>An opinion, earned by building it</span></p>
+
+    <h2>The chain was always the constraint</h2>
+    <p>Traditional production is a signal chain: camera → router → switcher → keyer → encoder, each a box that owns one stage and hands off to the next. It works beautifully and it's rigid by construction. Adding a capability means adding a box and re-cabling. Every consumer of a source is another physical copy — another SDI run, another 2110 flow on the wire, another NDI stream to encode. Scale costs money linearly, and the facility's shape is fixed in metal.</p>
+    <p>The insight behind the Dynamic Media Facility is that none of that is fundamental. It's an artifact of media living <em>on wires</em> instead of <em>in memory</em>.</p>
+
+    <h2>What changes when media lives in shared memory</h2>
+    <p>Put the media in a shared-memory domain — as the Media eXchange Layer does — and three things stop being true at once:</p>
+    <ul>
+      <li><strong>Fan-out stops costing.</strong> The tenth consumer of a camera is a pointer, not a tenth copy. A multiviewer reading nine sources decodes nothing — it reads the same grains the program cuts. <a href="/glossary.html">(Zero-copy →)</a></li>
+      <li><strong>The router disappears into the memory.</strong> A new function joins the domain and can immediately see every flow. There's nothing to re-cable; discovery <em>is</em> the routing.</li>
+      <li><strong>The switcher becomes composable.</strong> A "switcher" is just a connected set of small functions — selector, keyer, mixer, multiviewer. Replace one, add one, move one to another machine. The box was never the switcher; the <em>connected set of functions</em> is.</li>
+    </ul>
+
+    <h2>The economics are the headline</h2>
+    <p>I ran a full production facility — cameras, remote guests, keying, a native multiviewer, program audio, live-to-archive recording — across three cloud VMs scaled to 32 cores, for <strong>$2.11 an hour</strong>. Not a proof of concept in a lab: on air, under load, reaching 15 countries during IBC week. <a href="/journey.html">(The whole story →)</a></p>
+    <p>That number is the argument. When a facility is software on general-purpose compute, it costs what you rent and nothing when it's off. Production stops being capital you <em>own</em> and becomes capacity you <em>compose</em> — spin up for the show, tear down after, pay for the hours you were on air. The same shift that happened to servers is now happening to the control room.</p>
+
+    <h2>What it means for who gets to make broadcast</h2>
+    <p>Rigid, expensive chains gatekeep. A software facility on rentable compute doesn't. A one-person team can stand up a real switcher, bring in remote guests across a network, and put it on air — I know because I did, and wrote down <a href="/findings.html">every way it broke</a> so the next person doesn't have to relearn it. Open standards (MXL, TAMS, NMOS) mean no single vendor owns the result. That's not a small thing: it widens who can produce live video at broadcast quality from "organisations with a machine room" to "anyone with a cloud account and the knowledge."</p>
+
+    <h2>The honest caveats</h2>
+    <p>This is early. Shared-memory media is single-host until you bridge it with a fabric, and that fabric needs current libraries and a little NAT cleverness to cross networks. Software decoders and CPU keyers have real, countable costs — a polling reader can burn a core doing nothing. Reliability is an engineering discipline, not a given: the failure modes are subtle enough that your health metrics will lie to you until you measure content, not motion. None of these are dead ends. All of them are <em>solvable in software</em>, which is exactly why this direction wins in the end — you can fix a facility with a patch instead of a purchase order.</p>
+
+    <h2>Where this goes</h2>
+    <p>The data plane (MXL) is real and shipping — it won the <a href="/#field">IBC 2026 Innovation Award</a> and multiple vendors demoed it. The store (TAMS) works. The control plane (NMOS) is the next rung: once a standard controller can discover and route MXL flows, "a demo" becomes "a facility." The pieces exist. What's left is the unglamorous work of making them boringly reliable — and that work is happening in the open, which is the best possible sign.</p>
+    <p>The switcher was a box for forty years because media lived on wires. It's about to stop being one, because media can live in memory. That's the whole future, and it's already running.</p>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. This is an independent opinion piece, not affiliated with or endorsed by LF Projects, EBU, AMWA or any vendor. Claims about our own facility are documented in the <a href="/findings.html">field findings</a>.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/learn.html">Learn MXL</a> · <a href="/journey.html">The journey</a></span>
+</footer>
+</body>
+</html>
