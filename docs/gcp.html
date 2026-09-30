@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Running MXL on Google Cloud — a verified portability proof. The same one command that works on Azure and AWS ran clean on a GCP n2-standard-8: the Azure→GCP translation, the global CPU-quota blocker, and real-camera field notes.">
+<title>Running MXL on GCP — a verified portability proof · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/gcp.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Running MXL on GCP — a verified portability proof">
+<meta property="og:description" content="The same stack ran clean on a GCP n2-standard-8 — switcher on air, keyer live. The Azure→GCP translation, the CPU-quota blocker, and real-camera field notes.">
+<meta property="og:url" content="https://mxlswitcher.com/gcp.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Running MXL on GCP — a verified portability proof">
+<meta name="twitter:description" content="Same stack, third cloud. Verified on n2-standard-8, with real-camera field notes.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"Building the MXL Cloud Production Demo on GCP",
+"description":"A verified portability proof running the MXL + TAMS software production stack on Google Compute Engine, with translation table, quota notes, and real-camera field notes.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/gcp.html",
+"image":"https://mxlswitcher.com/images/demo-camera.png",
+"keywords":"MXL, GCP, Google Compute Engine, n2-standard, GCS, TAMS, portability, broadcast"}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#why">Why bother</a>
+    <a href="#xlate">Azure → GCP translation</a>
+    <a href="#cost">Cost on a $300 budget</a>
+    <a href="#quota">The one real blocker</a>
+    <a href="#build">Per-host builds</a>
+    <a href="#cams">Real-camera field notes</a>
+    <a href="#bug">The one open bug</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Reproducibility · GCP</p>
+    <h1>Running MXL on GCP — a portability proof</h1>
+    <div class="key"><b class="tag">✅ Verified 2026-09-15</b><p>The <code>scripts/quickstart.sh</code> path ran clean end-to-end on a fresh GCP <strong>n2-standard-8</strong> (us-west1-a, Ubuntu 24.04, AVX-512): MXL switcher <strong>ON AIR</strong>, keyer lower-third rendering, live CUT control, full flow set in <code>/dev/shm/mxl/domain_1</code>, WebRTC program in the browser. <strong>The same one command that works on Azure works on GCP — portability proven.</strong></p></div>
+    <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>$300 free-credit window</span><span>Source: <a href="GCP-BUILD-PLAN.md">GCP-BUILD-PLAN.md</a></span></p>
+
+    <h2 id="why">Why bother — and the honest framing</h2>
+    <p>The MXL/TAMS switcher has nothing Azure-specific in it: an AVX-capable Xeon, a big <code>/dev/shm</code>, libfabric over TCP, cloudflared, ffmpeg. If it runs on Azure and AWS, it runs on GCP. Standing it up on GCP once — screenshot it, tear it down — is a cheap, strong data point: <em>"the open standard doesn't care whose cloud you're on."</em> Not a permanent home; a proof.</p>
+
+    <h2 id="xlate">Azure → GCP translation table</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Role</th><th>Azure</th><th>GCP equivalent</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Host 1 — production</strong></td><td><code>D32s_v5</code> (32/128)</td><td><strong><code>n2-standard-32</code></strong> (32/128)</td><td>1:1 on cores and RAM. N2 has AVX-512 (required). N2 not C3 — C3 has no -32 SKU and defaults to 4 GB/vCPU; the domain needs the 128 GB.</td></tr>
+        <tr><td>Host 2 — contribution</td><td><code>D8s_v5</code> (8/32)</td><td><strong><code>n2-standard-8</code></strong> (8/32)</td><td>1:1. Also AVX-512.</td></tr>
+        <tr><td>Host 3</td><td><code>D4s_v5</code></td><td><strong>not needed</strong></td><td>Native GCS replaces the self-hosted store; TAMS API rides on Host 2.</td></tr>
+        <tr><td>TAMS object store</td><td>MinIO on VM3</td><td><strong>Native GCS + V4 signed URLs</strong></td><td>TAMS is happy on any S3-compatible store.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="cost">The cost warnings (on a $300 budget)</h2>
+    <p>$300 is generous for a proof, tight for always-on. <code>n2-standard-32</code> ≈ $1.55/hr, <code>n2-standard-8</code> ≈ $0.39/hr → the pair is ≈ <strong>$1.94/hr</strong> — ~150 hours of 24/7, or weeks of deallocate-when-idle sessions. A 2-day build + first show is ≈ $55–60.</p>
+    <div class="key"><b class="tag">Same trap as AWS</b><p>Never send a raw v210 fabric flow across a zone or the internet — one 1080p30 flow is ~1.3 Gbps ≈ 585 GB/hr, and GCP inter-zone egress is ~$5.85/hr per flow. <strong>Put both hosts in the same zone</strong> (intra-zone internal-IP traffic is free). Credits expire — do the run, capture it, tear down.</p></div>
+
+    <h2 id="quota">The one real blocker: the global CPU quota</h2>
+    <p><strong>Confirmed in practice:</strong> the gate is <em>not</em> the regional quota — it's the global <code>CPUS_ALL_REGIONS</code> cap, which defaulted to <strong>12</strong> on a just-upgraded account. A 32+8 = 40 vCPU rig is blocked with <code>Quota 'CPUS_ALL_REGIONS' exceeded. Limit: 12.0 globally.</code></p>
+    <ul>
+      <li>Free-trial accounts can't request increases (capped at 8 cores). An upgraded account can.</li>
+      <li><strong>Action:</strong> Console → IAM &amp; Admin → Quotas → filter "CPUs (all regions)" → request 48. Upgraded accounts usually auto-approve in minutes (ours went 12→48 in ~1 min).</li>
+      <li><strong>The fallback proof is already done:</strong> the full keyed switcher runs under 8 vCPU, so portability is proven now; the 32-core rig only adds headroom for two cameras + multiview + guests.</li>
+    </ul>
+
+    <h2 id="build">Per-host software builds (identical to Azure/AWS)</h2>
+    <p>Nothing changes below the instance layer — that's the whole point. Ubuntu 24.04, MXL SDK + <code>mxl-fabrics-demo</code>, libfabric ≥ 2.x, ffmpeg, cloudflared. Verify <code>grep avx /proc/cpuinfo</code> first (N2 → yes). <strong>Build gotchas found (missing from the fabric handoff doc):</strong> <code>git clone + bootstrap vcpkg</code> at <code>~/vcpkg</code> first (the preset hardcodes that path), and there are no build presets — build with <code>cmake --build build/Linux-GCC-Release -j$(nproc)</code>, not <code>--build --preset</code>.</p>
+
+    <h2 id="cams">Field notes from the real-camera run</h2>
+    <p><strong>Achieved (all verified):</strong> a real studio PTZ (PTZOptics F63) and a Makito X4 encoder, both repointed Azure→GCP over SRT, landed live in the GCP domain — the Makito held 13+ min stable at 12.7 Mbps. The selector cut 4 real inputs; its output flow carried the live PTZ frame.</p>
+    <ul>
+      <li><strong>Selector requires a uniform grain rate.</strong> A PTZ pushing native 1080p60 lands as a 60/1 flow and the selector rejects the set (<code>grain_rate 60/1 ≠ 30/1</code>). Normalize on ingest with <code>videorate ! video/x-raw,framerate=30/1</code>.</li>
+      <li><strong>SRT latency for WAN:</strong> the Azure 20 ms (tuned for ~6 ms studio↔VM LAN) was too tight for the studio→GCP-Oregon internet hop; <strong>200 ms</strong> made both feeds hold.</li>
+      <li><strong>Real PTZ → GCP over SRT works.</strong> The camera's built-in SRT sender is the optimized path (no ffmpeg transcode hop). One publisher per stream name.</li>
+      <li><strong>Never hot-reconfigure the live selector.</strong> Repeatedly reconfiguring it littered <code>/dev/shm</code> with 45 stale flow dirs → frozen program. A reboot + one ordered bring-up = clean 8-flow domain.</li>
+    </ul>
+
+    <h2 id="bug">The one open bug (honestly)</h2>
+    <p><strong><code>mxl2webrtc</code> WHIP egress on the minimal quickstart</strong> — reproduced ~10× across reboots. Upstream is perfect (cameras land, selector/keyer/encoder run, domain clean), and the encoder logs <code>WHIP handshake complete</code>, but the browser gets <code>stream not found</code> — mediamtx never serves the path. The Azure rig avoids this because it runs the full backend + <code>/api/mxl/repair</code> orchestration, which the minimal quickstart lacks. <strong>Fix path:</strong> replicate the full <code>bring-up-mxl.sh</code> + backend (the AWS recorded build), don't hot-reconfigure the minimal quickstart.</p>
+    <p>That honesty is the point of a field note — portability is proven, and the remaining rough edge is documented so the next person skips the hours we spent on it.</p>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. Google Cloud, GCE and GCS are trademarks of Google. This independent guide is not affiliated with or endorsed by either. Companion: <a href="/aws.html">the AWS build plan →</a></div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/aws.html">AWS build</a> · <a href="/findings.html">Findings</a></span>
+</footer>
+</body>
+</html>

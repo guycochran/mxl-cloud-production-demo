@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How to run an MXL cloud production facility on AWS: the Azure→AWS translation table, the two-VPC contribution-DMZ network design, the cross-AZ data-transfer traps that matter, and a ~$56 two-day build.">
+<title>Running MXL on AWS — a build plan · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/aws.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Running MXL on AWS — a build plan">
+<meta property="og:description" content="The Azure→AWS translation, the two-VPC DMZ network, the cross-AZ cost traps, and a ~$56 two-day build of a full MXL production facility.">
+<meta property="og:url" content="https://mxlswitcher.com/aws.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Running MXL on AWS — a build plan">
+<meta name="twitter:description" content="Azure→AWS translation, two-VPC DMZ, cross-AZ cost traps, ~$56 two-day build.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"Building the MXL Cloud Production Demo on AWS",
+"description":"A reproducibility guide for running a full MXL + TAMS software production facility on AWS EC2, with network design and cost analysis.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/aws.html",
+"image":"https://mxlswitcher.com/images/demo-camera.png",
+"keywords":"MXL, AWS, EC2, m6i, VPC peering, S3, TAMS, broadcast, cloud production"}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#xlate">Azure → AWS translation</a>
+    <a href="#cost">Cost warnings that matter</a>
+    <a href="#net">Two-VPC network design</a>
+    <a href="#build">Per-host builds</a>
+    <a href="#phases">Build phases</a>
+    <a href="#lessons">What we'd do differently</a>
+    <a href="#total">What it costs</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Reproducibility · AWS</p>
+    <h1>Running MXL on AWS</h1>
+    <p class="lede">Run the facility we proved on Azure for IBC 2026 — uncompressed v210 shared-memory switching, multi-host MXL fabric, guest SRT contribution, TAMS recording, public WebRTC — <b>as a production deployment on AWS</b>. Everything in the repo runs unchanged; only the infrastructure vocabulary translates.</p>
+    <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>~1–2 day replay of a 6-day discovery</span><span>Source: <a href="AWS-BUILD-PLAN.md">AWS-BUILD-PLAN.md</a></span></p>
+
+    <h2 id="xlate">Azure → AWS translation table</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Role</th><th>Azure (as run)</th><th>AWS equivalent</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Host 1 — production</strong></td><td><code>D32s_v5</code> (32/128)</td><td><strong><code>m6i.8xlarge</code></strong> (32/128)</td><td>Near-identical silicon. The domain lives in <code>/dev/shm</code> — RAM matters as much as cores, so m6i over c6i.</td></tr>
+        <tr><td>Host 2 — contribution</td><td><code>D8s_v5</code> (8/32)</td><td><strong><code>m6i.2xlarge</code></strong> (8/32)</td><td>1:1.</td></tr>
+        <tr><td>Host 3</td><td><code>D4s_v5</code> (TAMS store)</td><td><strong>not needed</strong></td><td>Native S3 replaces the self-hosted object store; the TAMS API rides on Host 2.</td></tr>
+        <tr><td>Network</td><td>single VNet + NSG</td><td><strong>two VPCs + peering</strong></td><td>Stricter by design: guests are strangers; isolate their landing zone from the program chain (§ network).</td></tr>
+        <tr><td>TAMS object store</td><td>MinIO on VM3</td><td><strong>Native S3 + presigned URLs</strong></td><td>TAMS was designed for S3 — the one place AWS is an upgrade, not a translation.</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>CPU requirement:</strong> v210 conversion leans on <strong>AVX</strong> (that's why a no-AVX box can't run MXL at all). Every m6i/c6i/m7i has it. Don't use burstable <code>t3/t4g</code> for any media host — CPU credits will strand a 30 fps pipeline mid-demo.</p>
+
+    <h2 id="cost">The cost warnings that actually matter</h2>
+    <div class="key"><b class="tag">The one that bites</b><p><strong>Cross-AZ data transfer will eat you alive.</strong> An MXL fabric flow is ~1.3 Gbps of uncompressed v210 — ≈585 GB/hour, continuously. Same-AZ private-IP traffic (including over VPC peering) is <strong>free</strong>. Cross-AZ is ~$11.70/hour per flow; a raw flow at a public IP is ~$52/hour. <strong>Put Host 1 and Host 2 in the same AZ. Non-negotiable.</strong></p></div>
+    <ul>
+      <li><strong>Viewer egress is fine.</strong> Each WebRTC viewer is ~5 Mbps ≈ $0.20/hr. A booth crowd costs beer money, not rent.</li>
+      <li><strong>Stop instances when idle.</strong> EC2 <em>stop</em> keeps the EBS volumes and drops compute to zero — same discipline as the Azure deallocate rule.</li>
+      <li><strong>Ballpark production rate</strong> (2 hosts, us-west-2, on-demand): <code>m6i.8xlarge</code> $1.536 + <code>m6i.2xlarge</code> $0.384 ≈ <strong>$1.92/hr</strong> + viewer egress.</li>
+      <li><strong>New-account quota:</strong> fresh accounts often cap on-demand vCPUs at 32. File a quota increase to 48 vCPU on day 0 — it can take a day to approve and gates the whole build.</li>
+    </ul>
+
+    <h2 id="net">Network design — two VPCs (production + contribution DMZ)</h2>
+    <p>Guests are strangers with a QR code. Their landing zone gets its own VPC: a compromised contribution host has <strong>no route</strong> to the program chain except the two fabric ports we explicitly peer. This is the broadcast ingest-DMZ pattern, in cloud vocabulary.</p>
+    <pre><code>              THE INTERNET
+  Guests (Larix)     Studio cams      Viewers + Operators
+      │ SRT 8890        │ SRT 8890        │ WebRTC 8189 + HTTPS
+      ▼                 ▼                 │ via cloudflared
+╔═══════════════════╗  ╔═══════════════════╧═══════════════════╗
+║ VPC-CONTRIB       ║  ║ VPC-PROD  10.0.0.0/16                  ║
+║ 10.1.0.0/16       ║  ║  Host 1  m6i.8xlarge (32c/128G, AVX)   ║
+║  Host 2 2xlarge   ║  ║  /dev/shm MXL domain (v210)           ║
+║  mediamtx SRT in  ║  ║  cam ingest ─ SELECTOR ─ KEYER ─ ENC   ║
+║  guest_ingest ×2 ─╫──╫─▶ fabric targets :1314-1315           ║
+║  fabric initiators║  ║  layout_pgm, audio_pgm, multiview     ║
+║  tams_shipper ────╫──╫─◀ keyed PGM :1313                     ║
+╚═════════╪═════════╝  ╚═══════════════════════════════════════╝
+          │   ▲__ VPC PEERING (BOTH HOSTS SAME AZ = $0/GB) __▲
+          ▼
+   Amazon S3 — 1s segments + sprites, presigned URLs to the
+   clipper UI. Reached from both VPCs via S3 Gateway Endpoints.</code></pre>
+    <ul>
+      <li><strong>Peering:</strong> same region, same AZ — pick the AZ by <em>ID</em> (e.g. <code>usw2-az1</code>) since AZ letters shuffle per account.</li>
+      <li><strong>Security groups</strong> use CIDR rules (cross-VPC SG references don't work over peering). Guests hit UDP 8890 on the DMZ; only fabric TCP crosses the peering.</li>
+      <li><strong>Jumbo frames:</strong> MTU 9001 works within a VPC but peering clamps to 1500 — our Azure rig ran 1500 at 1.3 Gbps without complaint.</li>
+      <li><strong>Elastic IPs</strong> on both hosts (stable SRT/WebRTC targets; free while attached). cloudflared needs no inbound.</li>
+    </ul>
+
+    <h2 id="build">Per-host software builds (identical to Azure)</h2>
+    <p>Ubuntu 24.04 everywhere. The recipe is <code>bring-up-mxl.sh</code> plus:</p>
+    <ul>
+      <li><strong>libfabric ≥ 2.x</strong> from source (distro 1.x lacks <code>FI_SOCKADDR_IP</code>)</li>
+      <li><strong>mxl v1.1.0</strong> with <code>-DMXL_ENABLE_FABRICS_OFI=ON</code> (gotcha: shallow vcpkg clones fail baseline resolution — <code>git fetch --unshallow</code>)</li>
+      <li>Docker + the easy-mxl container suite (selector, HTML5 keyer, file player, mxl2webrtc, hls2mxl)</li>
+      <li>mediamtx, this repo's <code>tools/</code> (ingests, layout compositor, audio, thumbs, <code>grain_probe.py</code>, guest-leg doctor, multiview), and cloudflared</li>
+    </ul>
+    <p>The domain stays at <code>/dev/shm/mxl/domain_1</code>. Nothing in the data plane knows or cares which cloud it's on — <strong>that's the demo's thesis.</strong></p>
+
+    <h2 id="phases">Build phases</h2>
+    <ul>
+      <li><strong>Phase 0 — account prep (day 0, async):</strong> vCPU quota request, both VPCs + same-AZ-ID subnets + peering + SGs, 2× EIP, S3 bucket + gateway endpoints, IAM instance roles.</li>
+      <li><strong>Phase 1 — single-host production (½ day):</strong> launch <code>m6i.8xlarge</code>, run the build. Success = test-pattern program over WebRTC + cuts working.</li>
+      <li><strong>Phase 2 — contribution DMZ + fabric (½ day):</strong> launch <code>m6i.2xlarge</code> in the DMZ (same AZ ID!). First test: <code>iperf3</code> across the peering — ≥4 Gbps and sub-ms RTT confirms same-AZ; ~1 Gbps + 1–2 ms means you crossed AZs, fix first. Expect the logged numbers: 30 grains/s, ~1080 slices/grain, ~1.3 Gbps/flow.</li>
+      <li><strong>Phase 3 — TAMS on real S3 (½ day):</strong> segments to native S3 presigned URLs; the clipper works unchanged.</li>
+      <li><strong>Phase 4 — hardening (½ day):</strong> grain probe, health board, guest-leg doctor, and <code>flow_stabilizer.py</code> deployed <strong>from day 1</strong>.</li>
+    </ul>
+
+    <h2 id="lessons">What we'd do differently (lessons pre-paid on Azure)</h2>
+    <ol>
+      <li><strong>Start at 32 vCPU.</strong> We resized D8→D16→D32 chasing headroom; the full rig idles around load 10–13 on 32 cores. Size for the end state.</li>
+      <li><strong>Deploy in dependency order and don't churn writers.</strong> Most of <a href="/findings.html">FINDINGS</a> is one lesson: MXL readers die when a writer recreates its flow. Deploy <code>flow_stabilizer.py</code> from day 1 instead of retrofitting under fire.</li>
+      <li><strong>Same-AZ private IPs for all continuous flows</strong> (also the cost rule).</li>
+      <li><strong>Keep <code>grain_probe.py</code> running from day 1.</strong> Rate checks lie; only unique-frames/sec catches a repeat-wedged reader.</li>
+    </ol>
+
+    <h2 id="total">What it costs</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Line</th><th>Rate</th><th>A realistic 2-day build + first show</th></tr></thead>
+      <tbody>
+        <tr><td>m6i.8xlarge × ~25 hrs</td><td>$1.536/hr</td><td>~$38</td></tr>
+        <tr><td>m6i.2xlarge × ~25 hrs</td><td>$0.384/hr</td><td>~$10</td></tr>
+        <tr><td>Viewer egress, storage, EIPs, S3</td><td>—</td><td>~$8</td></tr>
+        <tr><td><strong>Total</strong></td><td></td><td><strong>≈ $56 to a working production facility</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p>Ongoing: ~$2/hr during show hours, near-zero stopped. Always-on with a 1-year Savings Plan ≈ $850/mo. <em>Same software, different cloud — that's the point.</em></p>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. AWS, EC2 and S3 are trademarks of Amazon. This independent guide is not affiliated with or endorsed by either. Companion: <a href="/gcp.html">the GCP build plan →</a></div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/gcp.html">GCP build</a> · <a href="/findings.html">Findings</a></span>
+</footer>
+</body>
+</html>

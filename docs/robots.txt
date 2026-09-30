@@ -11,6 +11,8 @@ Allow: /tams.html
 Allow: /glossary.html
 Allow: /journey.html
 Allow: /future.html
+Allow: /aws.html
+Allow: /gcp.html
 Allow: /changelog.html
 Allow: /mxl-archive.html
 Allow: /mxl-explainer.html
