@@ -1,0 +1,36 @@
+# robots.txt for mxlswitcher.com
+# The "Switcher Lab for MXL" front door + durable public demo pages are open to crawlers.
+# Application/admin/live-operator surfaces that happen to share the backend are disallowed.
+
+User-agent: *
+Allow: /$
+Allow: /index.html
+Allow: /mxl-archive.html
+Allow: /mxl-explainer.html
+Allow: /styles.css
+Allow: /site.js
+Allow: /images/
+
+# App, admin, pitch and live-only operator surfaces — not content, keep out of the index
+Disallow: /studio.html
+Disallow: /zowie.html
+Disallow: /zowie_admin.html
+Disallow: /pitch-deck.html
+Disallow: /deck-live.html
+Disallow: /deck-recap.html
+Disallow: /ptz_op.html
+Disallow: /ptz_pro.html
+Disallow: /monitor.html
+Disallow: /commentary.html
+Disallow: /bmd.html
+Disallow: /mxl.html
+Disallow: /mxl-clip.html
+Disallow: /mxl-tams.html
+Disallow: /mxl-health.html
+Disallow: /mxl-multiview.html
+Disallow: /mxl-stream.html
+Disallow: /streams/
+Disallow: /assets/
+Disallow: /api/
+
+Sitemap: https://mxlswitcher.com/sitemap.xml
