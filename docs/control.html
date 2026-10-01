@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How MXL gets controlled: AMWA IN-001 is the draft control-API requirements for the Media eXchange Layer. This page explains it and maps a real browser switcher's operations against the IN-001 control model — implementation feedback for an emerging DMF standard.">
+<title>Controlling MXL: AMWA IN-001 &amp; a real control matrix · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/control.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Controlling MXL: AMWA IN-001 & a real control matrix">
+<meta property="og:description" content="MXL defines media exchange but not control. AMWA IN-001 is the draft that fixes that — here it is explained, mapped against a working switcher's operations.">
+<meta property="og:url" content="https://mxlswitcher.com/control.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Controlling MXL: AMWA IN-001 & a real control matrix">
+<meta name="twitter:description" content="MXL defines media exchange but not control. AMWA IN-001 is the draft that fixes that — explained + mapped to a real switcher.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"Controlling MXL: AMWA IN-001 and a real control matrix",
+"description":"An explainer of AMWA IN-001, the draft control-API requirements for the Media eXchange Layer, mapped against the operations of a working browser-based MXL switcher.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/control.html",
+"image":"https://mxlswitcher.com/images/switcher-hero-clean.png",
+"keywords":"AMWA IN-001, MXL control API, MXL readers writers, NMOS, BCP-007-03, Dynamic Media Facility, control plane",
+"citation":"https://github.com/AMWA-TV/in-001"}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#gap">The control gap</a>
+    <a href="#in001">What IN-001 is</a>
+    <a href="#matrix">A real control matrix</a>
+    <a href="#nmos">IN-001 vs BCP-007-03</a>
+    <a href="#feedback">Why this is an opening</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">The control plane</p>
+    <h1>Controlling MXL: AMWA IN-001</h1>
+    <p class="lede">MXL defines how media is <em>exchanged</em> — it deliberately doesn't define how an external controller <em>manages</em> the readers and writers doing the exchanging. <b>AMWA IN-001</b> is the draft that starts to fix that, and it's open for public review right now. If you've built anything that drives MXL, this is the standard to measure yourself against.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Source: <a href="https://github.com/AMWA-TV/in-001" target="_blank" rel="noopener">AMWA-TV/in-001</a></span><span>Draft · Oct 2026</span></p>
+
+    <h2 id="gap">The gap IN-001 fills</h2>
+    <p>Here's the honest architecture, straight from the specs. <a href="/what-is-mxl.html">MXL</a> is the data plane — it moves grains through shared memory. <a href="/learn.html">AMWA NMOS</a> (including BCP-007-03) handles discovery and connection. But between those sits a gap: once a controller has <em>found</em> an MXL sender and receiver, how does it <em>operate</em> them — set their parameters, query their status, manage their lifecycle? Per the IN-001 README itself: <em>"MXL does not define a control API,"</em> and documenting the requirements for one "promotes interoperability among vendors."</p>
+    <p>Anyone who has built a working MXL system has already invented an answer to this — including us. Our switcher does, in effect:</p>
+    <pre><code>browser  →  our REST API  →  MXL readers / writers
+            (enumerate, switch, inspect, attach/detach)</code></pre>
+    <p>Every one of those operations is a candidate control primitive. IN-001 is where they get standardized.</p>
+
+    <h2 id="in001">What IN-001 actually is</h2>
+    <p>From the AMWA repository, verbatim:</p>
+    <div class="key"><b class="tag">AMWA IN-001 — in its own words</b><p>Title: <em>"API Requirements – Control of the Media Exchange Layer (MXL) v1.0."</em> It <em>"Defines the functional and non-functional requirements for a control API that manages MXL Readers and Writers in a DMF environment"</em> — specifically, requirements for <em>"setting parameters and querying status of MXL Writers and Readers."</em></p></div>
+    <p>Two things make it strategically important right now:</p>
+    <ul>
+      <li><strong>It's a draft ("Increment"), not a frozen spec.</strong> Its content is explicitly <em>"subject to evolution based on ongoing testing, consensus-building, and community input."</em></li>
+      <li><strong>They're asking for feedback.</strong> <em>"Public review is encouraged! Please post an Issue to the Repo to submit questions, feedback, or propose changes."</em></li>
+    </ul>
+    <p>That's an open door for anyone with a real implementation. Field data beats opinion in standards work — and field data is exactly what running a live MXL facility produces.</p>
+
+    <h2 id="matrix">A real control matrix: our switcher vs IN-001</h2>
+    <p>The most useful thing an implementer can do is map their real operations onto the emerging model and see what lines up — and what doesn't. Here's our working browser switcher's control surface against IN-001 concepts:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>What our UI does</th><th>Corresponding IN-001 concept</th><th>Notes from our implementation</th></tr></thead>
+      <tbody>
+        <tr><td>Enumerate available sources</td><td>Discover / query writers</td><td>We list flows in the domain; IN-001's status-query requirements cover this.</td></tr>
+        <tr><td>Switch program input (cut)</td><td>Reader configuration</td><td>A cut is re-pointing a reader; the selector's active input is a reader parameter.</td></tr>
+        <tr><td>Inspect flow / health state</td><td>Status query of writers &amp; readers</td><td>Our <a href="/findings.html#s14">measurement doctrine</a> says <em>what</em> to query — content-uniqueness, not just "is it flowing." A candidate requirement.</td></tr>
+        <tr><td>Attach / detach a media function</td><td>Connection lifecycle</td><td>Our hardest-won lessons (the <a href="/findings.html#s12">reader-lifecycle bug family</a>) live here — lifecycle is where real systems break.</td></tr>
+        <tr><td>Route a flow between hosts (Fabrics)</td><td>Remote reader/writer relationship</td><td>Via <a href="/findings.html#s7">mxl-fabrics-proxy</a>; an inter-host control case IN-001 will eventually need.</td></tr>
+      </tbody>
+    </table></div>
+    <p>The interesting rows are the bottom two. Our field findings on <strong>reader lifecycle</strong> and <strong>honest status measurement</strong> are precisely the kind of real-world edge cases a requirements draft benefits from. That's the contribution: not "here's a feature," but "here's what a control API must handle, learned the hard way."</p>
+
+    <h2 id="nmos">IN-001 vs BCP-007-03 — how they relate</h2>
+    <p>Easy to confuse, so to be clear about what we understand from the public drafts:</p>
+    <ul>
+      <li><strong>BCP-007-03</strong> — "NMOS Support for MXL." Establishes how MXL senders/receivers appear to NMOS and how they're <em>connected</em> (an IS-05 transport). This is discovery + connection.</li>
+      <li><strong>IN-001</strong> — requirements for <em>controlling</em> MXL readers/writers once connected (parameters, status). This is operation.</li>
+    </ul>
+    <p>Discovery → connection → control. BCP-007-03 covers the first two for the NMOS world; IN-001 is scoping the third. Together they're the control-plane half of the <a href="/dmf.html">Dynamic Media Facility</a>.</p>
+
+    <h2 id="feedback">Why this is an opening, not just reading</h2>
+    <p>The design lesson we'd keep thinnest: <strong>treat your own control API as an adapter layer, not the destination.</strong> Today's MXL control endpoints (and the <a href="/findings.html#s7">fabrics-proxy</a> config) are explicitly expected to evolve toward standardized discovery/connection/control. Build glue you can swap, and you're positioned to adopt IN-001 / NMOS as they solidify — rather than maintaining a bespoke orchestration layer the standard later replaces.</p>
+    <p>For a one-person lab, that reframes the whole project: the goal isn't to build a better switcher, it's to build the <em>smallest complete</em> <a href="/dmf.html">DMF</a> and feed what breaks back upstream. <a href="/future.html">Why that's the opportunity →</a></p>
+
+    <div class="disclaim">IN-001 and BCP-007-03 are AMWA drafts; quotes are from the public AMWA repositories as of Oct 2026 and the specs are evolving — consult <a href="https://github.com/AMWA-TV/in-001" target="_blank" rel="noopener">the source</a> for authoritative current text. The control-matrix mapping is our own interpretation offered for discussion, not official guidance. MXL is a trademark of LF Projects, LLC; this independent site is not affiliated with or endorsed by AMWA, the EBU or LF Projects.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/dmf.html">The DMF</a> · <a href="/learn.html">Learn MXL</a></span>
+</footer>
+</body>
+</html>

@@ -7,6 +7,8 @@ Allow: /$
 Allow: /index.html
 Allow: /what-is-mxl.html
 Allow: /architecture.html
+Allow: /stack.html
+Allow: /control.html
 Allow: /dmf.html
 Allow: /adoption.html
 Allow: /findings.html

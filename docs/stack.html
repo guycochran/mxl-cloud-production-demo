@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="The smallest complete Dynamic Media Facility: a single diagram of the whole open-standard live-production stack — contribution, MXL domain, media functions, control, Fabrics between nodes, AI, TAMS recording, and program output — with every layer linked to how it really works.">
+<title>The smallest complete DMF — the whole stack in one diagram · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/stack.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="The smallest complete DMF — the whole stack in one diagram">
+<meta property="og:description" content="The entire open-standard live-production pipeline in one picture: contribution → MXL → functions → control → Fabrics → AI → TAMS → output.">
+<meta property="og:url" content="https://mxlswitcher.com/stack.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The smallest complete DMF — the whole stack in one diagram">
+<meta name="twitter:description" content="The entire open-standard live-production pipeline in one picture.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<link rel="stylesheet" href="article.css">
+<style>
+  .stackflow { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 30px 0 10px; max-width: 640px; }
+  .layer { border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; background: var(--surface);
+    position: relative; text-decoration: none; color: var(--ink); display: block; transition: border-color .18s, transform .18s; }
+  .layer:hover { border-color: var(--cyan); transform: translateX(3px); }
+  .layer .lk { font: 700 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--cyan); }
+  .layer h3 { margin: 5px 0 3px; font-size: 17px; }
+  .layer p { margin: 0; font-size: 13px; color: var(--muted); max-width: none; }
+  .layer .spec { position: absolute; top: 14px; right: 16px; font: 700 10px var(--mono); color: var(--faint);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; }
+  .arrow { align-self: center; color: var(--faint); font-size: 18px; line-height: 1; padding: 7px 0; }
+  .layer.mxl { border-left: 3px solid var(--cyan); }
+  .layer.ai { border-left: 3px solid var(--amber); }
+  .layer.io { border-left: 3px solid var(--green); }
+  @media (max-width: 520px) { .layer .spec { position: static; display: inline-block; margin-top: 8px; } }
+</style>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"The smallest complete Dynamic Media Facility",
+"description":"A single-diagram overview of the complete open-standard live-production stack, from contribution through MXL, control, Fabrics, AI, TAMS and program output.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/stack.html",
+"image":"https://mxlswitcher.com/images/switcher-hero-clean.png"}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc">
+  <article class="prose">
+    <p class="eyebrow">The whole thing, in one picture</p>
+    <h1>The smallest complete DMF</h1>
+    <p class="lede">A <a href="/dmf.html">Dynamic Media Facility</a> isn't one product — it's a <b>stack of open standards</b>, each layer replaceable. This is the minimum set that makes a <em>complete</em> live facility, top to bottom. Every box links to how that layer actually works in our build. Nothing here is proprietary.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Each layer = an open standard or open-source tool</span></p>
+
+    <div class="stackflow" aria-label="Dynamic Media Facility stack, top to bottom">
+      <a class="layer io" href="/what-is-mxl.html#vs">
+        <span class="lk">Contribution in</span>
+        <h3>Cameras &amp; guests arrive</h3>
+        <p>Studio cameras, remote guests, playout — over SRT, ST 2110 or SDI.</p>
+        <span class="spec">SRT · 2110 · SDI</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer mxl" href="/architecture.html">
+        <span class="lk">Media plane</span>
+        <h3>The MXL domain</h3>
+        <p>Everything lands in shared memory as time-indexed grains. Zero-copy fan-out — extra consumers are pointers, not copies.</p>
+        <span class="spec">MXL</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer" href="/findings.html">
+        <span class="lk">Processing</span>
+        <h3>Discoverable media functions</h3>
+        <p>Selector, keyer, layout compositor, audio mixer, multiviewer — each reads/writes the domain and is independently replaceable.</p>
+        <span class="spec">functions</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer" href="/control.html">
+        <span class="lk">Control plane</span>
+        <h3>Standards-based control</h3>
+        <p>Discover, connect and operate the functions — NMOS (BCP-007-03) for discovery/connection, AMWA IN-001 for the control model.</p>
+        <span class="spec">NMOS · IN-001</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer" href="/findings.html#s7">
+        <span class="lk">Scale out</span>
+        <h3>Fabrics between compute nodes</h3>
+        <p>Extend the domain across hosts — grains cross machines near-zero-copy over the Fabric layer (libfabric; tcp / verbs / shm / EFA).</p>
+        <span class="spec">Fabrics</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer ai" href="/future.html">
+        <span class="lk">Intelligence</span>
+        <h3>AI as a media function</h3>
+        <p>The frontier: an AI step is just another function on the domain — detection → metadata → graphics. Not a closed appliance; a replaceable node.</p>
+        <span class="spec">AI (emerging)</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer" href="/tams.html">
+        <span class="lk">Storage</span>
+        <h3>TAMS recording</h3>
+        <p>The live program lands in a time-addressable store — clippable and replayable by timerange while the show is still running.</p>
+        <span class="spec">TAMS</span>
+      </a>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <a class="layer io" href="/mxl-archive.html">
+        <span class="lk">Program out</span>
+        <h3>Delivery</h3>
+        <p>The finished program leaves once — WebRTC to browsers, SRT onward. Encode at the edge, not between every stage.</p>
+        <span class="spec">WebRTC · SRT</span>
+      </a>
+    </div>
+
+    <h2>Why "smallest complete" is the goal</h2>
+    <p>You could add endlessly to any one layer — more switcher features, fancier graphics, more codecs. That's the vMix road, and it's not ours. The more useful thing is to prove the <em>whole vertical</em> works end-to-end with open standards at every layer, as small as it can be while still being complete. That's what turns a demo into a <strong>laboratory</strong>: each box is a place the community can swap in their own implementation and see if the seams hold.</p>
+    <p>Three of these layers are frontier work — <strong>control</strong> (<a href="/control.html">IN-001</a> is a draft), <strong>Fabrics</strong> (the API is still evolving), and <strong>AI</strong> (just becoming a funded research question). That's exactly where field data from a running facility is worth most. Start at <a href="/what-is-mxl.html">what MXL is</a>, or read <a href="/findings.html">what broke when we ran the whole stack live</a>.</p>
+
+    <div class="disclaim">A conceptual overview, not a normative architecture — the authoritative reference is the <a href="/dmf.html">EBU DMF</a> white paper. Layer names map to our build and may differ from other DMF implementations. MXL is a trademark of LF Projects, LLC; not affiliated with or endorsed by the EBU, AMWA, BBC or LF Projects.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/dmf.html">The DMF</a> · <a href="/control.html">Control plane</a></span>
+</footer>
+</body>
+</html>
