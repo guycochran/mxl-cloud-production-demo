@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="The EBU Dynamic Media Facility (DMF) explained: the reference architecture behind MXL, its reference-architecture white paper, the EBU–AMWA joint task force (JT-DMF), and how MXL, TAMS and NMOS fit the vision of a software-defined broadcast facility.">
+<title>The EBU Dynamic Media Facility — the vision behind MXL · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/dmf.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="The EBU Dynamic Media Facility — the vision behind MXL">
+<meta property="og:description" content="The reference architecture behind MXL: the EBU DMF, its white paper, the EBU–AMWA joint task force, and how MXL/TAMS/NMOS fit a software-defined facility.">
+<meta property="og:url" content="https://mxlswitcher.com/dmf.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The EBU Dynamic Media Facility — the vision behind MXL">
+<meta name="twitter:description" content="The reference architecture behind MXL — the EBU DMF, its white paper, and the EBU–AMWA joint task force.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"The EBU Dynamic Media Facility — the vision behind MXL",
+"description":"An explainer of the EBU Dynamic Media Facility reference architecture, the governance context for MXL, including the EBU–AMWA joint task force and the DMF white paper.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/dmf.html",
+"image":"https://mxlswitcher.com/images/switcher-hero-clean.png",
+"keywords":"EBU Dynamic Media Facility, DMF, reference architecture, MXL, AMWA, JT-DMF, software-defined broadcast, TAMS, NMOS"}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#what">What the DMF is</a>
+    <a href="#who">Who's behind it</a>
+    <a href="#paper">The white paper</a>
+    <a href="#layers">MXL, TAMS, NMOS</a>
+    <a href="#status">Where it is now</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Context</p>
+    <h1>The EBU Dynamic Media Facility</h1>
+    <p class="lede">MXL doesn't exist in a vacuum — it's the data plane of a bigger idea called the <b>Dynamic Media Facility (DMF)</b>, the EBU's reference architecture for turning a broadcast plant from a room full of boxes into software. Understanding the DMF is the fastest way to understand <em>why</em> MXL is shaped the way it is.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Sourced from tech.ebu.ch</span><span>Updated 2026-10-01</span></p>
+
+    <h2 id="what">What the DMF is</h2>
+    <p>The EBU's own description of the working group's mission: it <em>"investigates and defines architectures, workflows and operational practices that enable media facilities to transition from fixed, hardware-centric environments to flexible, software-defined infrastructures."</em></p>
+    <p>That's the whole thesis in one sentence. The traditional facility is fixed in metal — boxes and cabling. The DMF asks what it looks like when the facility is composable software on general-purpose compute, and defines the architecture to get there. MXL is the piece that moves the media between the software functions. <a href="/future.html">Why that shift matters →</a></p>
+
+    <h2 id="who">Who's behind it</h2>
+    <p>The DMF is an <strong>EBU</strong> initiative, co-chaired by Peter Brightwell (BBC) and Félix Poulin (CBC/Radio-Canada). In Q3 2025 the EBU and <strong>AMWA</strong> formed a <strong>joint task force (JT-DMF)</strong> to align the work — significant because it brings the NMOS control-plane standards body (AMWA) and the European broadcasting union (EBU) under one roof for this architecture. <span style="color:var(--muted)">Source: <a href="https://tech.ebu.ch/groups/dynamic-media-facility" target="_blank" rel="noopener">EBU DMF group</a> and the <a href="https://tech.ebu.ch/news/2025/09/ebu-and-amwa-form-joint-task-force-on-dynamic-media-facilities-jt-dmf" target="_blank" rel="noopener">JT-DMF announcement</a>.</span></p>
+    <p>That governance matters for one practical reason: it's why MXL, TAMS and NMOS are designed to fit together rather than compete — they're being shepherded by the same coalition.</p>
+
+    <h2 id="paper">The reference-architecture white paper</h2>
+    <p>The DMF is documented in a white paper, <em>"The Dynamic Media Facility: Reference Architecture"</em> — first published September 2024, with a v2.0 released in mid-April 2026. It's the canonical statement of the architecture: the layers, the roles, and how media functions, a media plane, storage and control fit together. <span style="color:var(--muted)">Source: <a href="https://tech.ebu.ch/publications/white-paper-the-dynamic-media-facility-reference-architecture" target="_blank" rel="noopener">EBU white paper</a>.</span></p>
+
+    <h2 id="layers">How MXL, TAMS and NMOS fit</h2>
+    <p>The DMF is an architecture; these are the concrete open specs filling its layers:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Layer</th><th>Spec</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td>Media plane (data)</td><td><a href="/what-is-mxl.html">MXL</a></td><td>Moves media between software functions via shared memory (zero-copy) and, across hosts, a fabric.</td></tr>
+        <tr><td>Storage</td><td><a href="/tams.html">TAMS</a></td><td>Time-addressable media store (BBC) — record and retrieve media by timerange.</td></tr>
+        <tr><td>Control plane</td><td>AMWA NMOS (incl. <a href="/learn.html">BCP-007-03</a>)</td><td>Discovery, connection and routing; BCP-007-03 makes MXL flows controllable by standard NMOS controllers.</td></tr>
+      </tbody>
+    </table></div>
+    <p>A useful mental model: <strong>NMOS is how you wire it, MXL is how the media flows, TAMS is where it lands.</strong> The <a href="/architecture.html">architecture page</a> goes deep on the MXL layer; the <a href="/learn.html">reading path</a> orders all of it for a newcomer.</p>
+
+    <h2 id="status">Where it is now</h2>
+    <p>The vision has shipped its first concrete pieces. MXL reached a stable production release (v1.0.0 moved from release-candidate to stable after ~15 months of development), and in 2026 it was <strong>named a finalist — and won — the IBC 2026 Innovation Award, Content Creation category</strong>. Multiple vendors now ship native MXL support. <span style="color:var(--muted)">Sources: <a href="https://tech.ebu.ch/news/2026/ready-for-production-media-exchange-layer-v1-0-0-published" target="_blank" rel="noopener">EBU — MXL v1.0.0</a>; <a href="https://tech.ebu.ch/news/2026/mxl-named-a-finalist-for-the-ibc2026-innovation-awards" target="_blank" rel="noopener">EBU — IBC2026 finalist</a>.</span></p>
+    <p>The DMF is no longer just a paper — it's an architecture with running code, a standards coalition, and a shelf of products. See <a href="/adoption.html">who's building on it →</a> or <a href="/findings.html">what it's like to actually run it →</a>.</p>
+
+    <div class="disclaim">Sourced from EBU (tech.ebu.ch) primary pages as of Oct 2026; dates reflect published announcements (one EBU page shows a ~2-day discrepancy on the white-paper date, cited here as "mid-April 2026"). MXL is a trademark of LF Projects, LLC. This independent explainer is not affiliated with or endorsed by the EBU, AMWA, BBC or LF Projects.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/what-is-mxl.html">What is MXL</a> · <a href="/adoption.html">Adoption</a></span>
+</footer>
+</body>
+</html>

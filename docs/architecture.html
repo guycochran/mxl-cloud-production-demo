@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How MXL works under the hood: the Media eXchange Layer's data model — grains, flows, domains, ring buffers, the TAI timing model, progressive grain writes, and futex synchronization. Sourced directly from the MXL SDK docs.">
+<title>MXL Architecture: grains, flows, domains & the ring-buffer model · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/architecture.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MXL Architecture: grains, flows, domains & the ring-buffer model">
+<meta property="og:description" content="The MXL data model explained correctly, sourced from the SDK docs: ring buffers in shared memory, TAI-indexed grains, progressive writes, futex sync.">
+<meta property="og:url" content="https://mxlswitcher.com/architecture.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MXL Architecture: grains, flows, domains & the ring-buffer model">
+<meta name="twitter:description" content="The MXL data model, sourced from the SDK docs: ring buffers, TAI-indexed grains, progressive writes, futex sync.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"MXL Architecture: grains, flows, domains and the ring-buffer model",
+"description":"A technical reference for the MXL data model — domains, flows, grains, ring buffers, the TAI timing model, progressive writes and futex synchronization — sourced from the MXL SDK documentation.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/architecture.html",
+"image":"https://mxlswitcher.com/images/switcher-hero-clean.png",
+"keywords":"MXL architecture, grain, flow, domain, ring buffer, TAI timing, committedSize, futex, shared memory, NMOS IS-04",
+"citation":"https://github.com/dmf-mxl/mxl"}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#domain">The domain</a>
+    <a href="#flow">Flows &amp; ring buffers</a>
+    <a href="#grain">Grains &amp; progressive writes</a>
+    <a href="#timing">The timing model (TAI)</a>
+    <a href="#sync">Reader/writer sync</a>
+    <a href="#addr">Addressing a flow</a>
+    <a href="#why">Why this design is clever</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Technical reference</p>
+    <h1>MXL architecture: grains, flows, domains &amp; the ring buffer</h1>
+    <p class="lede">A correct, source-grounded explanation of how the Media eXchange Layer actually stores and moves media. <b>Every quote below is from the MXL SDK's own docs</b> (<code>docs/Architecture.md</code>, <code>Timing.md</code>, <code>Addressability.md</code>) — not paraphrase.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Source: <a href="https://github.com/dmf-mxl/mxl" target="_blank" rel="noopener">dmf-mxl/mxl</a> docs</span><span>Updated 2026-10-01</span></p>
+    <p>New to the vocabulary? The <a href="/glossary.html">glossary</a> has one-line definitions; this page is the deeper "how it actually works."</p>
+
+    <h2 id="domain">The domain — memory as the facility</h2>
+    <p>Per the SDK architecture doc: <em>"The base folder where flows are stored is called an MXL domain. Multiple MXL domains can co-exist on the same host."</em> Concretely, a domain is a directory of memory-mapped files; each flow is a subdirectory, <code>${mxlDomain}/${flowId}.mxl-flow/</code>. A media function that opens the domain can see every flow in it — which is why, in MXL, the shared memory <em>is</em> the router.</p>
+
+    <h2 id="flow">Flows &amp; ring buffers</h2>
+    <p>A flow is <em>"ring buffers stored in memory mapped files"</em> carrying NMOS IS-04 Flow resources. The ring is deliberately small — old grains are overwritten as new ones arrive, because a live production only needs "now" plus a little slack. The SDK provides <strong>two ring-buffer types</strong>:</p>
+    <ul>
+      <li><strong>Discrete</strong> — <em>"used for granular data types such as video and ancillary data"</em> (one grain = one frame).</li>
+      <li><strong>Continuous</strong> — <em>"used for audio"</em> (a continuous sample stream rather than discrete frames).</li>
+    </ul>
+
+    <h2 id="grain">Grains &amp; progressive writes</h2>
+    <p>A grain is the fundamental unit of media (a video frame, a block of audio). A subtle but important detail: <em>"Grain I/O can be 'partial'. In other words, a FlowWriter can write the bytes of a grain progressively (as slices for example)."</em></p>
+    <p>That's why readers must respect a <strong>commit marker</strong>. From the docs: <em>"A complete grain will have <code>mxlGrainInfo.committedSize == mxlGrainInfo.grainSize</code>. It is imperative that FlowReaders always take into consideration the <code>mxlGrainInfo.committedSize</code> field before making use of the grain buffer."</em> Ignore it and a reader can consume a half-written frame — exactly the kind of torn read that shows up as corruption on air.</p>
+
+    <h2 id="timing">The timing model — TAI, no PTP required</h2>
+    <p>This is the piece that makes multi-host MXL elegant. Grains aren't positioned by queue order — they're positioned by <strong>time</strong>. Each ring index corresponds to a timestamp relative to the PTP epoch as defined by SMPTE 2059-1, using TAI time. But crucially:</p>
+    <div class="key"><b class="tag">From the timing doc</b><p><em>"MXL does NOT require a PTP/SMPTE 2059 time source: it only leverages the epoch and clock definitions (TAI time)."</em> For multi-host setups, "MXL requires that the time source of these hosts does not slip against each other over time" — any stable, non-drifting clock (ordinary NTP, in our experience) is enough.</p></div>
+    <p>The indexing is pure arithmetic:</p>
+    <pre><code>GrainDurationNs = GrainRateDenominator × 1,000,000,000 / GrainRateNumerator
+GrainIndex      = Timestamp / GrainDurationNs
+RingBufferIndex = GrainIndex mod RingBufferLength</code></pre>
+    <p>The payoff, which we measured directly: if two hosts share a clock, a flow arriving from another machine lands at the <em>same</em> index its local peers do — so a switcher reads a remote camera exactly like a local one, no manual latency offset. <a href="/findings.html#s7">The field proof →</a></p>
+
+    <h2 id="sync">Reader/writer synchronization</h2>
+    <p>One implementation choice with a real operational consequence: <em>"Synchronization between readers and writers is performed using futexes and not using POSIX mutexes, which would require write access to the mutex stored in shared memory."</em> Using futexes means readers can mount the domain <strong>read-only</strong> — which is exactly what you want when many containers consume a flow but must never be able to corrupt it.</p>
+
+    <h2 id="addr">Addressing a flow</h2>
+    <p>Flows have a URI form: <code>mxl://&lt;authority&gt;/&lt;domain-path&gt;?id=&lt;flow-uuid&gt;</code>. The UUID is the NMOS IS-04 flow id, which is how MXL ties into the <a href="/learn.html">NMOS control plane</a> (discovery, routing) without the data plane having to know anything about it.</p>
+
+    <h2 id="why">Why this design is clever</h2>
+    <p>Put the four ideas together and the elegance shows:</p>
+    <ul>
+      <li><strong>Ring buffers in shared memory</strong> → extra consumers are nearly free (<a href="/what-is-mxl.html">zero-copy fan-out</a>).</li>
+      <li><strong>TAI-indexed grains</strong> → position is a timestamp, so clock-synced hosts align automatically — no sequence negotiation.</li>
+      <li><strong>Progressive writes + a commit marker</strong> → low latency (readers can follow a frame as it's written) without torn reads.</li>
+      <li><strong>Futex sync + read-only mounts</strong> → safe, high-fan-out consumption that can't corrupt the source.</li>
+    </ul>
+    <p>None of it is exotic — it's careful systems engineering applied to media. That's the whole appeal: a facility built from these primitives is software you can reason about, not a chain of boxes you have to re-cable. See it in practice in the <a href="/findings.html">field findings</a>, or step back to <a href="/what-is-mxl.html">what MXL is</a> and <a href="/future.html">why it matters</a>.</p>
+
+    <div class="disclaim">Quotes sourced from the <a href="https://github.com/dmf-mxl/mxl" target="_blank" rel="noopener">dmf-mxl/mxl</a> SDK documentation (Apache 2.0) as of Oct 2026; the project moves fast — check the repo for the authoritative current text. MXL is a trademark of LF Projects, LLC; this independent explainer is not affiliated with or endorsed by LF Projects, EBU or AMWA.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/what-is-mxl.html">What is MXL</a> · <a href="/glossary.html">Glossary</a></span>
+</footer>
+</body>
+</html>

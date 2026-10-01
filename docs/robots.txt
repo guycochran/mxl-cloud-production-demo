@@ -5,6 +5,10 @@
 User-agent: *
 Allow: /$
 Allow: /index.html
+Allow: /what-is-mxl.html
+Allow: /architecture.html
+Allow: /dmf.html
+Allow: /adoption.html
 Allow: /findings.html
 Allow: /learn.html
 Allow: /tams.html

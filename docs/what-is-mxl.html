@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="What is MXL? A plain-English explainer of the Media eXchange Layer — the open-source EBU/AMWA shared-memory media plane for software-defined broadcast production. Grains, flows, domains, the Flow API and Fabric API, and how it differs from NDI, ST 2110 and SRT.">
+<title>What is MXL (Media eXchange Layer)? · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/what-is-mxl.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="What is MXL (Media eXchange Layer)?">
+<meta property="og:description" content="The open-source shared-memory media plane behind the EBU Dynamic Media Facility — explained in plain English. Grains, flows, domains, and how it differs from NDI/ST 2110/SRT.">
+<meta property="og:url" content="https://mxlswitcher.com/what-is-mxl.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="What is MXL (Media eXchange Layer)?">
+<meta name="twitter:description" content="The open-source shared-memory media plane behind the EBU Dynamic Media Facility, explained plainly.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle",
+"headline":"What is MXL (Media eXchange Layer)?",
+"description":"An explainer of the open-source Media eXchange Layer: a shared-memory media plane for software-defined broadcast production, part of the EBU Dynamic Media Facility.",
+"author":{"@type":"Person","name":"Guy Cochran"},
+"publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
+"mainEntityOfPage":"https://mxlswitcher.com/what-is-mxl.html",
+"image":"https://mxlswitcher.com/images/switcher-hero-clean.png",
+"keywords":"MXL, Media eXchange Layer, EBU, AMWA, Dynamic Media Facility, shared memory, zero-copy, broadcast, NDI, ST 2110, SRT, TAMS, NMOS",
+"about":[{"@type":"Thing","name":"Media eXchange Layer (MXL)"}]}
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"What is MXL?","acceptedAnswer":{"@type":"Answer","text":"MXL (Media eXchange Layer) is an open-source SDK for high-performance, container-friendly shared media exchange across on-premise or cloud environments. It lets software media functions share uncompressed media through shared memory instead of passing it down a fixed hardware chain. It is the data plane of the EBU Dynamic Media Facility vision."}},
+{"@type":"Question","name":"Who makes MXL and what licence is it?","acceptedAnswer":{"@type":"Answer","text":"MXL is an open-source project hosted under the dmf-mxl organisation, associated with the EBU Dynamic Media Facility initiative and governed via the Linux Foundation / LF Projects. It is released under the Apache 2.0 licence. The first alpha was released in June 2025."}},
+{"@type":"Question","name":"How is MXL different from NDI or ST 2110?","acceptedAnswer":{"@type":"Answer","text":"NDI and SMPTE ST 2110 move media over a network — every consumer of a source is another copy on the wire. MXL keeps media in shared memory on a host, so additional consumers read the same bytes with no extra copy (zero-copy fan-out). MXL's Fabric API extends a domain across hosts over a network when needed."}}
+]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/tams.html">TAMS</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc with-toc">
+  <aside class="toc" aria-label="On this page">
+    <div class="tl">On this page</div>
+    <a href="#what">What MXL is</a>
+    <a href="#why">The problem it solves</a>
+    <a href="#concepts">Grains, flows, domains</a>
+    <a href="#apis">Flow API vs Fabric API</a>
+    <a href="#vs">MXL vs NDI / ST 2110 / SRT</a>
+    <a href="#stack">Where it sits: DMF, TAMS, NMOS</a>
+    <a href="#facts">Quick facts</a>
+  </aside>
+
+  <article class="prose">
+    <p class="eyebrow">Explainer</p>
+    <h1>What is MXL (Media eXchange Layer)?</h1>
+    <p class="lede"><b>MXL is an open-source SDK for high-performance, container-friendly shared media exchange</b> across on-premise or cloud environments. In plain terms: it lets software media functions share uncompressed video and audio through <b>shared memory</b> instead of passing it down a chain of boxes or copying it across a network.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Explainer · sourced from the MXL SDK + EBU DMF</span><span>Updated 2026-10-01</span></p>
+
+    <h2 id="what">What MXL actually is</h2>
+    <p>Per its own SDK, "MXL is an open-source SDK designed for high-performance and container-friendly shared media exchange across on-premise or cloud environments." It's implemented in C++ (with a C API and Rust bindings), released under the Apache 2.0 licence, with its first alpha in June 2025. It's the <strong>data plane</strong> of the EBU's <a href="/learn.html">Dynamic Media Facility</a> vision — the part that actually moves the pixels between software components.</p>
+    <p>The core idea is almost boring, which is why it's powerful: put the media in a shared-memory region, and let any media function (a switcher input, a keyer, a multiviewer) read and write it directly. No capture cards, no SDI router, no re-encode between stages.</p>
+
+    <h2 id="why">The problem it solves</h2>
+    <p>Traditional broadcast is a signal chain: camera → router → switcher → keyer → encoder, each a box that owns one stage. It's rigid, and every consumer of a source is another physical copy — another SDI run, another ST 2110 flow, another NDI stream to decode. Scaling costs grow with every tap.</p>
+    <p>MXL removes the wire between stages. When media lives in shared memory, <strong>the tenth consumer of a camera is a pointer, not a tenth copy.</strong> A multiviewer reading nine sources decodes nothing — it reads the same grains the program cuts. That single change is what makes a software-defined control room practical instead of just possible. <a href="/future.html">Why that's the future →</a></p>
+
+    <h2 id="concepts">Grains, flows and domains</h2>
+    <p>Three words carry most of MXL's model (defined fully in the <a href="/glossary.html">glossary</a>):</p>
+    <ul>
+      <li><strong>Grain</strong> — one timestamped unit of media: a video frame or a block of audio. Grains carry a time, so position is a <em>timestamp</em>, not a queue slot.</li>
+      <li><strong>Flow</strong> — a continuous sequence of grains of one type (a camera's video, say), held as a ring in shared memory.</li>
+      <li><strong>Domain</strong> — the shared-memory region where flows live. A function joins the domain and immediately sees every flow in it. The domain <em>is</em> the router.</li>
+    </ul>
+    <p>Grains being time-indexed has a quietly huge payoff for multi-host work: if two machines are clock-synced, a flow arriving over the network reads like a local one, with no manual offset — something we measured directly in the <a href="/findings.html#s7">field findings</a>.</p>
+
+    <h2 id="apis">Flow API vs Fabric API</h2>
+    <p>The SDK exposes two APIs, and the distinction matters:</p>
+    <ul>
+      <li><strong>Flow API</strong> (from v1.0) — "Enables shared-memory access for zero-copy media workflows." This is the single-host case: functions sharing a domain in local memory.</li>
+      <li><strong>Fabric API</strong> (from v1.1) — "Enables memory sharing through controlled data movement." This is how a domain extends <em>across hosts</em> — grains written on one machine appear in another's shared memory over the network (built on libfabric/OFI, with providers like tcp, verbs, shm and efa).</li>
+    </ul>
+    <p>In practice we carried a live 1080p30 flow host-to-host over the Fabric layer at 30 grains/s with the receiving host's CPU essentially idle — the numbers are in the <a href="/findings.html#s7">findings</a>.</p>
+
+    <h2 id="vs">MXL vs NDI vs ST 2110 vs SRT</h2>
+    <p>These are often lumped together as "ways to move video," but MXL is a different category. The honest distinction:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Technology</th><th>Category</th><th>Fan-out cost</th><th>Scope</th></tr></thead>
+      <tbody>
+        <tr><td><strong>MXL</strong></td><td>Shared-memory media plane</td><td>Zero-copy — extra readers are pointers</td><td>One host (Flow API); multi-host via Fabric API</td></tr>
+        <tr><td><strong>SMPTE ST 2110</strong></td><td>Networked uncompressed IP transport</td><td>Each receiver is another flow on the wire</td><td>Facility LAN / WAN</td></tr>
+        <tr><td><strong>NDI</strong></td><td>Networked (compressed) IP transport</td><td>Each receiver is another stream to decode</td><td>LAN</td></tr>
+        <tr><td><strong>SRT</strong></td><td>Networked contribution/delivery transport</td><td>Point-to-point (or via a relay)</td><td>WAN / internet contribution</td></tr>
+      </tbody>
+    </table></div>
+    <p>They're complementary, not rivals: in our own build, cameras arrive over <strong>SRT</strong> (internet contribution), land in an <strong>MXL</strong> domain (production), and the finished program leaves as WebRTC. MXL doesn't replace a contribution transport — it replaces the <em>router and the copies</em> inside the facility. <a href="/tams.html">TAMS</a> then handles time-addressed recording.</p>
+
+    <h2 id="stack">Where MXL sits: DMF, TAMS and NMOS</h2>
+    <p>MXL is one layer of a larger open stack, all of it vendor-neutral:</p>
+    <ul>
+      <li><strong>EBU Dynamic Media Facility (DMF)</strong> — the reference architecture / vision. MXL is its data plane.</li>
+      <li><strong><a href="/tams.html">TAMS</a></strong> — the BBC's Time-Addressable Media Store (an Apache-2.0 <em>API specification</em>) for storing and querying segmented media by timerange. MXL grains group naturally into TAMS flow segments.</li>
+      <li><strong>AMWA NMOS</strong> — the control plane for discovery and connection; <strong>BCP-007-03</strong> defines how MXL flows appear to standard NMOS controllers.</li>
+    </ul>
+    <p>New to all of it? Start with the <a href="/learn.html">guided reading path →</a></p>
+
+    <h2 id="facts">Quick facts</h2>
+    <div class="tablewrap"><table>
+      <tbody>
+        <tr><th>What</th><td>Open-source shared-memory media exchange SDK</td></tr>
+        <tr><th>Made by</th><td>The dmf-mxl project, tied to the EBU Dynamic Media Facility (LF Projects)</td></tr>
+        <tr><th>Language</th><td>C++, with a C API and Rust bindings</td></tr>
+        <tr><th>Licence</th><td>Apache 2.0</td></tr>
+        <tr><th>First release</th><td>Alpha, June 2025</td></tr>
+        <tr><th>APIs</th><td>Flow API (v1.0+, single-host zero-copy) · Fabric API (v1.1+, host-to-host)</td></tr>
+        <tr><th>Recognition</th><td>Won the IBC 2026 Innovation Award, Content Creation (<a href="/#field">the field</a>)</td></tr>
+      </tbody>
+    </table></div>
+    <p>Source: the <a href="https://github.com/dmf-mxl/mxl" target="_blank" rel="noopener">MXL SDK repository</a> and the <a href="https://tech.ebu.ch/groups/dynamic-media-facility" target="_blank" rel="noopener">EBU Dynamic Media Facility</a>. Want the hands-on version? Read <a href="/findings.html">what happened when we ran it live →</a></p>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. This is an independent explainer, not official specification text — consult the <a href="/learn.html">canonical sources</a> for authoritative detail. Not affiliated with or endorsed by LF Projects, EBU, AMWA or the BBC.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/learn.html">Learn MXL</a> · <a href="/glossary.html">Glossary</a></span>
+</footer>
+</body>
+</html>
