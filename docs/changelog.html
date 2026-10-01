@@ -10,12 +10,12 @@
 <meta property="og:title" content="What's new in MXL — changelog">
 <meta property="og:description" content="A running log of Media eXchange Layer milestones, vendor adoptions, and updates to this lab.">
 <meta property="og:url" content="https://mxlswitcher.com/changelog.html">
-<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
 <meta property="og:site_name" content="Switcher Lab for MXL">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="What's new in MXL">
 <meta name="twitter:description" content="A running log of MXL milestones and lab updates.">
-<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
 <link rel="stylesheet" href="article.css">
 </head>
 <body>
@@ -34,7 +34,15 @@
     <p class="eyebrow">Running log</p>
     <h1>What's new in MXL</h1>
     <p class="lede">A dated log of Media eXchange Layer milestones — in the ecosystem and in this lab. New entries at the top. <b>Suggest one</b> by opening an issue on <a href="https://github.com/guycochran/mxl-cloud-production-demo/issues">GitHub</a>.</p>
-    <p class="byline"><span>Office Hours Global</span><span>Last updated 2026-09-30</span></p>
+    <p class="byline"><span>Office Hours Global</span><span>Last updated 2026-10-01</span></p>
+
+    <h2><span class="n">Oct 2026</span>Revived from cold storage — and hardened</h2>
+    <p>Brought the cloud switcher back up for a test session: two real cameras in a shared-memory fabric, a looping episode on playout, a live 2-up composite (camera + remote guest), WebRTC program and a real-time health dashboard — driven entirely from a terminal with nobody at the studio. Three things worth logging:</p>
+    <ul>
+      <li><strong>Host-to-host with <code>mxl-fabrics-proxy</code>.</strong> Swapped our hand-rolled fabric legs for Jonas Ohland's proxy — rkeys over HTTP, atomic reload, Prometheus metrics. Carried a live flow at a measured <strong>30 grains/s</strong>. <a href="/findings.html#s7">The proof →</a></li>
+      <li><strong>An honest outage, diagnosed live.</strong> A decommissioned cloud endpoint silently broke every feed; root-caused and fixed on air. Operations credibility you can't fake.</li>
+      <li><strong>Cold-boot resilience closed.</strong> The VM-side ingests are now systemd-persistent (verified against a simulated cold boot) — the facility now survives a full reboot untouched.</li>
+    </ul>
 
     <h2><span class="n">Sep 2026</span>MXL wins at IBC 2026</h2>
     <p>MXL won the <strong>IBC 2026 Innovation Award, Content Creation</strong> category. Grass Valley showed native MXL v1.1 in AMPP plus a hardware gateway; Matrox, Riedel and Evertz demoed native MXL integration; the Qvest booth ran the show's largest multi-vendor DMF showcase. <a href="/#field">The full field →</a></p>

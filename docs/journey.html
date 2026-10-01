@@ -10,12 +10,12 @@
 <meta property="og:title" content="The journey — one person, three VMs, a switcher at IBC">
 <meta property="og:description" content="Building a browser-native broadcast switcher on MXL, alone in the cloud — scaled to 32 cores / 128 GB, live at IBC 2026, for $2.11/hour.">
 <meta property="og:url" content="https://mxlswitcher.com/journey.html">
-<meta property="og:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
 <meta property="og:site_name" content="Switcher Lab for MXL">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="The journey — one person, three VMs, a switcher at IBC">
 <meta name="twitter:description" content="From a single VM to a 32-core facility, live at IBC 2026, for $2.11 an hour.">
-<meta name="twitter:image" content="https://mxlswitcher.com/images/demo-camera.png">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
 <link rel="stylesheet" href="article.css">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Article",
@@ -24,7 +24,7 @@
 "author":{"@type":"Person","name":"Guy Cochran"},
 "publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
 "mainEntityOfPage":"https://mxlswitcher.com/journey.html",
-"image":"https://mxlswitcher.com/images/demo-camera.png"}
+"image":"https://mxlswitcher.com/images/switcher-hero-clean.png"}
 </script>
 </head>
 <body>
@@ -62,7 +62,7 @@
     <p>I stood the public domain up on September 13, 2026 — mid-IBC — and put the switcher on air. In its first week the edge served <strong>10.5 GB of live video through the browser</strong> and reached viewers in <strong>15 countries</strong>, including the Netherlands, IBC's own floor. The same week, MXL won the IBC 2026 Innovation Award for Content Creation, and Grass Valley, Matrox, Riedel, Evertz and others showed it at vendor scale. I wasn't the only one — I was just the one doing it alone, in public, with the receipts posted. <a href="/#field">See the field →</a></p>
 
     <h2>Why it's dark now — and still here</h2>
-    <p>The live VMs are deallocated; running a 32-core facility 24/7 for a demo isn't the point. But the switcher was built so the <em>story</em> survives the compute: this site, the findings, the explainer and a recorded run stand on their own with no VMs at all. That's the last lesson — a software facility can be turned off and turned back on, and the knowledge doesn't evaporate with the instance.</p>
+    <p>The live VMs are deallocated between sessions; running a 32-core facility 24/7 for a demo isn't the point. But the switcher was built so the <em>story</em> survives the compute: this site, the findings, the explainer and a recorded run stand on their own with no VMs at all. And when it <em>is</em> up, it's built to stay up — the production node now re-materializes its whole pipeline on a cold boot by itself (systemd-persistent ingests, in-container supervisors, and watchdog crons, three layers deep), so a reboot brings the facility back untouched. That's the last lesson — a software facility can be turned off and turned back on, and the knowledge doesn't evaporate with the instance.</p>
     <p>That's the whole idea, really. Broadcast production stops being a thing you <em>own</em> and becomes a thing you <em>compose</em> — when you need it, where you need it, for what it costs to rent. <a href="/future.html">Here's why I think that's the future →</a></p>
 
     <div class="disclaim">MXL is a trademark of LF Projects, LLC. This independent field project is not affiliated with or endorsed by LF Projects, EBU, AMWA or any vendor named above.</div>
