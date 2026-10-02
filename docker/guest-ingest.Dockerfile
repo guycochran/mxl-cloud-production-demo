@@ -24,9 +24,9 @@ RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends gstreamer1.0-libav \
  && rm -rf /var/lib/apt/lists/*
 
-# the contribution seam (core + adapters, flat so imports resolve from /opt/seam)
+# the contribution seam (core + adapters + entrypoints, flat so imports resolve from /opt/seam)
 WORKDIR /opt/seam
-COPY tools/contribution_core.py tools/adapters.py tools/guest_ingest.py ./
+COPY tools/contribution_core.py tools/adapters.py tools/guest_ingest.py tools/zoomiso_dryrun.py ./
 
 # guest_ingest.py args: <srt-stream-name> <flow-uuid> <label> [jitterbuffer_ms]
 # The quickstart passes a cellular-friendly jitterbuffer (SRT latency is per-path
