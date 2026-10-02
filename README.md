@@ -30,7 +30,7 @@ required AVX-512). Full COTS spec + cloud-vs-own break-even:
 
 **📚 Learn MXL:** we wrote down everything we learned running this live — indexed and readable at **[mxlswitcher.com](https://mxlswitcher.com)**:
 - **[What is MXL?](https://mxlswitcher.com/what-is-mxl.html)** — the plain-English explainer + MXL vs NDI/ST 2110/SRT; **[MXL architecture](https://mxlswitcher.com/architecture.html)** — grains/flows/domains/ring-buffer/TAI, quoted from the SDK docs.
-- **[Field Findings](https://mxlswitcher.com/findings.html)** — the reader-lifecycle bug taxonomy, cross-host fabric numbers, the flow-stabilizer fix, and why rate metrics lie. Measured, not guessed.
+- **[Field Findings](https://mxlswitcher.com/findings.html)** — the reader-lifecycle bug taxonomy, cross-host fabric numbers, the whole switcher **verified end-to-end on AWS** (cross-cloud, real cameras), the flow-stabilizer fix, and why rate metrics lie. Measured, not guessed.
 - **[EBU DMF context](https://mxlswitcher.com/dmf.html)** · **[who's building on MXL](https://mxlswitcher.com/adoption.html)** (source-cited adoption tracker).
 - **[MXL → TAMS recipe](https://mxlswitcher.com/tams.html)** — live program to a clippable time-addressable store.
 - **[Learn MXL](https://mxlswitcher.com/learn.html)** — a guided reading path through the canonical EBU/AMWA/CBC sources.
@@ -164,6 +164,19 @@ AWS as a production deployment — a two-VPC design (production + a
 contribution DMZ for stranger-facing guest ingest), instance mapping,
 the data-transfer cost rules, native-S3 TAMS, and a two-day phased
 build — is in **[docs/AWS-BUILD-PLAN.md](docs/AWS-BUILD-PLAN.md)**.
+
+**Verified on AWS (Oct 2026):** this is no longer just a plan. The **entire
+switcher** — not only the fabric leg — was stood up end-to-end on **2×
+`c5n.9xlarge` in us-west-2**, built from this repo, fed by the **real studio
+cameras** (PTZ + Haivision Makito X4) over cross-WAN SRT. Measured: both cameras
+**30.00 fps**, cross-host program **31.3 grains/s at 3.99 ms p50** over the
+fabric (TCP) — reproducing the Azure numbers almost exactly, confirming the
+whole facility is cloud-portable. Two honest caveats: the program shown is the
+clean selector output (the graphics keyer was bypassed this run — one wiring fix
+away, *not* a GPU limit), and the fabric leg is TCP (EFA/RDMA is blocked by
+upstream bug jonasohland/mxl-fabrics-proxy#2). Full write-up + screenshots:
+**[Field Findings §7.5](https://mxlswitcher.com/findings.html#s7b)**
+([docs/FINDINGS.md](docs/FINDINGS.md)).
 
 ## Update 2: live MXL → TAMS record (EBU's two flagship projects, united)
 

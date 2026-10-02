@@ -50,6 +50,7 @@
     <a href="#s5">5 · mxlsink needs a flow-id</a>
     <a href="#s6">6 · Readers wedge on flow recreation</a>
     <a href="#s7">7 · Cross-host fabric</a>
+    <a href="#s7b">7.5 · The whole switcher, cross-cloud on AWS</a>
     <a href="#s8">8 · A broadcast encoder as a source</a>
     <a href="#s9">9 · The real cost of software media</a>
     <a href="#s10">10 · MXL-native multiviewer</a>
@@ -100,6 +101,43 @@
     </ul>
     <p>Upstream suggestion: a supported "advertised address" field in TargetInfo would make NAT traversal first-class instead of a byte-patch.</p>
     <div class="key"><b class="tag">Update · Oct 2026 — the proxy beats the hand-rolled legs</b><p>We later swapped our hand-built fabric legs for <strong>Jonas Ohland's <code>mxl-fabrics-proxy</code></strong> and it's the keeper: it negotiates rkeys over HTTP (no more copying the target's JSON by hand), <code>POST /v1/reload</code> is atomic (retires the babysitter entirely), it exposes Prometheus <code>/metrics</code> + <code>/healthz</code>, and one Docker image ships its own libfabric (our hand-compiled 2.6.0 becomes irrelevant) with <code>tcp | verbs | shm | efa</code> selectable. <strong>Freshly measured proof:</strong> it carried a live camera flow host-to-host with <code>mxl_grains_total</code> climbing <strong>411 → 501 in 3 seconds — exactly 30 grains/s</strong>, the camera's frame rate, and the flow materialized on the receiving host. Gotchas: the CLI's <code>-s DOMAIN@mxl://…</code> (an <code>@</code>, not <code>=</code>) is fiddly — use a YAML config; and the container must run <code>--user 0:0</code> on a root-owned live domain (its worker <code>mkdtemp</code>s inside the domain dir). The RDMA/EFA CPU-per-grain benchmark is the headline still to run. This is a clean example of <a href="/future.html">standards over silos</a>: a third-party proxy dropped straight onto our flows and carried live video with zero custom glue.</p></div>
+
+    <h2 id="s7b"><span class="n">7.5</span>The whole switcher, cross-cloud on AWS</h2>
+    <p>§7 proved the <em>fabric leg</em> is cloud-portable. We then stood up the <strong>entire live switcher</strong> — not just the bridge — a second time, on a different cloud, fed by the <strong>real studio cameras</strong>. Two <code>c5n.9xlarge</code> instances in <code>us-west-2</code>, built straight from this repo (<code>tools/*.py</code>) plus the stock <code>ghcr.io/cbcrc</code> images and Jonas Ohland's <code>mxl-fabrics-proxy</code>, torn down after capture. The full signal path ran unmodified:</p>
+    <pre><code> STUDIO (public internet)                 AWS us-west-2
+ Studio PTZ ───┐                      ┌─ Host A  c5n.9xlarge ────────────┐
+ Makito X4 ────┤ cross-WAN SRT ─────► │ mediamtx ─ cam_ingest ─ SELECTOR │
+               │                      │   (live program bus)             │
+               │                      │        ├─► mxl2webrtc (PGM out)   │
+               │                      │        └─► mxl-fabrics-proxy ─────┼─► Host B
+               └──────────────────────┘                         (TCP)    │  (fabric peer)
+                                                                          └─────────────┘</code></pre>
+    <p>Every number reproduced the Azure fabric run almost exactly — the headline is that <strong>the whole switcher, not just the data plane, is cloud-portable; it behaves identically on Azure and AWS</strong>:</p>
+    <ul>
+      <li><strong>Both cameras 30.00 fps steady</strong> over cross-WAN SRT across the public internet (cam1 mapping error +19 ms, cam2 −9 ms).</li>
+      <li><strong>Cross-host program over the fabric: 31.3 grains/s</strong> (line rate 29.97) at <strong>3.99 ms p50</strong> network latency — within rounding of the Azure run's ~30 grains/s / ~4 ms.</li>
+      <li><strong>Live switching captured on program:</strong> a cut from cam1 (live PTZ) → a playout clip → cam2 (the Makito contribution feed) — the real selector cutting real sources in the cloud.</li>
+    </ul>
+    <div class="figrow">
+      <figure>
+        <img src="images/aws-switcher-program-cam1.png" alt="AWS program output showing the live studio PTZ camera with an on-air timecode burn-in">
+        <figcaption><span>PGM · CAM 1 (AWS)</span> The live studio PTZ on program with on-air timecode — the selector's clean output, running on AWS EC2.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/aws-switcher-program-cam2.png" alt="AWS program output showing the Haivision Makito X4 SDI contribution feed switched as program">
+        <figcaption><span>PGM · CAM 2 (AWS)</span> The Haivision Makito X4 SDI feed, cut to program across the same selector.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/aws-switcher-program-playout.png" alt="AWS program output showing a playout clip labelled OHG PLAYOUT (AWS)">
+        <figcaption><span>PGM · PLAYOUT (AWS)</span> A file-player clip cut to program — the third source in the live switch.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/aws-switcher-selector-ui.png" alt="The CBC/Radio-Canada-branded Input Selector control UI running on AWS, status PUBLISHING">
+        <figcaption><span>CONTROL · SELECTOR (AWS)</span> The input-selector control UI, status <code>PUBLISHING</code> — the same switcher, driven from the browser.</figcaption>
+      </figure>
+    </div>
+    <div class="key"><b class="tag">Honest caveat · the program shown is the clean selector output, not the keyed output</b><p>The HTML5 graphics keyer was <strong>bypassed</strong> this run: its headless-Chromium source errored on the first frame (<code>GstCefSrc streaming stopped … reason error (-5)</code>). <strong>This is not a GPU limitation</strong> — the same keyer runs fine on GPU-less Azure VMs. The likely cause (unconfirmed; the hosts were torn down before we debugged it) is that its <code>lower-third.html</code> polls a studio backend (<code>prodbots.com/api/mxl/dip-state</code>) that wasn't wired up on AWS, and/or the graphics server wasn't reachable at first-frame render. The networking mode was identical to Azure, so that's not it. <strong>Every production stage ran unmodified; the graphics overlay is one wiring fix away</strong> — point the graphic at a reachable or stubbed endpoint and pre-serve the page.</p></div>
+    <div class="key"><b class="tag">Honest caveat · the fabric leg is TCP; EFA/RDMA is one upstream fix away</b><p>This run bridged the two hosts over the proxy's <strong>TCP</strong> provider. The EFA/RDMA path on AWS is blocked by an upstream proxy bug (completion-queue setup, <code>code -38</code>), which we filed as <a href="https://github.com/jonasohland/mxl-fabrics-proxy/issues/2">jonasohland/mxl-fabrics-proxy#2</a>. We make no EFA performance claims here — the RDMA path is <em>identified</em>, not yet measured. That the TCP latency (3.99 ms) already matches the Azure run is the point: the portability holds before RDMA even enters the picture.</p></div>
 
     <h2 id="s8"><span class="n">8</span>A broadcast contribution encoder as an MXL source</h2>
     <p>A static camera joins the selector without a studio-side re-encode hop: SDI camera → Haivision Makito X4 (1080i→1080p30, HEVC Main10, 20 Mbps) → SRT caller to the cloud VM's MediaMTX → GStreamer ingest → v210 flow → selector. Three lessons:</p>

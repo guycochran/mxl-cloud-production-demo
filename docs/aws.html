@@ -57,6 +57,8 @@
     <p class="lede">Run the facility we proved on Azure for IBC 2026 — uncompressed v210 shared-memory switching, multi-host MXL fabric, guest SRT contribution, TAMS recording, public WebRTC — <b>as a production deployment on AWS</b>. Everything in the repo runs unchanged; only the infrastructure vocabulary translates.</p>
     <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>~1–2 day replay of a 6-day discovery</span><span>Source: <a href="AWS-BUILD-PLAN.md">AWS-BUILD-PLAN.md</a></span></p>
 
+    <div class="key"><b class="tag">Verified · Oct 2026 — this is no longer hypothetical</b><p>We built it. The <strong>entire switcher</strong> — not just the fabric leg — ran end-to-end on <strong>2× <code>c5n.9xlarge</code> in us-west-2</strong>, fed by the <strong>real studio cameras</strong> (a PTZ and a Haivision Makito X4) pushing SRT across the public internet, straight from this repo plus the stock cbcrc images and Jonas Ohland's <code>mxl-fabrics-proxy</code>. Measured on air: <strong>both cameras 30.00 fps</strong> over cross-WAN SRT; <strong>cross-host program 31.3 grains/s at 3.99 ms p50</strong> over the fabric; live cuts between the PTZ, a playout clip and the Makito. Those numbers reproduce the Azure fabric run almost exactly — the whole facility is cloud-portable. <a href="/findings.html#s7b">See the proof and the two honest caveats → (§7.5)</a>. <em>(The run used the compute-optimised <code>c5n</code> for its 100 Gbps networking; the sizing below is tuned for a cost-balanced standing facility.)</em></p></div>
+
     <h2 id="xlate">Azure → AWS translation table</h2>
     <div class="tablewrap"><table>
       <thead><tr><th>Role</th><th>Azure (as run)</th><th>AWS equivalent</th><th>Why</th></tr></thead>

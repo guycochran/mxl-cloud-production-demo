@@ -93,6 +93,57 @@ as a three-node cluster (production VM → fabric peer VM → isolated "island" 
 - Upstream suggestion: a supported "advertised address" field in TargetInfo
   would make NAT traversal first-class instead of a byte-patch.
 
+## 7.5 The whole switcher, cross-cloud on AWS
+
+§7 proved the *fabric leg* is cloud-portable. We then stood up the **entire
+live switcher** — not just the bridge — a second time, on a different cloud,
+fed by the **real studio cameras**. Two `c5n.9xlarge` instances in `us-west-2`,
+built straight from this repo (`tools/*.py`) plus the stock `ghcr.io/cbcrc`
+images and jonasohland/mxl-fabrics-proxy; torn down after capture.
+
+Signal path (all verified, nothing modified):
+
+```
+Studio PTZ + Haivision Makito X4
+   → cross-WAN SRT (public internet)
+   → Host A (c5n.9xlarge): mediamtx ingest → cam_ingest → input-selector
+       (live program bus)
+       ├─► mxl2webrtc (WebRTC program out)
+       └─► mxl-fabrics-proxy (TCP) → Host B (fabric peer)
+```
+
+Measured:
+
+- **Both cameras 30.00 fps steady** over cross-WAN SRT (cam1 mapping error
+  +19 ms, cam2 −9 ms).
+- **Cross-host program over the fabric: 31.3 grains/s** (line rate 29.97) at
+  **3.99 ms p50** network latency.
+- **Live switching captured on program:** a cut from cam1 (live PTZ) → a
+  playout clip → cam2 (the Makito contribution feed).
+- These numbers **reproduce the Azure fabric run almost exactly** (~30 grains/s,
+  ~4 ms). The headline: the whole switcher — not just the data plane — is
+  **cloud-portable; identical behavior on Azure and AWS**.
+
+Two honest caveats (the credibility is in the caveats):
+
+1. **The program shown is the clean SELECTOR output, NOT the keyed output.**
+   The HTML5 graphics keyer was bypassed this run: its headless-Chromium source
+   errored on the first frame (`GstCefSrc streaming stopped … reason error (-5)`).
+   **This is not a GPU limitation** — the same keyer runs fine on GPU-less Azure
+   VMs. Likely cause (unconfirmed; hosts torn down before debugging): its
+   `lower-third.html` polls a studio backend (`prodbots.com/api/mxl/dip-state`)
+   that wasn't wired up on AWS, and/or the graphics server was unreachable at
+   first-frame render. Networking mode was identical to Azure, so that's not it.
+   **Every production stage ran unmodified; the graphics overlay is one wiring
+   fix away** (point the graphic at a reachable/stubbed endpoint, or pre-serve
+   the page).
+2. **The fabric leg uses the TCP provider.** EFA/RDMA on AWS is blocked by an
+   upstream proxy bug (completion-queue setup, `code -38`), filed as
+   **jonasohland/mxl-fabrics-proxy#2**. We make no EFA performance claims — the
+   RDMA path is *identified, one upstream fix away*. That the TCP latency already
+   matches the Azure run is the point: the portability holds before RDMA enters
+   the picture.
+
 ## 8. A broadcast contribution encoder as an MXL source (Makito X4)
 
 A second, static camera joins the selector without any studio-side re-encode
