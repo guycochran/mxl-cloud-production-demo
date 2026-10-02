@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="How to run an MXL cloud production facility on AWS: the Azure→AWS translation table, the two-VPC contribution-DMZ network design, the cross-AZ data-transfer traps that matter, and a ~$56 two-day build.">
+<meta name="description" content="How to run an MXL cloud production facility on AWS — verified on 2× c5n.9xlarge: the Azure→AWS translation table, the two-VPC contribution-DMZ network design, the cross-AZ data-transfer traps that matter, and a ~$67 two-day build.">
 <title>Running MXL on AWS — a build plan · Switcher Lab for MXL™</title>
 <link rel="canonical" href="https://mxlswitcher.com/aws.html">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Running MXL on AWS — a build plan">
-<meta property="og:description" content="The Azure→AWS translation, the two-VPC DMZ network, the cross-AZ cost traps, and a ~$56 two-day build of a full MXL production facility.">
+<meta property="og:description" content="The Azure→AWS translation, the two-VPC DMZ network, the cross-AZ cost traps, and a ~$67 two-day build of a full MXL production facility — verified on 2× c5n.9xlarge.">
 <meta property="og:url" content="https://mxlswitcher.com/aws.html">
 <meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
 <meta property="og:site_name" content="Switcher Lab for MXL">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Running MXL on AWS — a build plan">
-<meta name="twitter:description" content="Azure→AWS translation, two-VPC DMZ, cross-AZ cost traps, ~$56 two-day build.">
+<meta name="twitter:description" content="Azure→AWS translation, two-VPC DMZ, cross-AZ cost traps, ~$67 two-day build on 2× c5n.9xlarge.">
 <meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
 <link rel="stylesheet" href="article.css">
 <script type="application/ld+json">
@@ -25,7 +25,7 @@
 "publisher":{"@type":"Organization","name":"Office Hours Global","url":"https://officehours.global/"},
 "mainEntityOfPage":"https://mxlswitcher.com/aws.html",
 "image":"https://mxlswitcher.com/images/switcher-hero-clean.png",
-"keywords":"MXL, AWS, EC2, m6i, VPC peering, S3, TAMS, broadcast, cloud production"}
+"keywords":"MXL, AWS, EC2, c5n, c5n.9xlarge, VPC peering, S3, TAMS, broadcast, cloud production"}
 </script>
 </head>
 <body>
@@ -57,27 +57,27 @@
     <p class="lede">Run the facility we proved on Azure for IBC 2026 — uncompressed v210 shared-memory switching, multi-host MXL fabric, guest SRT contribution, TAMS recording, public WebRTC — <b>as a production deployment on AWS</b>. Everything in the repo runs unchanged; only the infrastructure vocabulary translates.</p>
     <p class="byline"><span>By Guy Cochran · Office Hours Global</span><span>~1–2 day replay of a 6-day discovery</span><span>Source: <a href="AWS-BUILD-PLAN.md">AWS-BUILD-PLAN.md</a></span></p>
 
-    <div class="key"><b class="tag">Verified · Oct 2026 — this is no longer hypothetical</b><p>We built it. The <strong>entire switcher</strong> — not just the fabric leg — ran end-to-end on <strong>2× <code>c5n.9xlarge</code> in us-west-2</strong>, fed by the <strong>real studio cameras</strong> (a PTZ and a Haivision Makito X4) pushing SRT across the public internet, straight from this repo plus the stock cbcrc images and Jonas Ohland's <code>mxl-fabrics-proxy</code>. Measured on air: <strong>both cameras 30.00 fps</strong> over cross-WAN SRT; <strong>cross-host program 31.3 grains/s at 3.99 ms p50</strong> over the fabric; live cuts between the PTZ, a playout clip and the Makito. Those numbers reproduce the Azure fabric run almost exactly — the whole facility is cloud-portable. <a href="/findings.html#s7b">See the proof and the two honest caveats → (§7.5)</a>. <em>(The run used the compute-optimised <code>c5n</code> for its 100 Gbps networking; the sizing below is tuned for a cost-balanced standing facility.)</em></p></div>
+    <div class="key"><b class="tag">Verified · Oct 2026 — this is no longer hypothetical</b><p>We built it. The <strong>entire switcher</strong> — not just the fabric leg — ran end-to-end on <strong>2× <code>c5n.9xlarge</code> in us-west-2</strong>, fed by the <strong>real studio cameras</strong> (a PTZ and a Haivision Makito X4) pushing SRT across the public internet, straight from this repo plus the stock cbcrc images and Jonas Ohland's <code>mxl-fabrics-proxy</code>. Measured on air: <strong>both cameras 30.00 fps</strong> over cross-WAN SRT; <strong>cross-host program 31.3 grains/s at 3.99 ms p50</strong> over the fabric; live cuts between the PTZ, a playout clip and the Makito. Those numbers reproduce the Azure fabric run almost exactly — the whole facility is cloud-portable. <a href="/findings.html#s7b">See the proof and the two honest caveats → (§7.5)</a> <em>(the exact instances, pricing and network design are below).</em></p></div>
 
     <h2 id="xlate">Azure → AWS translation table</h2>
     <div class="tablewrap"><table>
       <thead><tr><th>Role</th><th>Azure (as run)</th><th>AWS equivalent</th><th>Why</th></tr></thead>
       <tbody>
-        <tr><td><strong>Host 1 — production</strong></td><td><code>D32s_v5</code> (32/128)</td><td><strong><code>m6i.8xlarge</code></strong> (32/128)</td><td>Near-identical silicon. The domain lives in <code>/dev/shm</code> — RAM matters as much as cores, so m6i over c6i.</td></tr>
-        <tr><td>Host 2 — contribution</td><td><code>D8s_v5</code> (8/32)</td><td><strong><code>m6i.2xlarge</code></strong> (8/32)</td><td>1:1.</td></tr>
+        <tr><td><strong>Host 1 — production</strong></td><td><code>D32s_v5</code> (32/128)</td><td><strong><code>c5n.9xlarge</code></strong> (36 vCPU / 96 GiB)</td><td>What we actually ran. The <code>c5n</code> buys 50 Gbps of network for the uncompressed v210 fabric — worth the trade. <strong>The catch:</strong> the domain lives in <code>/dev/shm</code>, and <code>c5n</code> gives up RAM/core (96 GiB vs 128 on an <code>m6i.8xlarge</code>). 96 GiB was ample here; if you stack more flows, <code>m6i.8xlarge</code> is the RAM-first alternative.</td></tr>
+        <tr><td>Host 2 — contribution</td><td><code>D8s_v5</code> (8/32)</td><td><strong><code>c5n.2xlarge</code></strong> (8 vCPU / 21 GiB)</td><td>Same family for the DMZ host; up to 25 Gbps. 21 GiB is plenty for a contribution ingest + fabric initiators.</td></tr>
         <tr><td>Host 3</td><td><code>D4s_v5</code> (TAMS store)</td><td><strong>not needed</strong></td><td>Native S3 replaces the self-hosted object store; the TAMS API rides on Host 2.</td></tr>
         <tr><td>Network</td><td>single VNet + NSG</td><td><strong>two VPCs + peering</strong></td><td>Stricter by design: guests are strangers; isolate their landing zone from the program chain (§ network).</td></tr>
         <tr><td>TAMS object store</td><td>MinIO on VM3</td><td><strong>Native S3 + presigned URLs</strong></td><td>TAMS was designed for S3 — the one place AWS is an upgrade, not a translation.</td></tr>
       </tbody>
     </table></div>
-    <p><strong>CPU requirement:</strong> v210 conversion leans on <strong>AVX</strong> (that's why a no-AVX box can't run MXL at all). Every m6i/c6i/m7i has it. Don't use burstable <code>t3/t4g</code> for any media host — CPU credits will strand a 30 fps pipeline mid-demo.</p>
+    <p><strong>CPU requirement:</strong> v210 conversion leans on <strong>AVX</strong> (that's why a no-AVX box can't run MXL at all). Every <code>c5n</code>/<code>m6i</code>/<code>c6i</code>/<code>m7i</code> has it. Don't use burstable <code>t3/t4g</code> for any media host — CPU credits will strand a 30 fps pipeline mid-demo.</p>
 
     <h2 id="cost">The cost warnings that actually matter</h2>
     <div class="key"><b class="tag">The one that bites</b><p><strong>Cross-AZ data transfer will eat you alive.</strong> An MXL fabric flow is ~1.3 Gbps of uncompressed v210 — ≈585 GB/hour, continuously. Same-AZ private-IP traffic (including over VPC peering) is <strong>free</strong>. Cross-AZ is ~$11.70/hour per flow; a raw flow at a public IP is ~$52/hour. <strong>Put Host 1 and Host 2 in the same AZ. Non-negotiable.</strong></p></div>
     <ul>
       <li><strong>Viewer egress is fine.</strong> Each WebRTC viewer is ~5 Mbps ≈ $0.20/hr. A booth crowd costs beer money, not rent.</li>
       <li><strong>Stop instances when idle.</strong> EC2 <em>stop</em> keeps the EBS volumes and drops compute to zero — same discipline as the Azure deallocate rule.</li>
-      <li><strong>Ballpark production rate</strong> (2 hosts, us-west-2, on-demand): <code>m6i.8xlarge</code> $1.536 + <code>m6i.2xlarge</code> $0.384 ≈ <strong>$1.92/hr</strong> + viewer egress.</li>
+      <li><strong>Ballpark production rate</strong> (2 hosts, us-west-2, on-demand): <code>c5n.9xlarge</code> $1.944 + <code>c5n.2xlarge</code> $0.432 ≈ <strong>$2.38/hr</strong> + viewer egress.</li>
       <li><strong>New-account quota:</strong> fresh accounts often cap on-demand vCPUs at 32. File a quota increase to 48 vCPU on day 0 — it can take a day to approve and gates the whole build.</li>
     </ul>
 
@@ -89,8 +89,8 @@
       ▼                 ▼                 │ via cloudflared
 ╔═══════════════════╗  ╔═══════════════════╧═══════════════════╗
 ║ VPC-CONTRIB       ║  ║ VPC-PROD  10.0.0.0/16                  ║
-║ 10.1.0.0/16       ║  ║  Host 1  m6i.8xlarge (32c/128G, AVX)   ║
-║  Host 2 2xlarge   ║  ║  /dev/shm MXL domain (v210)           ║
+║ 10.1.0.0/16       ║  ║ Host 1 c5n.9xlarge (36c/96G, 50GbE)   ║
+║ Host 2 c5n.2xlarge║  ║  /dev/shm MXL domain (v210)           ║
 ║  mediamtx SRT in  ║  ║  cam ingest ─ SELECTOR ─ KEYER ─ ENC   ║
 ║  guest_ingest ×2 ─╫──╫─▶ fabric targets :1314-1315           ║
 ║  fabric initiators║  ║  layout_pgm, audio_pgm, multiview     ║
@@ -120,8 +120,8 @@
     <h2 id="phases">Build phases</h2>
     <ul>
       <li><strong>Phase 0 — account prep (day 0, async):</strong> vCPU quota request, both VPCs + same-AZ-ID subnets + peering + SGs, 2× EIP, S3 bucket + gateway endpoints, IAM instance roles.</li>
-      <li><strong>Phase 1 — single-host production (½ day):</strong> launch <code>m6i.8xlarge</code>, run the build. Success = test-pattern program over WebRTC + cuts working.</li>
-      <li><strong>Phase 2 — contribution DMZ + fabric (½ day):</strong> launch <code>m6i.2xlarge</code> in the DMZ (same AZ ID!). First test: <code>iperf3</code> across the peering — ≥4 Gbps and sub-ms RTT confirms same-AZ; ~1 Gbps + 1–2 ms means you crossed AZs, fix first. Expect the logged numbers: 30 grains/s, ~1080 slices/grain, ~1.3 Gbps/flow.</li>
+      <li><strong>Phase 1 — single-host production (½ day):</strong> launch <code>c5n.9xlarge</code>, run the build. Success = test-pattern program over WebRTC + cuts working.</li>
+      <li><strong>Phase 2 — contribution DMZ + fabric (½ day):</strong> launch <code>c5n.2xlarge</code> in the DMZ (same AZ ID!). First test: <code>iperf3</code> across the peering — ≥4 Gbps and sub-ms RTT confirms same-AZ; ~1 Gbps + 1–2 ms means you crossed AZs, fix first. Expect the logged numbers: ~30 grains/s, ~1080 slices/grain, ~1.3 Gbps/flow (verified: 31.3 grains/s at 3.99 ms p50).</li>
       <li><strong>Phase 3 — TAMS on real S3 (½ day):</strong> segments to native S3 presigned URLs; the clipper works unchanged.</li>
       <li><strong>Phase 4 — hardening (½ day):</strong> grain probe, health board, guest-leg doctor, and <code>flow_stabilizer.py</code> deployed <strong>from day 1</strong>.</li>
     </ul>
@@ -138,13 +138,13 @@
     <div class="tablewrap"><table>
       <thead><tr><th>Line</th><th>Rate</th><th>A realistic 2-day build + first show</th></tr></thead>
       <tbody>
-        <tr><td>m6i.8xlarge × ~25 hrs</td><td>$1.536/hr</td><td>~$38</td></tr>
-        <tr><td>m6i.2xlarge × ~25 hrs</td><td>$0.384/hr</td><td>~$10</td></tr>
+        <tr><td>c5n.9xlarge × ~25 hrs</td><td>$1.944/hr</td><td>~$49</td></tr>
+        <tr><td>c5n.2xlarge × ~25 hrs</td><td>$0.432/hr</td><td>~$11</td></tr>
         <tr><td>Viewer egress, storage, EIPs, S3</td><td>—</td><td>~$8</td></tr>
-        <tr><td><strong>Total</strong></td><td></td><td><strong>≈ $56 to a working production facility</strong></td></tr>
+        <tr><td><strong>Total</strong></td><td></td><td><strong>≈ $67 to a working production facility</strong></td></tr>
       </tbody>
     </table></div>
-    <p>Ongoing: ~$2/hr during show hours, near-zero stopped. Always-on with a 1-year Savings Plan ≈ $850/mo. <em>Same software, different cloud — that's the point.</em></p>
+    <p>Ongoing: ~$2.40/hr during show hours, near-zero stopped. Always-on with a 1-year Savings Plan ≈ $1,050/mo. <em>Same software, different cloud — that's the point.</em></p>
 
     <div class="disclaim">MXL is a trademark of LF Projects, LLC. AWS, EC2 and S3 are trademarks of Amazon. This independent guide is not affiliated with or endorsed by either. Companion: <a href="/gcp.html">the GCP build plan →</a></div>
   </article>
