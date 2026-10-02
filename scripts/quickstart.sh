@@ -19,10 +19,15 @@
 # Idempotent: safe to re-run. Teardown: sudo scripts/quickstart.sh --down
 set -euo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"      # repo scripts/ dir (for the Dockerfile + watcher)
+REPO="$(cd "$HERE/.." && pwd)"
 DOMAIN_HOST=/dev/shm/mxl/domain_1          # shared-memory domain (volatile: gone on reboot — just re-run)
 BASE=/srv/mxl-quickstart                   # clips + graphics live here (persistent)
 IMAGES="bluenviron/mediamtx:latest ghcr.io/cbcrc/test-generator:latest ghcr.io/cbcrc/file-player:latest ghcr.io/cbcrc/input-selector:latest ghcr.io/cbcrc/html5-keyer:latest ghcr.io/cbcrc/mxl2webrtc:latest"
-CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc"
+CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2"
+GUEST_IMAGE=mxl-guest-ingest:local            # built from docker/guest-ingest.Dockerfile (see below)
+GUEST1_FLOW=9e111e00-aaaa-4bbb-8ccc-000000000001
+GUEST2_FLOW=9e222e00-aaaa-4bbb-8ccc-000000000002
 # official Blender mirror, natively 1080p30 (the Google sample bucket 403s now)
 CLIP_URL="https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4"
 
@@ -35,6 +40,7 @@ if [ "${1:-}" = "--down" ]; then
   step "Tearing down quickstart containers + graphics server"
   docker rm -f $CONTAINERS 2>/dev/null || true
   pkill -f "http.server 8085" 2>/dev/null || true
+  pkill -f "guest_slot_watcher.py" 2>/dev/null || true
   echo "Done. ($BASE and the domain dir are left in place; rm -rf $BASE to remove.)"
   exit 0
 fi
@@ -144,6 +150,47 @@ KEY=$(flow_id "Keyer PGM"); [ -n "$KEY" ] || die "keyer flow missing — check: 
 post 9601/pipeline/start "{\"domain_path\":\"/mxl-domain\",\"video_flow_uuid\":\"$KEY\",\"use_mediamtx\":true,\"encoder\":{\"tune\":4,\"speed_preset\":2,\"bitrate\":6000,\"key_int_max\":30}}" >/dev/null
 echo "  ✓ selector → keyer → encoder running"
 
+# ── 3b. guest contribution: phone/OBS SRT → cuttable Guest slots ──────────────
+# The fastest way for a newcomer to put THEIR OWN video on screen: scan a Larix
+# QR (or paste the SRT URL into OBS/vMix/ffmpeg) → it lands as a cuttable button.
+# No camera, no RTSP, no config. mediamtx (already up, host net) accepts the SRT
+# publish; a guest-ingest container conforms it to the domain and a backend-free
+# watcher re-attaches the selector the moment the flow appears.
+step "Guest contribution (SRT)"
+if ! docker image inspect "$GUEST_IMAGE" >/dev/null 2>&1; then
+  if [ -f "$REPO/docker/guest-ingest.Dockerfile" ]; then
+    echo "  building $GUEST_IMAGE (one-time)…"
+    docker build -q -f "$REPO/docker/guest-ingest.Dockerfile" -t "$GUEST_IMAGE" "$REPO" >/dev/null \
+      || { echo "  ⚠ guest image build failed — skipping guest slots (core switcher still on air)"; GUEST_IMAGE=""; }
+  else
+    echo "  ⚠ docker/guest-ingest.Dockerfile not found (running via curl-pipe?) — skipping guest slots"; GUEST_IMAGE=""
+  fi
+fi
+if [ -n "$GUEST_IMAGE" ]; then
+  # one container per guest slot. An idle guest's rtspsrc 404s and the ingest
+  # exits — expected. We retry it in a TIGHT 2s loop (NOT docker's exponential
+  # backoff, which grows to 10-20s+ and makes a connecting phone wait or miss its
+  # window) so the pipeline rebuilds within ~2s of a publisher appearing. This is
+  # the same supervisor pattern the live demo uses (run-cam1.sh). The loop owns
+  # liveness, so no docker --restart policy. ~1000ms jitterbuffer = cellular SRT.
+  run_guest(){ # name srt-stream flow label
+    docker rm -f "$1" >/dev/null 2>&1 || true
+    docker run -d --name "$1" \
+      -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
+      --add-host host.docker.internal:host-gateway --entrypoint sh \
+      "$GUEST_IMAGE" -c "while :; do python3 guest_ingest.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 2; done" \
+      "$2" "$3" "$4" >/dev/null
+  }
+  run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1"
+  run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2"
+  # backend-free selector re-attach: wires a Guest flow into the selector the
+  # instant it appears (and drops it when it goes). Runs on the host, stdlib only.
+  pkill -f "guest_slot_watcher.py" 2>/dev/null || true
+  BASE_LABELS="Pattern Video,Clip Video" GUEST_LABELS="Guest 1,Guest 2" \
+    nohup python3 "$REPO/tools/guest_slot_watcher.py" >/tmp/quickstart-guest-watcher.log 2>&1 &
+  echo "  ✓ Guest 1/2 slots armed · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"
+fi
+
 # ── 4. done ───────────────────────────────────────────────────────────────────
 sleep 4
 cat <<EOF
@@ -156,6 +203,14 @@ cat <<EOF
    CUT to the pattern:  curl -X POST -H 'Content-Type: application/json' -d '{"slot":0}' http://127.0.0.1:9604/pipeline/active-input
    Change the pattern:  curl -X POST -H 'Content-Type: application/json' -d '{"pattern":"Pinwheel"}' http://127.0.0.1:9600/video/test-pattern
    Graphics off/on:     curl -X POST -H 'Content-Type: application/json' -d '{"on":false}' http://127.0.0.1:9605/pipeline/key
+
+   📱 PUT YOUR OWN FACE ON AIR (no camera needed):
+      Install "Larix Broadcaster" (free, iOS/Android). New connection → SRT →
+         URL:  srt://$PUBLIC_IP:8890
+         Mode: Caller   ·   Stream ID:  publish:guest1   (or publish:guest2)
+      Tap to go live → it appears as Guest 1, cuttable like any source:
+         curl -X POST -H 'Content-Type: application/json' -d '{"slot":2}' http://127.0.0.1:9604/pipeline/active-input
+      (OBS/vMix/ffmpeg work too — same URL. Open 8890/udp in your cloud firewall.)
 
    Every pixel above crossed a shared-memory MXL domain at $DOMAIN_HOST
    List the flows:      docker exec input-selector /opt/mxl/tools/mxl-info/mxl-info -d /mxl-domain -l
