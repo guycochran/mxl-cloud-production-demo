@@ -9,10 +9,12 @@ Built by [Office Hours Global](https://officehours.global) ahead of IBC 2026 to 
 the Dynamic Media Facility vision isn't just for broadcasters with NVIDIA partnerships —
 one person can stand up cloud shared-memory production in a weekend with the open tooling.
 
-**🔴 Try it live: [mxlswitcher.com](https://mxlswitcher.com)** — cut the
-program, build layouts, and pan the *real* camera in the studio. No login. (Running
-through IBC 2026; be kind, it's one VM. The original
-[prodbots.com/mxl.html](https://prodbots.com/mxl.html) URL still works.)
+The switcher ran live through IBC 2026 — visitors cut the program, built layouts,
+and panned the *real* studio camera from a browser, no login. **It's now offline:**
+the cloud facility is deallocated when idle (that's the whole point — see the
+cost breakdown below). Everything it did is documented with screenshots throughout
+this README, and the full stack rebuilds from this repo in ~10 minutes — see
+[Build one yourself](#build-one-yourself).
 
 **What it actually costs** (pay-as-you-go, deallocate when idle): the full three-VM
 facility below is **≈ $2.11/hr** — production D32s_v5 $1.54 + contribution D8s_v5
@@ -122,7 +124,8 @@ The Fabrics API experiment landed. The same live program (camera + keyed
 graphics, produced on VM1) now **crosses hosts through the MXL Fabrics API**
 (TCP provider) and is served out of a *different VM's* shared memory:
 
-**🔴 Watch the fabric-delivered program: [fabric-feed.cochran.cloud/mxl2webrtc/](https://fabric-feed.cochran.cloud/mxl2webrtc/)**
+The fabric-delivered program was served live from VM2's shared memory during the
+demo (now offline — the cluster is deallocated when idle):
 
 ```
         VM1 "production" (D8s_v5)          VM2 "fabric peer" (D8s_v5)
@@ -195,8 +198,8 @@ then-$1/hr cluster. Bridge code: a ~90-line shipper (segment → presigned PUT �
 recipe — architecture, grain→segment mapping, and eight earned gotchas — in
 [docs/TAMS.md](docs/TAMS.md).**
 
-**🔴 Scrub the show while it's being recorded: [prodbots.com/mxl-tams.html](https://prodbots.com/mxl-tams.html)**
-— the TAMS "time machine" side-by-side with the live program, **with live clipping**:
+The demo ran a TAMS "time machine" side-by-side with the live program (now offline),
+**with live clipping**: you could scrub the show *while it was still being recorded*,
 mark IN/OUT anywhere in the archive and the clip *already exists* — it's just a
 timerange URL against the store (zero media copied). One click more muxes it to
 a take-home MP4 by segment concat: a 15s clip of the live show exports in ~1.5s.
