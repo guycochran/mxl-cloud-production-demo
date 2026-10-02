@@ -47,6 +47,13 @@ The quickstart gets you a cuttable **test pattern + file clip**. The moment a ne
 infrastructure (the `hls2mxl` container name, `prodbots.com` URLs, the cochran.cloud tunnel,
 API tokens, studio camera IPs). A stranger can't run that cold.
 
+### ✅ SHIPPED + VERIFIED LIVE: SRT guest slots in the quickstart tier (merged `086647a`)
+> Done 2026-10-02. Free Larix phone → SRT → MXL Guest 1 flow @ 30fps → selector slot 2,
+> hands-off, verified end-to-end on the cold-clone VM. Artifacts: `docker/guest-ingest.Dockerfile`,
+> `tools/guest_slot_watcher.py` (backend-free re-attach), `quickstart.sh §3b`. Key gotcha: free
+> Larix needs the **`srtstreamid`** QR param (not `streamid`/in-URL). Cameras + the Contribution‖Mixer
+> isolation tiers are now spec'd in **[CONTRIBUTION-SPLIT.md](CONTRIBUTION-SPLIT.md)**. Original plan below.
+
 ### ⭐ Recommended next step (Guy's idea, and it's the right one): SRT guest slots in the quickstart
 **The fastest possible "first feed in" for a newcomer is a phone, not a camera:** scan a Larix
 Broadcaster QR → the app opens pre-configured → tap → you're a cuttable switcher button. We
