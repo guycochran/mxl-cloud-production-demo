@@ -69,6 +69,37 @@ Cut to the slot (`/pipeline/active-input {"slot":N}`), confirm the participant i
 WebRTC program. That's the first independent, third-party native-MXL contribution interop test —
 exactly the offer in the Liminal outreach.
 
+## Plan B — self-host the Zoom capture (if ZoomISO Cloud stalls)
+
+ZoomISO Cloud is Plan A: it emits native MXL, needs no Windows box and no Zoom-SDK approval
+gate, and our ingest is already built for it. But a self-host path exists and is proven by a
+reference implementation — **[iamfatness/CoreVideo](https://github.com/iamfatness/CoreVideo)**
+(OBS plugin, MIT): it pulls raw per-participant **I420 YUV** video + per-participant 48kHz PCM
+audio out of a live meeting via the **Zoom Meeting SDK** (5.17.x / 7.x), through a dedicated
+`ZoomObsEngine` child process over shared memory / named pipes. That is exactly "do it ourselves."
+
+**The easy 20% (our side):** I420-frames-in-shared-memory → v210 MXL flow is precisely the conform
+stage `ContributionCore` already does. A `SourceAdapter` whose `source_fragment()` reads the engine's
+shared-memory frames (or a small shim that republishes them) → the rest of the seam is unchanged.
+Est. ~1–2 days once the frame format is known.
+
+**The hard 80% (the Zoom SDK, honest):**
+- **Gated + proprietary:** needs a Zoom Marketplace app with Public Client OAuth + PKCE + Meeting
+  SDK/Embed enabled, and a developer account. Approval process, not a download.
+- **Platform mismatch:** CoreVideo's capture engine is C++17/Qt6/CMake against the Zoom SDK —
+  **Windows (full) / macOS (beta) / Linux (unsupported).** Our MXL stack is Linux+Docker. So the
+  Zoom-capture half runs on a **Windows/Mac contribution host**, not our Linux mixer VMs.
+- **Bandwidth:** standard Zoom accounts ~30 Mbps incoming video budget total (Enhanced Media ~100);
+  caps how many HD participants you can pull.
+
+**Where it lands architecturally:** this IS the Contribution‖Mixer split (CONTRIBUTION-SPLIT.md
+Tier 3) — the Windows/Mac Zoom-SDK box is the untrusted contribution edge; MXL mixer stays Linux;
+the fabric is the boundary. So Plan B reuses the isolation design we already have.
+
+**Before committing to Plan B, ask John (CoreVideo author):** Did Zoom approve the SDK app easily?
+Does the engine run headless at all? Is the shared-memory frame format stable/documented? Licensing
+to reuse his engine (it's MIT, but confirm intent)?
+
 ---
 *Pipeline proven 2026-10-02 against a synthetic native-MXL source on a cold-clone GCP VM. The
 real-ZoomISO unknowns above are the only things left to measure. Companion: CONTRIBUTION-SEAM.md
