@@ -106,11 +106,18 @@ class ContributionCore:
     one-process-per-source supervisor model the demo already uses)."""
 
     def __init__(self, adapter: SourceAdapter, domain: str = DEFAULT_DOMAIN,
-                 repair_url: str = 'https://prodbots.com/api/mxl/repair',
-                 diag_every: int = 300):
+                 repair_url: str = None, diag_every: int = 300):
+        import os as _os
         self.a = adapter
-        self.domain = domain
-        self.repair_url = repair_url
+        self.domain = _os.environ.get('MXL_DOMAIN', domain)
+        # Announce target resolution, in priority order:
+        #   explicit repair_url arg  >  MXL_REPAIR_URL env  >  prodbots default.
+        # Set MXL_REPAIR_URL="" (or "none") to DISABLE the backend announce — the
+        # quickstart tier does this: it pre-wires guest slots into the selector, so
+        # no backend re-attach is needed (fully self-contained, no prodbots).
+        if repair_url is None:
+            repair_url = _os.environ.get('MXL_REPAIR_URL', 'https://prodbots.com/api/mxl/repair')
+        self.repair_url = None if repair_url.strip().lower() in ('', 'none') else repair_url
         self.diag_every = diag_every
         self.state = {'offset': None, 'drift_n': 0, 'n': 0, 't0': None}
         Gst.init(None)
@@ -185,8 +192,10 @@ class ContributionCore:
         if s['offset'] is None:
             s['offset'] = now - buf.pts + MARGIN_NS
             print(f'cadence offset locked: {s["offset"]/1e6:.0f}ms', flush=True)
-            if self.a.announce_on_lock:
+            if self.a.announce_on_lock and self.repair_url:
                 threading.Thread(target=self._announce, daemon=True).start()
+            elif self.a.announce_on_lock:
+                print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
         mapped = buf.pts + s['offset']
         err = now + MARGIN_NS - mapped
         if abs(err) > RESYNC_NS:
@@ -225,7 +234,7 @@ class ContributionCore:
             else:
                 print(f'WARN unknown timing_policy "{policy}"; defaulting to restamp', flush=True)
                 self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, self._restamp)
-            if self.a.announce_on_lock and policy in ('align', 'preserve'):
+            if self.a.announce_on_lock and self.repair_url and policy in ('align', 'preserve'):
                 threading.Thread(target=self._announce, daemon=True).start()
         bus = self.pipe.get_bus()
         bus.add_signal_watch()
