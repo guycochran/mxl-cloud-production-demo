@@ -117,7 +117,9 @@ class ZoomIsoMxlAdapter(SourceAdapter):
         # shows the flow arrives cross-host via a fabrics proxy, the source is still
         # mxlsrc on the LOCAL domain — the proxy lands it here first (and may need
         # patch-target-ip.py for non-routed nets; see CONTRIBUTION-SEAM.md §4).
-        return (f'mxlsrc domain={self._domain} flow-id={self.source_flow_id} '
+        # NOTE: mxlSRC uses `video-flow-id` (also audio-flow-id/data-flow-id), NOT the
+        # `flow-id` that mxlSINK uses — verified via gst-inspect in the dry-run harness.
+        return (f'mxlsrc domain={self._domain} video-flow-id={self.source_flow_id} '
                 f'name=src ! queue max-size-buffers=8 ')
 
 
