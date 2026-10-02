@@ -89,24 +89,67 @@ class ZoomIsoMxlAdapter(SourceAdapter):
     OSC path (port 9091 / /zoomosc/) in CLAUDE.md — do not carry those assumptions over.
 
     Properties are deliberately orthogonal (contribution_core.SourceAdapter):
-      needs_conform=False  — it emits v210 grains, skip the conform stage.
-      timing_policy='align' — PROVISIONAL. "Native MXL" does NOT mean "already on my
-        clock." align logs "assumed, not verified" and skips restamp; if the beta
-        shows a foreign clock, flip to 'restamp' (one line). MEASURE first (see above).
+      needs_conform  — False if ZoomISO already emits domain-canonical v210 grains
+                       (expected). Set True only if the beta shows a non-canonical
+                       format we must conform.
+      timing_policy  — 'align' (PROVISIONAL default): "native MXL" does NOT mean
+                       "on my clock." align logs "assumed, not verified" + skips
+                       restamp. If the beta shows a foreign clock → pass
+                       timing_policy='restamp' (one kwarg). MEASURE first.
+
+    BOTH FLOW SHAPES are handled so beta day is a config flip, not a rewrite — use
+    the `zoomiso_adapters()` factory below rather than constructing by hand.
     """
     needs_conform = False
-    timing_policy = 'align'
 
-    def __init__(self, source_flow_id: str, flow_id: str, label: str = 'Zoom Guest',
-                 domain: str = '/mxl-domain'):
+    def __init__(self, source_flow_id, flow_id, label='Zoom Guest',
+                 domain='/mxl-domain', timing_policy='align', needs_conform=False):
         self.source_flow_id = source_flow_id   # the flow ZoomISO Cloud publishes
         self.flow_id = flow_id                  # our selector-slot flow
         self.label = label
         self._domain = domain
+        self.timing_policy = timing_policy      # 'align' | 'restamp' | 'preserve' — set at beta
+        self.needs_conform = needs_conform
         self.description = 'ZoomISO Cloud MXL ingest'
 
     def source_fragment(self) -> str:
-        # Provisional: read the ZoomISO-published grains straight from the domain.
-        # Exact element/props TBD against a real beta flow (see class docstring).
+        # Read the ZoomISO-published grains straight from the domain. If the beta
+        # shows the flow arrives cross-host via a fabrics proxy, the source is still
+        # mxlsrc on the LOCAL domain — the proxy lands it here first (and may need
+        # patch-target-ip.py for non-routed nets; see CONTRIBUTION-SEAM.md §4).
         return (f'mxlsrc domain={self._domain} flow-id={self.source_flow_id} '
                 f'name=src ! queue max-size-buffers=8 ')
+
+
+# ── ZoomISO flow-shape factory — the two possibilities, one call ────────────────
+# Beta-day unknown: does ZoomISO Cloud emit ONE MXL flow per participant, or ONE
+# composite flow of the whole gallery? We don't guess — we handle both, and pick
+# the mode once `mxl-info` shows us the real output (see docs/ZOOMISO-BETA-RUNBOOK.md).
+#
+#   mode='per_participant': N source flows → N adapters → N selector slots
+#                           (each participant is independently cuttable — the ideal).
+#   mode='composite'      : 1 source flow → 1 adapter → 1 slot (switch inside Zoom,
+#                           or we add a layout/crop stage later to split it).
+#
+# GUEST_* flow UUIDs reuse the guest-slot convention so the selector/watcher wiring
+# is unchanged — ZoomISO participants simply occupy guest slots.
+def zoomiso_adapters(source_flow_ids, slot_flow_ids, mode='per_participant',
+                     domain='/mxl-domain', timing_policy='align', label_prefix='Zoom'):
+    """Return the list of SourceAdapters for a ZoomISO Cloud session.
+
+    source_flow_ids : the flow UUID(s) ZoomISO publishes (from mxl-info at beta).
+    slot_flow_ids   : our selector-slot flow UUIDs to map onto (e.g. the guest slots).
+    mode            : 'per_participant' (N→N) or 'composite' (first id only → 1 slot).
+    timing_policy   : set 'restamp' here if the beta shows a foreign clock.
+    """
+    if mode == 'composite':
+        return [ZoomIsoMxlAdapter(source_flow_ids[0], slot_flow_ids[0],
+                                  label=f'{label_prefix} Program', domain=domain,
+                                  timing_policy=timing_policy)]
+    if mode != 'per_participant':
+        raise ValueError(f"unknown ZoomISO mode '{mode}' (per_participant|composite)")
+    n = min(len(source_flow_ids), len(slot_flow_ids))
+    return [ZoomIsoMxlAdapter(source_flow_ids[i], slot_flow_ids[i],
+                              label=f'{label_prefix} {i+1}', domain=domain,
+                              timing_policy=timing_policy)
+            for i in range(n)]
