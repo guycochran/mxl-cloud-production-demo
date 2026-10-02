@@ -100,6 +100,14 @@ restart 9602 '{"domain":"/mxl-domain","file":"ohg-episode30.mp4","grouphint":"Fi
 # rtspsrc latency=150 -> v210 -> PTS re-stamped to now+2 grains -> mxlsink.
 # Self-tuning head alignment = camera is an instantly-cuttable selector input.
 # (hls2mxl CONTAINER must run for its gst env; its own gateway pipeline stays stopped.)
+# Shared contribution back half (2026-10-02): the ingests are now thin adapters
+# over contribution_core.py + adapters.py, so BOTH modules must sit next to every
+# ingest in /tmp or `python3 /tmp/<ingest>.py` ImportErrors and the feed dies.
+# Copy them once here, before the first ingest. (New SourceAdapters — ZoomISO etc.
+# — need no bring-up change; they live in adapters.py which is already here.)
+sudo docker cp /srv/mxl-tools/contribution_core.py hls2mxl:/tmp/contribution_core.py
+sudo docker cp /srv/mxl-tools/adapters.py hls2mxl:/tmp/adapters.py
+
 sudo docker cp /srv/mxl-tools/cam_ingest.py hls2mxl:/tmp/cam_ingest.py
 sudo docker exec hls2mxl sh -c 'pkill -f run-cam1.sh; pkill -f cam_ingest.py; pkill -f cam_relay.py; true'
 post 9603/pipeline/stop '{}'
