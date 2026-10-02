@@ -167,15 +167,19 @@ if ! docker image inspect "$GUEST_IMAGE" >/dev/null 2>&1; then
   fi
 fi
 if [ -n "$GUEST_IMAGE" ]; then
-  # one container per guest slot, docker-managed restart so the pipeline simply
-  # (re)builds when a publisher connects — an idle guest 404s and exits, which is
-  # expected and cheap. ~1000ms jitterbuffer: cellular SRT latency (FINDINGS §9).
+  # one container per guest slot. An idle guest's rtspsrc 404s and the ingest
+  # exits — expected. We retry it in a TIGHT 2s loop (NOT docker's exponential
+  # backoff, which grows to 10-20s+ and makes a connecting phone wait or miss its
+  # window) so the pipeline rebuilds within ~2s of a publisher appearing. This is
+  # the same supervisor pattern the live demo uses (run-cam1.sh). The loop owns
+  # liveness, so no docker --restart policy. ~1000ms jitterbuffer = cellular SRT.
   run_guest(){ # name srt-stream flow label
     docker rm -f "$1" >/dev/null 2>&1 || true
-    docker run -d --name "$1" --restart unless-stopped \
+    docker run -d --name "$1" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
-      --add-host host.docker.internal:host-gateway \
-      "$GUEST_IMAGE" "$2" "$3" "$4" 1000 >/dev/null
+      --add-host host.docker.internal:host-gateway --entrypoint sh \
+      "$GUEST_IMAGE" -c "while :; do python3 guest_ingest.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 2; done" \
+      "$2" "$3" "$4" >/dev/null
   }
   run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1"
   run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2"
