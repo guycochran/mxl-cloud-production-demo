@@ -1,6 +1,8 @@
 # MXL Contribution Seam — spec (ZoomISO-ready, prove with SRT today)
 
-**Status:** design, 2026-10-02. No cloud spent. Author: live-system/repo lane.
+**Status:** IMPLEMENTED 2026-10-02 (commit `0e98a2c`, refined same day). The core + the
+three conform adapters are live; `ZoomIsoMxlAdapter` is a PLANNED stub (wire at beta).
+No cloud spent. Author: live-system/repo lane.
 **Goal (from Guy):** make the open MXL-native facility adoptable *and* ready to run the
 daily OHG show. Dream path = **ZoomISO Cloud (MXL output)** guests land as first-class
 sources; pragmatic path = build the seam now against the **existing SRT guest path** so
@@ -23,7 +25,8 @@ Reading `tools/cam_ingest.py`, `cam2_ingest.py`, `guest_ingest.py`, every contri
      varies                identical             identical      identical         identical
 ```
 
-- **Front end (varies):** `rtspsrc`/SRT + depay + `avdec_h264` (or HEVC for the Makito), a
+- **Front end (varies):** `rtspsrc`/SRT + depay + `avdec_h264` (the Makito sends H.264 in the
+  shipped profile — HEVC software-decode starved the keyer, switched 2026-09-10), a
   per-path jitterbuffer (`latency=` 20ms wired cam … 200ms guest … 1000ms cellular — SRT
   latency is per-path physics, FINDINGS §9).
 - **Canonical conform (identical, load-bearing):** `videorate ! videoscale add-borders=true !
@@ -55,27 +58,35 @@ touching the conform/restamp/slot/announce logic that took weeks to get right.
                         └─────────────────────────────────────────────┘
 ```
 
-**`SourceAdapter` interface** (what each transport implements):
-- `build_source_bin() -> Gst.Bin` — produces decoded `video/x-raw` at the pad, OR (ZoomISO MXL
-  case) produces v210 grains that bypass decode entirely.
+**`SourceAdapter` interface** (as shipped — see `tools/contribution_core.py`):
+- `source_fragment() -> str` — the gst-launch FRONT-END fragment (ending `! `). For a conform
+  adapter it ends at the decoded queue; for a native-MXL adapter it is the `mxlsrc …` that emits
+  v210 grains directly.
 - `latency_ms` — the per-path jitterbuffer hint.
-- `is_native_mxl: bool` — if true, ContributionCore SKIPS decode+conform (grains are already
-  canonical) and may even skip restamp if the source is already grain-aligned (TBD — verify
-  against a real ZoomISO flow before assuming).
-- metadata: `label`, `group_hint`, and the target `flow_id` / slot.
+- **Two ORTHOGONAL properties the core acts on** (deliberately NOT one "is native" boolean —
+  "transport is MXL" and "already on my domain clock" are different questions):
+  - `needs_conform: bool` — run the videorate/videoscale/videoconvert/v210 stage? `False` only
+    when the source already emits canonical grains.
+  - `timing_policy: 'restamp' | 'align' | 'preserve'` — `restamp` (default) maps onto the local
+    clock +2 grains; `align` trusts claimed domain alignment (logs "assumed, not verified" — the
+    provisional ZoomISO setting, flip to `restamp` if the beta shows a foreign clock); `preserve`
+    passes timestamps untouched (only once proven on our clock).
+  - `is_native_mxl` survives as a read-only convenience (`== not needs_conform`); it says nothing
+    about timing.
+- metadata: `label`, `group_hint`, `description`, target `flow_id`/slot, `announce_on_lock`.
 
 **`ContributionCore`** owns everything proven: the conform caps, the restamp probe + MARGIN_NS,
 the mxlsink wiring, the announce-on-first-frame + retry. One place to fix bugs, one place that
 carries the FINDINGS lessons.
 
-### Adapters
+### Adapters (capability status: ✅ VERIFIED · 🔧 IMPLEMENTED · 🧪 EXPERIMENTAL · 📋 PLANNED)
 
-| Adapter | Front end | is_native_mxl | Status |
+| Adapter | Front end | needs_conform / timing | Status |
 |---|---|---|---|
-| `SrtGuestAdapter` | mediamtx SRT → rtsp → h264 decode | false | **BUILD NOW** (refactor of guest_ingest) |
-| `RtspCamAdapter` | rtspsrc → h264 decode (+videorate 30000/1001→30/1) | false | refactor of cam_ingest |
-| `MakitoAdapter` | rtspsrc → HEVC decode | false | refactor of cam2_ingest |
-| `ZoomIsoMxlAdapter` | ZoomISO Cloud MXL flow → (no decode) | **true** | **STUB NOW, wire at beta** |
+| `SrtGuestAdapter` | mediamtx SRT → rtsp → h264 decode | true / restamp | ✅ VERIFIED (byte-identical to pre-refactor guest_ingest) |
+| `RtspCamAdapter` | rtspsrc → h264 decode (+videorate 30000/1001→30/1) | true / restamp | ✅ IMPLEMENTED (cam_ingest) |
+| `MakitoAdapter` | rtspsrc → **h264** decode (shipped Makito profile; HEVC retired 2026-09-10) | true / restamp | ✅ IMPLEMENTED (cam2_ingest) |
+| `ZoomIsoMxlAdapter` | ZoomISO Cloud MXL flow → (no decode) | false / align* | 📋 PLANNED stub (*align = assumed, MEASURE at beta) |
 
 ---
 
@@ -87,7 +98,7 @@ carries the FINDINGS lessons.
    (This is pure refactor — testable on any single VM with the existing SRT path, cheap.)
 2. **Define `SourceAdapter`** (ABC) + port `SrtGuestAdapter`, `RtspCamAdapter`, `MakitoAdapter`
    onto it. Prove parity: a guest SRT push still becomes a cuttable button, same ~25ms cuts.
-3. **Write `ZoomIsoMxlAdapter` as a documented stub** — `is_native_mxl=True`, a clear TODO block
+3. **Write `ZoomIsoMxlAdapter` as a documented stub** — `needs_conform=False` + `timing_policy='align'` (provisional), a clear TODO block
    citing the two unknowns we must verify against a real beta flow:
    - does ZoomISO Cloud emit **one MXL flow per participant** or a composite? (determines whether
      it's N slots or one) 

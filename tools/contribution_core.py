@@ -49,23 +49,44 @@ class SourceAdapter(ABC):
     FRAGMENT for their front end (everything up to, but not including, the
     canonical conform/v210 caps + mxlsink), and declare their routing metadata.
 
-    A non-native adapter's fragment must end at a raw-ish video pad that the core
+    A conform adapter's fragment must end at a raw-ish video pad that the core
     can feed into `! videorate ! videoscale ! videoconvert ! <CANON_CAPS> ! mxlsink`.
-    A native-MXL adapter (is_native_mxl=True, e.g. ZoomISO Cloud) already emits
-    v210 grains and the core will NOT re-conform — see run()."""
+    A native-MXL adapter already emits v210 grains and sets needs_conform=False, so
+    the core will NOT re-conform — see _build_launch().
 
-    #: human label + switcher-button/group routing
-    label: str = 'Source'
-    #: target MXL flow UUID == selector slot
-    flow_id: str = ''
-    #: per-path SRT/RTSP jitterbuffer hint (ms). SRT latency is per-path physics.
-    latency_ms: int = 200
-    #: True only for sources that already emit domain-canonical v210 grains.
-    is_native_mxl: bool = False
-    #: True to fire the /api/mxl/repair announce on first locked frame (guests/cams).
-    announce_on_lock: bool = True
-    #: short description stamped onto the flow
+    *** Orthogonal properties (do NOT collapse these into one "is native" flag). ***
+    "Transport is MXL" and "already aligned to my production domain clock" are
+    DIFFERENT questions — a native-MXL source can still arrive on a foreign clock and
+    need restamping. The core makes exactly two decisions, driven by two properties:
+      - needs_conform  -> whether to run videorate/videoscale/videoconvert/v210
+      - timing_policy  -> what to do with grain timestamps (see below)
+    is_native_mxl remains as a convenience that sets both to the common native case,
+    but a native source is free to override timing_policy once measured."""
+
+    # --- routing / identity ---
+    label: str = 'Source'               #: human label + switcher-button/group routing
+    flow_id: str = ''                   #: target MXL flow UUID == selector slot
     description: str = 'contribution ingest'
+
+    # --- front-end physics ---
+    latency_ms: int = 200               #: SRT/RTSP jitterbuffer hint (ms); per-path physics
+
+    # --- the two orthogonal pipeline decisions the core actually makes ---
+    #: run the v210 conform stage? False only when the source already emits canonical grains.
+    needs_conform: bool = True
+    #: 'restamp' = map onto local clock +2gr (remote/foreign-clock sources; the default);
+    #: 'align'   = source claims domain alignment, MEASURE before trusting (ZoomISO TBD);
+    #: 'preserve'= pass timestamps untouched (only if proven already on our domain clock).
+    timing_policy: str = 'restamp'
+
+    #: fire the /api/mxl/repair announce on first locked frame (guests/cams).
+    announce_on_lock: bool = True
+
+    @property
+    def is_native_mxl(self) -> bool:
+        """Back-compat convenience: a source that needs no conform. Does NOT imply a
+        timing_policy — ask timing_policy for that."""
+        return not self.needs_conform
 
     @property
     def group_hint(self) -> str:
@@ -74,7 +95,7 @@ class SourceAdapter(ABC):
     @abstractmethod
     def source_fragment(self) -> str:
         """gst-launch fragment for the FRONT END, ending with a trailing '! '.
-        For a decode adapter this is `src ... ! avdec_* ! queue`. For a native-MXL
+        For a conform adapter this is `src ... ! avdec_* ! queue`. For a native-MXL
         adapter this is the `mxlsrc ...` that produces v210 grains directly."""
         ...
 
@@ -102,8 +123,8 @@ class ContributionCore:
         sink = (f'mxlsink name=sink domain={self.domain} flow-id={a.flow_id} '
                 f'label="{a.label}" description="{a.description}" '
                 f'group-hint="{a.group_hint}" sync=false')
-        if a.is_native_mxl:
-            # Grains already canonical — do NOT re-conform. (ZoomISO Cloud path.)
+        if not a.needs_conform:
+            # Grains already canonical — do NOT re-conform. (native-MXL path.)
             return f'{a.source_fragment()}! {sink}'
         # Decode path: front end -> canonical conform -> mxlsink.
         # videorate reconciles any 30000/1001 (etc.) to exact 30/1 — WITHOUT it the
@@ -188,7 +209,24 @@ class ContributionCore:
         return Gst.PadProbeReturn.OK
 
     def run(self):
-        self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, self._restamp)
+        policy = self.a.timing_policy
+        if policy == 'restamp':
+            # Default: map the source onto the local clock (+2 grains). The probe
+            # fires the announce itself on offset-lock.
+            self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, self._restamp)
+        else:
+            # No restamp (align|preserve): grains carry their own timing. The probe
+            # won't run, so announce directly here if requested.
+            if policy == 'align':
+                print('timing_policy=align: trusting source domain alignment '
+                      '(ASSUMED, not verified — measure before relying on it)', flush=True)
+            elif policy == 'preserve':
+                print('timing_policy=preserve: passing timestamps untouched', flush=True)
+            else:
+                print(f'WARN unknown timing_policy "{policy}"; defaulting to restamp', flush=True)
+                self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, self._restamp)
+            if self.a.announce_on_lock and policy in ('align', 'preserve'):
+                threading.Thread(target=self._announce, daemon=True).start()
         bus = self.pipe.get_bus()
         bus.add_signal_watch()
         bus.connect('message::error',

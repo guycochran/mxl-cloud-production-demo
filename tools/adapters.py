@@ -87,8 +87,15 @@ class ZoomIsoMxlAdapter(SourceAdapter):
       3. Does it arrive cross-host via a fabrics proxy (=> sockaddr patch, patch-target-ip.py)?
     NOTE: this is ZoomISO *Cloud* (MXL-native). It is NOT the legacy local-ZoomISO
     OSC path (port 9091 / /zoomosc/) in CLAUDE.md — do not carry those assumptions over.
+
+    Properties are deliberately orthogonal (contribution_core.SourceAdapter):
+      needs_conform=False  — it emits v210 grains, skip the conform stage.
+      timing_policy='align' — PROVISIONAL. "Native MXL" does NOT mean "already on my
+        clock." align logs "assumed, not verified" and skips restamp; if the beta
+        shows a foreign clock, flip to 'restamp' (one line). MEASURE first (see above).
     """
-    is_native_mxl = True
+    needs_conform = False
+    timing_policy = 'align'
 
     def __init__(self, source_flow_id: str, flow_id: str, label: str = 'Zoom Guest',
                  domain: str = '/mxl-domain'):
