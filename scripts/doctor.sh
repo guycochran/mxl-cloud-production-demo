@@ -140,7 +140,16 @@ report(){
     local kon; kon=$(jget "$keyer" key_on)
     ok "keyer" "up · key_on=${kon:-?}"
   else warn "keyer" "no status (graphics may be off)"; fi
-  if api_up 9601; then ok "webrtc (program)" "serving"; else bad "webrtc (program)" "DOWN"; healthy=0; fi
+  if api_up 9601; then ok "webrtc encoder" "control :9601 up"; else bad "webrtc encoder" "DOWN"; healthy=0; fi
+  # The encoder control API answering does NOT prove the viewer can watch: mediamtx
+  # must be up and serving the WHEP/signaling page on :8889. Check that too so
+  # PROGRAM HEALTHY actually means watchable.
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mediamtx; then
+    ok "mediamtx" "container up"
+  else bad "mediamtx" "not running"; healthy=0; fi
+  if curl -s -m 3 -o /dev/null "http://127.0.0.1:8889/"; then
+    ok "viewer/signaling" ":8889 serving"
+  else warn "viewer/signaling" ":8889 no response (viewers can't watch)"; fi
 
   printf '%s─────────────────────────────────────────────%s\n' "$D" "$N"
   if [ "$healthy" = 1 ]; then printf '%sPROGRAM HEALTHY%s\n\n' "$G" "$N"; return 0

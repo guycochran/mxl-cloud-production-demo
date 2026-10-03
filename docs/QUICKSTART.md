@@ -54,7 +54,7 @@ guest SRT publish point, and the control one-liners.
 ### Check its health
 
 ```bash
-sudo scripts/doctor.sh          # one-glance: containers, flow liveness, program
+sudo scripts/doctor.sh          # one-glance: containers, flow presence, program path (+ unique-frame liveness when the grain probe runs)
 sudo scripts/doctor.sh --watch  # refresh every 3s
 ```
 

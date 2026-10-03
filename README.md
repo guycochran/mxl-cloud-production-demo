@@ -28,7 +28,7 @@ You get a cuttable, keyed, browser-watchable MXL switcher:
 Then check it's healthy and cut between sources:
 
 ```bash
-sudo scripts/doctor.sh                                   # containers · flow liveness · program
+sudo scripts/doctor.sh                                   # containers · flow presence · program path (+ unique-frame liveness when the grain probe is running)
 curl -X POST -d '{"slot":1}' http://127.0.0.1:9604/pipeline/active-input   # cut to the clip
 ```
 
