@@ -194,3 +194,28 @@ flows), so an adopter's audio ingest never phones anyone.
 - Lip-sync holds across a reconnect on a real guest (open question 1, measured).
 - An adopter can ingest a guest's A/V on a quickstart box with no prodbots
   dependency.
+
+---
+
+## 8. SRT-direct ingest (v0.3.1 — supersedes the RTSP front end for guests)
+
+**Proven on hardware (Larix A/V → Azure, Oct 2026).** The RTSP front end
+(`rtspsrc ! decodebin`) FLAPS on a real 2-track (video+audio) source: the unused
+track is left `not-linked`, restarting the ingest every ~10-20s. The old
+`guest_audio.py` never hit this because its source was audio-only.
+
+**Fix — read SRT directly from mediamtx and demux with `tsdemux`:**
+`srtsrc uri="srt://host:8890?streamid=read:<path>&latency=N" ! tsdemux name=d d. ! …`.
+`tsdemux` exposes clean separate pads and tolerates an unlinked one, so each leg taps
+only its essence. Drops the RTSP re-pack hop; mediamtx stays the SRT front door
+(streamid auth + serves SRT read + the WebRTC program view). New adapters:
+`SrtGuestVideoAdapter`, `SrtGuestAudioAdapter`.
+
+**Caps-guard fix in the restamp probes:** with a dynamic-pad demux, the mxlsink pad
+links + negotiates caps AFTER PLAYING. The restamp probe touching buffers before caps
+settle broke negotiation (`not-negotiated -4`). Both `_restamp`/`_restamp_audio` now
+no-op until `pad.get_current_caps()` is present — harmless for static-pad sources.
+
+**Verified on HW:** both legs 0 restarts, both guest1 flows live simultaneously,
+lip-sync ~16ms (audio behind video), no drift. The RTSP guest adapters remain for
+reference / audio-only sources; SRT-direct is the A/V path.

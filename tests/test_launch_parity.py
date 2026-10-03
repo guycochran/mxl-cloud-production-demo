@@ -110,3 +110,44 @@ def test_guest_audio_is_a_thin_shim():
     assert "AudioGuestAdapter" in src and "ContributionCore" in src
     assert "Gst.parse_launch" not in src, "guest_audio.py re-inlined a pipeline"
     assert "mxlsink" not in src, "guest_audio.py still hand-builds the sink"
+
+
+# SRT-direct guest adapters (v0.3.1): read MPEG-TS straight from mediamtx over SRT and
+# demux with tsdemux — fixes the rtspsrc-on-A/V not-linked flap. Proven on HW Oct 2026.
+GOLDEN_SRT_VIDEO = (
+    'srtsrc uri="srt://172.17.0.1:8890?streamid=read:guestA&latency=300" ! tsdemux name=d d. '
+    "! queue ! h264parse ! avdec_h264 max-threads=4 thread-type=frame ! queue max-size-buffers=8 "
+    "! videorate ! videoscale add-borders=true ! videoconvert n-threads=2 "
+    "! video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,"
+    "pixel-aspect-ratio=1/1,interlace-mode=progressive,colorimetry=bt709 "
+    "! mxlsink name=sink domain=/mxl-domain flow-id=9e111e00-aaaa-4bbb-8ccc-000000000001 "
+    'label="Guest 1" description="contributor SRT-direct video (guestA)" '
+    'group-hint="Guest1:Video" sync=false'
+)
+GOLDEN_SRT_AUDIO = (
+    'srtsrc uri="srt://172.17.0.1:8890?streamid=read:guestA&latency=300" ! tsdemux name=d d. '
+    "! queue ! aacparse ! avdec_aac ! audioconvert ! audioresample "
+    "! audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2,channel-mask=(bitmask)0x3 "
+    "! queue max-size-buffers=32 "
+    "! mxlsink name=sink domain=/mxl-domain flow-id=a1111e00-aaaa-4bbb-8ccc-000000000001 "
+    'label="Guest 1 Audio" description="contributor SRT-direct audio (guestA)" '
+    'group-hint="Guest1Audio:Audio" sync=false'
+)
+
+
+def test_srt_direct_video_launch_is_pinned():
+    from adapters import SrtGuestVideoAdapter
+    core = cc.ContributionCore(
+        SrtGuestVideoAdapter(path="guestA", flow_id="9e111e00-aaaa-4bbb-8ccc-000000000001",
+                             label="Guest 1"),
+        repair_url="")
+    assert core.pipe._launch == GOLDEN_SRT_VIDEO
+
+
+def test_srt_direct_audio_launch_is_pinned():
+    from adapters import SrtGuestAudioAdapter
+    core = cc.ContributionCore(
+        SrtGuestAudioAdapter(path="guestA", flow_id="a1111e00-aaaa-4bbb-8ccc-000000000001",
+                             label="Guest 1 Audio"),
+        repair_url="")
+    assert core.pipe._launch == GOLDEN_SRT_AUDIO

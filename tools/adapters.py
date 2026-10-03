@@ -68,6 +68,60 @@ class AudioGuestAdapter(SourceAdapter):
                 f'name=src ! decodebin ')
 
 
+# -- SRT-direct front ends: read the MPEG-TS straight from mediamtx over SRT and ----
+# demux with tsdemux, instead of mediamtx's RTSP re-pack. WHY (proven on HW Oct 2026):
+# `rtspsrc ! decodebin` on a 2-track (video+audio) source leaves the UNUSED track
+# not-linked -> the ingest flaps (restart loop, re-anchoring -> lip-sync unmeasurable).
+# tsdemux exposes clean separate pads and tolerates an unlinked one, so each leg reads
+# ONE SRT stream and taps only its essence — 0 restarts in testing. Drops the RTSP hop
+# too. mediamtx stays the SRT front door (streamid auth + serves SRT read + WebRTC).
+#   read URL: srt://<host>:8890?streamid=read:<path>&latency=<ms>
+
+
+class SrtGuestVideoAdapter(SourceAdapter):
+    """Guest VIDEO via SRT-direct: srtsrc ! tsdemux ! h264 decode. The core appends
+    the canonical v210 conform + restamp + mxlsink. Replaces the rtsp guest video
+    front end for A/V sources (see _srt_src note). mediamtx serves the SRT read."""
+    def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
+                 srt_host: str = '172.17.0.1', srt_port: int = 8890):
+        self.path = path
+        self.flow_id = flow_id
+        self.label = label
+        self.latency_ms = latency_ms
+        self._uri = f'srt://{srt_host}:{srt_port}?streamid=read:{path}&latency={latency_ms}'
+        self.description = f'contributor SRT-direct video ({path})'
+
+    def source_fragment(self) -> str:
+        # tsdemux exposes video + audio pads; we tap only video (the audio pad stays
+        # unlinked, which tsdemux tolerates — unlike rtspsrc). Core adds videorate/
+        # videoscale/videoconvert/v210.
+        return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
+                f'! queue ! h264parse ! avdec_h264 max-threads=4 thread-type=frame '
+                f'! queue max-size-buffers=8 ')
+
+
+class SrtGuestAudioAdapter(SourceAdapter):
+    """Guest AUDIO via SRT-direct: srtsrc ! tsdemux ! aac decode. essence='audio' so
+    the core uses the F32LE/48k conform + the duration-accumulate restamp. The clean
+    fix for the rtspsrc-on-A/V flap (proven 0-restart on HW)."""
+    essence = 'audio'
+
+    def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
+                 srt_host: str = '172.17.0.1', srt_port: int = 8890):
+        self.path = path
+        self.flow_id = flow_id
+        self.label = label
+        self.latency_ms = latency_ms
+        self._uri = f'srt://{srt_host}:{srt_port}?streamid=read:{path}&latency={latency_ms}'
+        self.description = f'contributor SRT-direct audio ({path})'
+
+    def source_fragment(self) -> str:
+        # tap only the audio pad from tsdemux; video pad stays unlinked (tolerated).
+        # Core adds audioconvert/audioresample/F32LE/queue.
+        return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
+                f'! queue ! aacparse ! avdec_aac ')
+
+
 class RtspCamAdapter(SourceAdapter):
     """Studio PTZ camera (H.264 over RTSP). videorate reconciles 30000/1001 -> 30/1
     (the v210 caps intermittently fail to negotiate on bare 29.97 — documented crash)."""
