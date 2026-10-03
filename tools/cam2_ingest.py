@@ -20,7 +20,12 @@ from contribution_core import ContributionCore
 URL = (sys.argv[1] if len(sys.argv) > 1
        else os.environ.get('MXL_SOURCE_URL', 'rtsp://172.17.0.1:8554/cam2'))
 JITTER_MS = int(sys.argv[2]) if len(sys.argv) > 2 else 200
-DST = 'ca222e00-aaaa-4bbb-8ccc-000000000001'   # CAM 2 Live (selector slot 3)
+# CAM 2 Live flow (selector slot 3) — from the facility manifest, baked-in fallback.
+try:
+    from facility import flow_uuid
+    DST = flow_uuid('video', 'cam2')
+except Exception:
+    DST = 'ca222e00-aaaa-4bbb-8ccc-000000000001'
 
 ContributionCore(
     MakitoAdapter(url=URL, flow_id=DST, label='CAM 2 Live', latency_ms=JITTER_MS),

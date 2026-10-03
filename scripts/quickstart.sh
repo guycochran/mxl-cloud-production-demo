@@ -49,8 +49,24 @@ fi
 IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
 CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2"
 GUEST_IMAGE=mxl-guest-ingest:local            # built from docker/guest-ingest.Dockerfile (see below)
-GUEST1_FLOW=9e111e00-aaaa-4bbb-8ccc-000000000001
-GUEST2_FLOW=9e222e00-aaaa-4bbb-8ccc-000000000002
+# Guest flow UUIDs from the facility manifest (config/facility.json) — the single
+# source of truth shared with the tools + backend. Fallback to the facility
+# standard (guest2 = ...01, matching every other consumer) if python/manifest is
+# unavailable. NOTE: quickstart previously used ...02 for guest2 here only; it was
+# self-contained (written+read within this script) so it worked, but was the one
+# value out of step with the rest of the facility — aligned to ...01.
+_qfac() {  # _qfac <name> <fallback>
+  python3 - "$REPO/config/facility.json" "$1" "$2" 2>/dev/null <<'PY' || printf '%s' "$2"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    sys.stdout.write(d["video_flows"][sys.argv[2]]["uuid"])
+except Exception:
+    sys.exit(1)
+PY
+}
+GUEST1_FLOW=$(_qfac guest1 9e111e00-aaaa-4bbb-8ccc-000000000001)
+GUEST2_FLOW=$(_qfac guest2 9e222e00-aaaa-4bbb-8ccc-000000000001)
 # official Blender mirror, natively 1080p30 (the Google sample bucket 403s now)
 CLIP_URL="https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4"
 

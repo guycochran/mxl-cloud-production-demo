@@ -28,10 +28,15 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 STATE_URL = 'https://prodbots.com/api/mxl/audio-state'
-DST = 'a0d10000-aaaa-4bbb-8ccc-000000000001'          # PGM Audio (encoder reads this)
 CAPS = 'audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2,channel-mask=(bitmask)0x3'
 MARGIN_NS = 66_000_000
-SOURCES = {  # name -> audio flow uuid
+
+# Audio flow UUIDs come from the facility manifest (config/facility.json) — the
+# single source of truth shared with grain_probe, the selector, and bring-up.
+# Baked-in fallbacks keep this running if the manifest can't be loaded (e.g. an
+# old standalone copy without it).
+_FALLBACK_DST = 'a0d10000-aaaa-4bbb-8ccc-000000000001'  # PGM Audio (encoder reads this)
+_FALLBACK_SOURCES = {  # name -> audio flow uuid
     'playout': '4a37a1ae-e0e1-59de-8354-c6884b25e551',
     'guest1':  'a1111e00-aaaa-4bbb-8ccc-000000000001',
     'guest2':  'a2222e00-aaaa-4bbb-8ccc-000000000001',
@@ -41,6 +46,17 @@ SOURCES = {  # name -> audio flow uuid
     'voice':   '101fcb5f-8b42-5e92-a2c3-67542abedf6c',
     'voice2':  'e8eb9046-c6fa-53ed-97e8-8799c68fa55b',
 }
+try:
+    from facility import audio_flows, flow_uuid
+    _af = audio_flows()
+    DST = _af.get('pgm', _FALLBACK_DST)
+    # keep only the mixer inputs (manifest 'pgm' is the output, not a source)
+    SOURCES = {n: _af.get(n, u) for n, u in _FALLBACK_SOURCES.items()}
+    print('audio_pgm: audio flow UUIDs from facility manifest', flush=True)
+except Exception as e:
+    DST = _FALLBACK_DST
+    SOURCES = dict(_FALLBACK_SOURCES)
+    print(f'audio_pgm: facility manifest unavailable ({e}); using baked-in flows', flush=True)
 
 Gst.init(None)
 
