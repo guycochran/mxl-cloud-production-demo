@@ -53,7 +53,7 @@ else
   IMG_KEYER="$IMG_KEYER_PIN"; IMG_WEBRTC="$IMG_WEBRTC_PIN"
 fi
 IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
-CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2"
+CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2 guest1-audio guest2-audio"
 # Guest image tag ENCODES THE MODE so a pinned run can't silently reuse an
 # edge-built base (or vice versa): `docker image inspect` keys on the tag, so
 # distinct tags = distinct cache entries. Pinned tag carries the base digest's
@@ -69,18 +69,23 @@ fi
 # unavailable. NOTE: quickstart previously used ...02 for guest2 here only; it was
 # self-contained (written+read within this script) so it worked, but was the one
 # value out of step with the rest of the facility — aligned to ...01.
-_qfac() {  # _qfac <name> <fallback>
-  python3 - "$REPO/config/facility.json" "$1" "$2" 2>/dev/null <<'PY' || printf '%s' "$2"
+_qfac_sec() {  # _qfac_sec <section> <name> <fallback>
+  python3 - "$REPO/config/facility.json" "$1" "$2" "$3" 2>/dev/null <<'PY' || printf '%s' "$3"
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
-    sys.stdout.write(d["video_flows"][sys.argv[2]]["uuid"])
+    sys.stdout.write(d[sys.argv[2]][sys.argv[3]]["uuid"])
 except Exception:
     sys.exit(1)
 PY
 }
+_qfac()       { _qfac_sec video_flows "$1" "$2"; }  # <name> <fallback>
+_qfac_audio() { _qfac_sec audio_flows "$1" "$2"; }  # <name> <fallback>
 GUEST1_FLOW=$(_qfac guest1 9e111e00-aaaa-4bbb-8ccc-000000000001)
 GUEST2_FLOW=$(_qfac guest2 9e222e00-aaaa-4bbb-8ccc-000000000001)
+# audio flows (v0.3 A/V guest legs) — same manifest, audio_flows section
+GUEST1_AUDIO_FLOW=$(_qfac_audio guest1 a1111e00-aaaa-4bbb-8ccc-000000000001)
+GUEST2_AUDIO_FLOW=$(_qfac_audio guest2 a2222e00-aaaa-4bbb-8ccc-000000000001)
 # official Blender mirror, natively 1080p30 (the Google sample bucket 403s now)
 CLIP_URL="https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4"
 
@@ -241,14 +246,34 @@ if [ -n "$GUEST_IMAGE" ]; then
       "$GUEST_IMAGE" -c "while :; do python3 guest_ingest.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 2; done" \
       "$2" "$3" "$4" >/dev/null
   }
+  # AUDIO leg (v0.3): a guest is A/V, so pair the video ingest with an audio one —
+  # same mediamtx path, the AudioGuestAdapter via guest_audio.py. On the single-box
+  # quickstart the source host is host.docker.internal (not the VNet 10.0.0.5 the
+  # live facility uses), so pass it explicitly. The program-audio mixer tolerates an
+  # absent audio flow, so this is additive — a guest still cuts video-only if audio
+  # is off. Set MXL_GUEST_AUDIO=0 to skip (e.g. a video-only test).
+  run_guest_audio(){ # name srt-stream flow label
+    docker rm -f "$1-audio" >/dev/null 2>&1 || true
+    docker run -d --name "$1-audio" \
+      -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
+      -e MXL_AUDIO_RTSP_HOST=host.docker.internal \
+      --add-host host.docker.internal:host-gateway --entrypoint sh \
+      "$GUEST_IMAGE" -c "while :; do python3 guest_audio.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 3; done" \
+      "$2" "$3" "$4" >/dev/null
+  }
   run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1"
   run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2"
+  if [ "${MXL_GUEST_AUDIO:-1}" = 1 ]; then
+    run_guest_audio guest1 guest1 "$GUEST1_AUDIO_FLOW" "Guest 1 Audio"
+    run_guest_audio guest2 guest2 "$GUEST2_AUDIO_FLOW" "Guest 2 Audio"
+  fi
   # backend-free selector re-attach: wires a Guest flow into the selector the
   # instant it appears (and drops it when it goes). Runs on the host, stdlib only.
   pkill -f "guest_slot_watcher.py" 2>/dev/null || true
   BASE_LABELS="Pattern Video,Clip Video" GUEST_LABELS="Guest 1,Guest 2" \
     nohup python3 "$REPO/tools/guest_slot_watcher.py" >/tmp/quickstart-guest-watcher.log 2>&1 &
-  echo "  ✓ Guest 1/2 slots armed · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"
+  _audio_note=$([ "${MXL_GUEST_AUDIO:-1}" = 1 ] && echo "+audio" || echo "video-only")
+  echo "  ✓ Guest 1/2 slots armed ($_audio_note) · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"
 fi
 
 # ── 4. done ───────────────────────────────────────────────────────────────────

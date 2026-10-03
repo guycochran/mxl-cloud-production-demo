@@ -28,8 +28,13 @@ RUN apt-get update -qq \
  && rm -rf /var/lib/apt/lists/*
 
 # the contribution seam (core + adapters + entrypoints, flat so imports resolve from /opt/seam)
+# guest_audio.py = the A/V guest's AUDIO leg (v0.3); facility.py lets both legs resolve
+# flow UUIDs from config/facility.json (copied below) with the baked-in fallback.
 WORKDIR /opt/seam
-COPY tools/contribution_core.py tools/adapters.py tools/guest_ingest.py tools/zoomiso_dryrun.py ./
+COPY tools/contribution_core.py tools/adapters.py tools/facility.py \
+     tools/guest_ingest.py tools/guest_audio.py tools/zoomiso_dryrun.py ./
+# facility manifest so facility.py resolves it from the cwd (see tools/facility.py search path)
+COPY config/facility.json ./config/facility.json
 
 # guest_ingest.py args: <srt-stream-name> <flow-uuid> <label> [jitterbuffer_ms]
 # The quickstart passes a cellular-friendly jitterbuffer (SRT latency is per-path
