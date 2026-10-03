@@ -11,6 +11,31 @@ SSH_KEY=$HOME/.ssh/mxl-lab
 SSH="ssh -i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=8 guy@$VM_IP"
 MXL_HTML=$HOME/prodbots-backend/public/mxl.html
 
+# ── Flow UUIDs from the facility manifest (single source of truth) ───────────
+# config/facility.json is the shared map used by the Python tools + backend JS.
+# Pull the handful of UUIDs the pipeline-restart JSON needs into shell vars here;
+# each falls back to its exact historical literal if the manifest/python is
+# unavailable, so the restored pipelines are byte-identical either way.
+_FAC_JSON="$(dirname "$0")/../config/facility.json"
+_fac() {  # _fac <section> <name> <key> <fallback>
+  python3 - "$_FAC_JSON" "$1" "$2" "$3" "$4" 2>/dev/null <<'PY' || printf '%s' "$5"
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    v = d[sys.argv[2]][sys.argv[3]][sys.argv[4]]
+    sys.stdout.write(v)
+except Exception:
+    sys.exit(1)
+PY
+}
+F_CAM=$(_fac video_flows cam uuid        'ca111e00-aaaa-4bbb-8ccc-000000000001')
+F_PLAYOUT=$(_fac video_flows playout uuid '2f34c189-64bf-5971-993a-332a28a7a6ee')
+F_PATTERN=$(_fac video_flows pattern uuid '6b5d8d68-64ce-56f8-bea2-e79b6c282a86')
+F_CAM2=$(_fac video_flows cam2 uuid      'ca222e00-aaaa-4bbb-8ccc-000000000001')
+F_SELECTOR=$(_fac video_flows selector uuid '9437652d-20d9-565e-be6e-b98c36067930')
+F_KEYER=$(_fac video_flows keyer uuid    '5c73394e-85df-50a3-8988-5edde5b5522a')
+F_PGMAUDIO=$(_fac audio_flows pgm uuid   'a0d10000-aaaa-4bbb-8ccc-000000000001')
+
 step() { echo; echo "▶ $*"; }
 die()  { echo "✗ $*" >&2; exit 1; }
 
@@ -212,16 +237,16 @@ sleep 5
 # NOTE: this 4-input body is the SAFE BASE (absent guests would 400 the start);
 # the backend repair (/api/mxl/repair) immediately supersedes it with the full
 # 7-input set minus whatever flows are absent — ALWAYS run a repair after bring-up.
-restart 9604 '{"domain_path":"/mxl-domain","input_flow_uuids":["ca111e00-aaaa-4bbb-8ccc-000000000001","2f34c189-64bf-5971-993a-332a28a7a6ee","6b5d8d68-64ce-56f8-bea2-e79b6c282a86","ca222e00-aaaa-4bbb-8ccc-000000000001"],"grouphint":"Input-Selector","description":"program out","label":"Selector PGM"}'
+restart 9604 "{\"domain_path\":\"/mxl-domain\",\"input_flow_uuids\":[\"$F_CAM\",\"$F_PLAYOUT\",\"$F_PATTERN\",\"$F_CAM2\"],\"grouphint\":\"Input-Selector\",\"description\":\"program out\",\"label\":\"Selector PGM\"}"
 post 9604/pipeline/active-input '{"slot":0}'
 
 # Keyer: OHG lower-third keyed over SELECTOR PGM (key stays up across all cuts)
-restart 9605 '{"mode":"key","domain_path":"/mxl-domain","input_flow_uuid":"9437652d-20d9-565e-be6e-b98c36067930","html5_url":"http://host.docker.internal:8085/lower-third.html?v=nodip1","grouphint":"HTML5-Keyer","description":"cam + graphics","label":"Keyer PGM"}'
+restart 9605 "{\"mode\":\"key\",\"domain_path\":\"/mxl-domain\",\"input_flow_uuid\":\"$F_SELECTOR\",\"html5_url\":\"http://host.docker.internal:8085/lower-third.html?v=nodip1\",\"grouphint\":\"HTML5-Keyer\",\"description\":\"cam + graphics\",\"label\":\"Keyer PGM\"}"
 post 9605/pipeline/key '{"on":true}'
 sleep 3
 
 # WebRTC encoder: Keyer PGM video + PGM Audio (audio-follow-video), via mediamtx
-restart 9601 '{"domain_path":"/mxl-domain","video_flow_uuid":"5c73394e-85df-50a3-8988-5edde5b5522a","audio_flow_uuid":"a0d10000-aaaa-4bbb-8ccc-000000000001","use_mediamtx":true,"encoder":{"tune":4,"speed_preset":2,"bitrate":6000,"key_int_max":30,"intra_refresh":false}}'
+restart 9601 "{\"domain_path\":\"/mxl-domain\",\"video_flow_uuid\":\"$F_KEYER\",\"audio_flow_uuid\":\"$F_PGMAUDIO\",\"use_mediamtx\":true,\"encoder\":{\"tune\":4,\"speed_preset\":2,\"bitrate\":6000,\"key_int_max\":30,\"intra_refresh\":false}}"
 echo "  ✓ pipelines restarted"
 VMEOF
 
