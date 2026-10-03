@@ -1,9 +1,44 @@
 # MXL Switcher
 
-**A complete live broadcast production — two real cameras, open guest contribution,
-file playout, layouts, graphics keyer, program audio, a native multiview — running
-through an [EBU MXL](https://github.com/dmf-mxl/dmf-mxl) shared-memory domain on a
-small Azure cluster, controllable by anyone with a browser.**
+**An open DMF/MXL production lab — clone it, run one script, and put your own phone
+on air through an [EBU MXL](https://github.com/dmf-mxl/dmf-mxl) shared-memory domain
+in minutes.** The full build is a complete live broadcast production (two real
+cameras, open guest contribution, file playout, layouts, graphics keyer, program
+audio, a native multiview), controllable by anyone with a browser.
+
+---
+
+## ⚡ Try it — ~3 minutes
+
+On a fresh Ubuntu x86-64 VM with AVX ([any Azure D-v5, AWS m5/m6i, GCP n2](docs/QUICKSTART.md#prerequisites)):
+
+```bash
+git clone https://github.com/guycochran/mxl-cloud-production-demo
+cd mxl-cloud-production-demo
+sudo scripts/quickstart.sh
+```
+
+You get a cuttable, keyed, browser-watchable MXL switcher:
+
+- ✓ Test-pattern source + file playout
+- ✓ HTML5 lower-third graphics keyer
+- ✓ WebRTC program output (watch in any browser)
+- ✓ **Two SRT contribution slots** — point Larix / OBS / vMix at `srt://YOUR-IP:8890`
+
+Then check it's healthy and cut between sources:
+
+```bash
+sudo scripts/doctor.sh                                   # containers · flow liveness · program
+curl -X POST -d '{"slot":1}' http://127.0.0.1:9604/pipeline/active-input   # cut to the clip
+```
+
+*Cold-clone verified Oct 2026: **GCP 2m33s · AWS 3m59s · Azure 4m17s**, each → ON AIR → cut landed.*
+
+**Next:** [What did I just build?](#what-it-demonstrates) · [Understand MXL](https://mxlswitcher.com) · [All the production findings](docs/FINDINGS.md) · [Full quickstart](docs/QUICKSTART.md)
+
+---
+
+## The full facility
 
 Built by [Office Hours Global](https://officehours.global) ahead of IBC 2026 to show that
 the Dynamic Media Facility vision isn't just for broadcasters with NVIDIA partnerships —
@@ -13,7 +48,8 @@ The switcher ran live through IBC 2026 — visitors cut the program, built layou
 and panned the *real* studio camera from a browser, no login. **It's now offline:**
 the cloud facility is deallocated when idle (that's the whole point — see the
 cost breakdown below). Everything it did is documented with screenshots throughout
-this README, and the full stack rebuilds from this repo in ~10 minutes — see
+this README, and the full stack rebuilds from this repo in minutes (cold-clone
+measured ~3 min to on-air across three clouds) — see
 [Build one yourself](#build-one-yourself).
 
 **What it actually costs** (pay-as-you-go, deallocate when idle): the full three-VM

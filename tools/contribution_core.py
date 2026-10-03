@@ -111,12 +111,17 @@ class ContributionCore:
         self.a = adapter
         self.domain = _os.environ.get('MXL_DOMAIN', domain)
         # Announce target resolution, in priority order:
-        #   explicit repair_url arg  >  MXL_REPAIR_URL env  >  prodbots default.
-        # Set MXL_REPAIR_URL="" (or "none") to DISABLE the backend announce — the
-        # quickstart tier does this: it pre-wires guest slots into the selector, so
-        # no backend re-attach is needed (fully self-contained, no prodbots).
+        #   explicit repair_url arg  >  MXL_REPAIR_URL env  >  NO announce (default).
+        # SECURITY / BOUNDARY: the open-source core must make NO external assumptions.
+        # An adopter who clones this repo and runs an ingest must never unknowingly
+        # call someone else's backend — so with nothing configured there is no announce
+        # target at all. A deployment opts IN explicitly:
+        #     MXL_REPAIR_URL=https://prodbots.com/api/mxl/repair python3 cam_ingest.py
+        # (the OHG live bring-up sets exactly that; see scripts/bring-up-mxl.sh). The
+        # quickstart tier pre-wires guest slots into the selector, so it needs no
+        # announce — it leaves MXL_REPAIR_URL unset (or ="none") and stays self-contained.
         if repair_url is None:
-            repair_url = _os.environ.get('MXL_REPAIR_URL', 'https://prodbots.com/api/mxl/repair')
+            repair_url = _os.environ.get('MXL_REPAIR_URL', '')
         self.repair_url = None if repair_url.strip().lower() in ('', 'none') else repair_url
         self.diag_every = diag_every
         self.state = {'offset': None, 'drift_n': 0, 'n': 0, 't0': None}

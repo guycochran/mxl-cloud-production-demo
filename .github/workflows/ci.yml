@@ -1,0 +1,76 @@
+name: CI
+
+# Cheap, fast, no-hardware checks that protect the hard-won media core from
+# "cleanup" regressions. These run WITHOUT GStreamer or Docker: the contribution
+# seam is importable under a stubbed `gi` (tests/conftest.py), so we verify launch-
+# string construction, the orthogonal needs_conform/timing_policy logic, the cadence
+# constants, and the zoomiso factory — the exact places a refactor silently breaks
+# the pipeline. The REAL MXL/container smoke test needs AVX-512 hardware and lives in
+# scripts/quickstart.sh; it is run on a self-hosted/capable runner, not here.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-and-test:
+    name: syntax • seam tests • docs links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test deps
+        run: pip install --quiet pytest
+
+      - name: Python syntax (compile all tools/ + tests/)
+        run: |
+          python -m compileall -q tools tests
+
+      - name: Shell syntax (bash -n every *.sh)
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "::error file=$f::bash -n failed"; fail=1; }
+          done < <(find . -path ./.git -prune -o -name '*.sh' -print)
+          exit $fail
+
+      - name: ShellCheck (advisory, informational only)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          find . -path ./.git -prune -o -name '*.sh' -print -exec shellcheck -S warning {} + || true
+
+      - name: Seam unit tests + secret tripwire (stubbed gi — no GStreamer needed)
+        run: python -m pytest tests/ -q
+
+      - name: gitleaks secret scan (advisory, informational only)
+        continue-on-error: true
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz \
+            | tar -xz gitleaks 2>/dev/null && ./gitleaks detect --no-banner --redact --exit-code 0 || \
+            echo "gitleaks unavailable — pytest tests/test_no_secrets.py is the authoritative gate"
+
+  integration-smoke:
+    name: "MXL container smoke (manual • needs AVX hardware)"
+    # The quickstart pulls the cbcrc MXL images and runs a real v210 pipeline, which
+    # requires AVX-512. GitHub-hosted runners are not guaranteed to have it, and this
+    # pulls ~GBs of containers — so this job is OPT-IN via workflow_dispatch and skips
+    # unless a self-hosted runner labelled `avx512` is available. It documents the
+    # separation the review asked for: fast logic tests here, real media tests on
+    # capable hardware. Wire `runs-on: [self-hosted, avx512]` when such a runner exists.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke-test placeholder
+        run: |
+          echo "This job is a placeholder for the real quickstart smoke test."
+          echo "Run it on an AVX-512-capable runner:"
+          echo "  sudo scripts/quickstart.sh   # cold clone -> ON AIR, cut HTTP 200"
+          echo "Verified manually on GCP/AWS/Azure cold clones (see docs/ADOPTION-GAPS.md)."

@@ -23,7 +23,30 @@ HERE="$(cd "$(dirname "$0")" && pwd)"      # repo scripts/ dir (for the Dockerfi
 REPO="$(cd "$HERE/.." && pwd)"
 DOMAIN_HOST=/dev/shm/mxl/domain_1          # shared-memory domain (volatile: gone on reboot — just re-run)
 BASE=/srv/mxl-quickstart                   # clips + graphics live here (persistent)
-IMAGES="bluenviron/mediamtx:latest ghcr.io/cbcrc/test-generator:latest ghcr.io/cbcrc/file-player:latest ghcr.io/cbcrc/input-selector:latest ghcr.io/cbcrc/html5-keyer:latest ghcr.io/cbcrc/mxl2webrtc:latest"
+# ── images: PINNED BY DIGEST for reproducibility (docs/VERSIONS.md) ─────────────
+# Floating :latest can break a quickstart on an upstream rebuild that has nothing to
+# do with this repo. These digests are what the Oct 2026 cold-clone proofs ran
+# against. Opt into current upstream with:  sudo MXL_BLEEDING_EDGE=1 scripts/quickstart.sh
+IMG_MEDIAMTX_PIN="bluenviron/mediamtx@sha256:5ce2a948eb68df06ce2e13870db8df8e30d516ac4dc40e04bfe8aee3bdf7be40"
+IMG_TESTGEN_PIN="ghcr.io/cbcrc/test-generator@sha256:09cad0981475095ab948ca51511d4fbdc0521e2a23632d50abaf14fc3847cd92"
+IMG_FILEPLAYER_PIN="ghcr.io/cbcrc/file-player@sha256:149953ce851a6d5e2ffbc9bd39c7e82ae529af25c20237457a77033c24e8f297"
+IMG_SELECTOR_PIN="ghcr.io/cbcrc/input-selector@sha256:c1e869ea39985ae195951a1d3d78e08001e4521017acad0632a79d48b936e3d1"
+IMG_KEYER_PIN="ghcr.io/cbcrc/html5-keyer@sha256:419ac23e1d75ad0c94b437dd709cc0d701b0dacfe3679733b5658a530bc86660"
+IMG_WEBRTC_PIN="ghcr.io/cbcrc/mxl2webrtc@sha256:ca047e75714bfad97239060f35d7e96e37decc6dacdf747c539940cc59fd37f6"
+if [ "${MXL_BLEEDING_EDGE:-0}" = 1 ]; then
+  echo "  ⚠ MXL_BLEEDING_EDGE=1 — using upstream :latest (not the pinned, proven digests)"
+  IMG_MEDIAMTX=bluenviron/mediamtx:latest
+  IMG_TESTGEN=ghcr.io/cbcrc/test-generator:latest
+  IMG_FILEPLAYER=ghcr.io/cbcrc/file-player:latest
+  IMG_SELECTOR=ghcr.io/cbcrc/input-selector:latest
+  IMG_KEYER=ghcr.io/cbcrc/html5-keyer:latest
+  IMG_WEBRTC=ghcr.io/cbcrc/mxl2webrtc:latest
+else
+  IMG_MEDIAMTX="$IMG_MEDIAMTX_PIN"; IMG_TESTGEN="$IMG_TESTGEN_PIN"
+  IMG_FILEPLAYER="$IMG_FILEPLAYER_PIN"; IMG_SELECTOR="$IMG_SELECTOR_PIN"
+  IMG_KEYER="$IMG_KEYER_PIN"; IMG_WEBRTC="$IMG_WEBRTC_PIN"
+fi
+IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
 CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2"
 GUEST_IMAGE=mxl-guest-ingest:local            # built from docker/guest-ingest.Dockerfile (see below)
 GUEST1_FLOW=9e111e00-aaaa-4bbb-8ccc-000000000001
@@ -104,23 +127,27 @@ docker rm -f $CONTAINERS >/dev/null 2>&1 || true
 pull_pids=(); for i in $IMAGES; do docker pull -q "$i" >/dev/null & pull_pids+=($!); done
 wait "${pull_pids[@]}"
 docker run -d --name mediamtx --network host --restart unless-stopped \
-  -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" bluenviron/mediamtx:latest >/dev/null
+  -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" "$IMG_MEDIAMTX" >/dev/null
 run_mf(){ # name hostport image extra...
   local name=$1 port=$2 image=$3; shift 3
+  # Control APIs bind 127.0.0.1 ONLY (least privilege): these are unauthenticated
+  # media-function control ports — never expose them on all interfaces. Media ports
+  # (WebRTC/SRT below) stay world-facing on purpose. Any public control surface is a
+  # separate, deliberately-authenticated layer.
   docker run -d --name "$name" --restart unless-stopped \
     -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain \
-    -p "$port":9600 "$@" "$image" >/dev/null
+    -p 127.0.0.1:"$port":9600 "$@" "$image" >/dev/null
 }
-run_mf test-generator 9600 ghcr.io/cbcrc/test-generator:latest
-run_mf file-player    9602 ghcr.io/cbcrc/file-player:latest    -v "$BASE/clips":/home/file:ro
-run_mf input-selector 9604 ghcr.io/cbcrc/input-selector:latest -e MAX_INPUTS=7
-run_mf html5-keyer    9605 ghcr.io/cbcrc/html5-keyer:latest    -e KEYER_DEFAULT_MODE=key --add-host host.docker.internal:host-gateway
+run_mf test-generator 9600 "$IMG_TESTGEN"
+run_mf file-player    9602 "$IMG_FILEPLAYER"  -v "$BASE/clips":/home/file:ro
+run_mf input-selector 9604 "$IMG_SELECTOR"    -e MAX_INPUTS=7
+run_mf html5-keyer    9605 "$IMG_KEYER"       -e KEYER_DEFAULT_MODE=key --add-host host.docker.internal:host-gateway
 docker run -d --name mxl2webrtc --restart unless-stopped \
   -v "$DOMAIN_HOST":/mxl-domain:ro -e MXL_DOMAIN=/mxl-domain \
   -e MEDIAMTX_WHIP_URL=http://host.docker.internal:8889/mxl2webrtc/whip \
   --add-host host.docker.internal:host-gateway \
-  -p 9601:9600 $(for p in $(seq 8200 8210); do echo -n "-p $p:$p/udp "; done) \
-  ghcr.io/cbcrc/mxl2webrtc:latest >/dev/null
+  -p 127.0.0.1:9601:9600 $(for p in $(seq 8200 8210); do echo -n "-p $p:$p/udp "; done) \
+  "$IMG_WEBRTC" >/dev/null
 for p in 9600 9601 9602 9604 9605; do
   for i in $(seq 1 45); do curl -s -m 2 -o /dev/null "http://127.0.0.1:$p/pipeline/status" && break; sleep 2; done
   curl -s -m 2 -o /dev/null "http://127.0.0.1:$p/pipeline/status" || die "API on :$p never came up — docker logs the container mapped to it"
@@ -160,7 +187,10 @@ step "Guest contribution (SRT)"
 if ! docker image inspect "$GUEST_IMAGE" >/dev/null 2>&1; then
   if [ -f "$REPO/docker/guest-ingest.Dockerfile" ]; then
     echo "  building $GUEST_IMAGE (one-time)…"
-    docker build -q -f "$REPO/docker/guest-ingest.Dockerfile" -t "$GUEST_IMAGE" "$REPO" >/dev/null \
+    # keep the guest base consistent with the mode: pinned digest by default, the
+    # test-generator :latest under MXL_BLEEDING_EDGE (Dockerfile ARG BASE default = pin).
+    build_base_arg=(); [ "${MXL_BLEEDING_EDGE:-0}" = 1 ] && build_base_arg=(--build-arg BASE=ghcr.io/cbcrc/test-generator:latest)
+    docker build -q "${build_base_arg[@]}" -f "$REPO/docker/guest-ingest.Dockerfile" -t "$GUEST_IMAGE" "$REPO" >/dev/null \
       || { echo "  ⚠ guest image build failed — skipping guest slots (core switcher still on air)"; GUEST_IMAGE=""; }
   else
     echo "  ⚠ docker/guest-ingest.Dockerfile not found (running via curl-pipe?) — skipping guest slots"; GUEST_IMAGE=""

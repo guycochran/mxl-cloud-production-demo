@@ -61,13 +61,63 @@ def flow_map():
     return m
 
 
+# The SLOT LAYOUT is FIXED: one slot per label in BASE_LABELS + GUEST_LABELS, always
+# in that order, always that length. A guest that isn't streaming yet does NOT collapse
+# the list (which used to shift every later guest's button number) — its slot is held by
+# a SAFE placeholder flow until the phone connects. So "Guest 2" is slot 3 whether or not
+# "Guest 1" is live, and a control surface / Companion / operator can trust slot numbers.
+SLOT_LABELS = BASE_LABELS + GUEST_LABELS
+SAFE_LABEL = os.environ.get('SAFE_LABEL', BASE_LABELS[0] if BASE_LABELS else 'Pattern Video')
+SLOT_MAP_FILE = os.environ.get('SLOT_MAP_FILE', '/tmp/mxl-slot-map.json')
+
+
 def selector_inputs(fm):
-    """Ordered UUID list: base labels first (fixed slots), then any guests present."""
-    uuids = []
-    for lbl in BASE_LABELS + GUEST_LABELS:
+    """Fixed-length UUID list, one per SLOT_LABELS entry, order preserved. An absent
+    guest's slot is padded with the SAFE_LABEL flow so indices never move. Returns
+    (uuids, present_guests) or (None, _) if the base/safe flow isn't up yet."""
+    safe = fm.get(SAFE_LABEL)
+    if safe is None:
+        return None, []
+    uuids, present = [], []
+    for lbl in SLOT_LABELS:
         if lbl in fm:
             uuids.append(fm[lbl])
-    return uuids
+            if lbl in GUEST_LABELS:
+                present.append(lbl)
+        else:
+            uuids.append(safe)   # hold the slot with the safe source
+    return uuids, present
+
+
+def write_slot_map(fm):
+    """Publish {slot_index: label} so external controllers read identity, not guess
+    transient numeric positions. A slot currently padded reads as 'LABEL (idle)'."""
+    m = {}
+    for i, lbl in enumerate(SLOT_LABELS):
+        m[str(i)] = lbl if lbl in fm else f'{lbl} (idle)'
+    try:
+        with open(SLOT_MAP_FILE, 'w') as f:
+            json.dump(m, f)
+    except Exception as e:
+        print(f'slot-map write failed: {e}', flush=True)
+
+
+def get_active_slot():
+    """Current selector active-input index, or None."""
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{SEL_PORT}/pipeline/status',
+                                    timeout=5) as r:
+            return json.loads(r.read() or b'{}').get('active_input')
+    except Exception:
+        return None
+
+
+def set_active_slot(slot):
+    body = json.dumps({'slot': slot}).encode()
+    req = urllib.request.Request(f'http://127.0.0.1:{SEL_PORT}/pipeline/active-input',
+                                 data=body, headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.status
 
 
 def restart_selector(uuids):
@@ -85,20 +135,37 @@ def restart_selector(uuids):
 
 
 def main():
-    print(f'guest_slot_watcher: base={BASE_LABELS} guests={GUEST_LABELS} '
-          f'selector=:{SEL_PORT} poll={POLL}s', flush=True)
+    print(f'guest_slot_watcher: slots={SLOT_LABELS} safe="{SAFE_LABEL}" '
+          f'selector=:{SEL_PORT} poll={POLL}s map={SLOT_MAP_FILE}', flush=True)
+    print('  slot numbers are STABLE: an absent guest is held by the safe source, '
+          'not collapsed.', flush=True)
     last = None
     while True:
         fm = flow_map()
-        uuids = selector_inputs(fm)
-        # only act once the base slots exist (selector already started by quickstart)
-        base_ready = all(lbl in fm for lbl in BASE_LABELS)
-        if base_ready and uuids != last:
-            present_guests = [g for g in GUEST_LABELS if g in fm]
+        uuids, present_guests = selector_inputs(fm)
+        if uuids is None:
+            time.sleep(POLL)
+            continue  # base/safe flow not up yet (selector started by quickstart)
+        write_slot_map(fm)
+        if uuids != last:
+            # Because the slot LAYOUT is fixed, a restart cannot renumber a live cut —
+            # but the selector reverts active-input to 0 on /pipeline/start, so read the
+            # operator's current slot first and restore it afterward. If that slot is a
+            # now-idle (padded) guest, the picture is the safe source either way.
+            active = get_active_slot()
             try:
                 st = restart_selector(uuids)
-                print(f're-attached selector -> {len(uuids)} inputs '
-                      f'(guests live: {present_guests or "none"}) [HTTP {st}]', flush=True)
+                if active is not None and active != 0:
+                    try:
+                        set_active_slot(active)
+                        restored = f', restored active slot {active}'
+                    except Exception as e:
+                        restored = f', WARN could not restore slot {active}: {e}'
+                else:
+                    restored = ''
+                print(f're-attached selector -> {len(uuids)} fixed slots '
+                      f'(guests live: {present_guests or "none"}) [HTTP {st}]{restored}',
+                      flush=True)
                 last = uuids
             except Exception as e:
                 print(f'selector re-attach failed: {e} (will retry)', flush=True)
