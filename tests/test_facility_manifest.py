@@ -95,6 +95,39 @@ def test_backend_js_fallbacks_match_manifest():
     assert m and m.group(1) == man["program"]["legacy_cam_flow"], "mxl-routes legacy cam fallback drifted"
 
 
+def test_layout_pgm_fallback_matches_manifest():
+    man = _load_manifest()
+    vf = {n: e["uuid"] for n, e in man["video_flows"].items() if isinstance(e, dict)}
+    fb = _fallback_map("tools/layout_pgm.py", "_FALLBACK_FLOWS")
+    assert fb, "could not parse layout_pgm _FALLBACK_FLOWS"
+    for name, uuid in fb.items():
+        assert vf.get(name) == uuid, f"layout_pgm fallback '{name}' drifted from manifest"
+    text = (REPO / "tools/layout_pgm.py").read_text()
+    m = re.search(r"_FALLBACK_DST\s*=\s*['\"](" + UUID_RE.pattern + r")['\"]", text)
+    assert m and UUID_RE.search(m.group(0)).group(0) == vf["layout"], "layout_pgm DST drifted"
+
+
+def test_single_dst_tool_fallbacks_match_manifest():
+    """Tools that resolve one flow via `flow_uuid('kind','role')` keep the old
+    literal in the except branch. Pin role -> literal -> manifest for each."""
+    man = _load_manifest()
+    vf = {n: e["uuid"] for n, e in man["video_flows"].items() if isinstance(e, dict)}
+    cases = [
+        ("tools/cam_ingest.py", "video", "cam"),
+        ("tools/cam2_ingest.py", "video", "cam2"),
+        ("tools/cam_relay.py", "video", "cam"),
+    ]
+    for path, kind, role in cases:
+        text = (REPO / path).read_text()
+        # the fallback literal is the UUID that appears in the except branch
+        uuids = UUID_RE.findall(text)
+        assert vf[role] in uuids, f"{path}: manifest {role} uuid {vf[role]} not present as fallback"
+
+    # cam_relay also pins the legacy cam flow
+    text = (REPO / "tools/cam_relay.py").read_text()
+    assert man["program"]["legacy_cam_flow"] in UUID_RE.findall(text), "cam_relay legacy fallback drifted"
+
+
 def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]

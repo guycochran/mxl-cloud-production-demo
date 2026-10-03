@@ -58,7 +58,8 @@
     "guest2":   { "uuid": "9e222e00-aaaa-4bbb-8ccc-000000000001", "label": "Guest 2 Video", "grouphint": "Guest",         "writer": "guest_ingest.py" },
     "layout":   { "uuid": "1a900700-aaaa-4bbb-8ccc-000000000001", "label": "Layout PGM",   "grouphint": "Layout",         "writer": "layout_pgm.py" },
     "selector": { "uuid": "9437652d-20d9-565e-be6e-b98c36067930", "label": "Selector PGM", "grouphint": "Input-Selector", "writer": "easy-mxl selector (:9604)" },
-    "keyer":    { "uuid": "5c73394e-85df-50a3-8988-5edde5b5522a", "label": "Keyer PGM",    "grouphint": "HTML5-Keyer",    "writer": "easy-mxl keyer (:9605)" }
+    "keyer":    { "uuid": "5c73394e-85df-50a3-8988-5edde5b5522a", "label": "Keyer PGM",    "grouphint": "HTML5-Keyer",    "writer": "easy-mxl keyer (:9605)" },
+    "stabilized_guest1": { "uuid": "57ab1e00-aaaa-4bbb-8ccc-000000000001", "label": "Guest 1 Stable", "grouphint": "Stabilizer", "role": "freewheeling stable copy of a volatile guest flow", "writer": "flow_stabilizer.py (default DST)" }
   },
 
   "audio_flows": {

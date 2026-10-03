@@ -19,7 +19,13 @@ from adapters import SrtGuestAdapter
 from contribution_core import ContributionCore
 
 PATH = sys.argv[1] if len(sys.argv) > 1 else 'guest1'
-DST = sys.argv[2] if len(sys.argv) > 2 else '9e111e00-aaaa-4bbb-8ccc-000000000001'
+def _guest1_default():
+    try:
+        from facility import flow_uuid
+        return flow_uuid('video', 'guest1')
+    except Exception:
+        return '9e111e00-aaaa-4bbb-8ccc-000000000001'
+DST = sys.argv[2] if len(sys.argv) > 2 else _guest1_default()
 LABEL = sys.argv[3] if len(sys.argv) > 3 else 'Guest 1'
 JITTER_MS = int(sys.argv[4]) if len(sys.argv) > 4 else 200
 

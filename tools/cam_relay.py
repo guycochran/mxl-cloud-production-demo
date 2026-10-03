@@ -8,8 +8,15 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 OFFSET = int(sys.argv[1]) if len(sys.argv) > 1 else 2_100_000_000
-SRC = '991e65d8-4fc4-58de-b22a-2d02f5952252'   # PTZ CAM Video
-DST = 'ca111e00-aaaa-4bbb-8ccc-000000000001'   # CAM Live
+# SRC = legacy gateway PTZ cam flow; DST = CAM Live. From the facility manifest,
+# baked-in fallbacks so the relay runs if the manifest can't be loaded.
+try:
+    from facility import flow_uuid, FACILITY
+    SRC = FACILITY['program']['legacy_cam_flow']
+    DST = flow_uuid('video', 'cam')
+except Exception:
+    SRC = '991e65d8-4fc4-58de-b22a-2d02f5952252'   # PTZ CAM Video
+    DST = 'ca111e00-aaaa-4bbb-8ccc-000000000001'   # CAM Live
 
 Gst.init(None)
 pipe = Gst.parse_launch(

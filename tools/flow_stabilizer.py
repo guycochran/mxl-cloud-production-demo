@@ -28,9 +28,16 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
+def _fac_default(kind, name, fallback):
+    try:
+        from facility import flow_uuid
+        return flow_uuid(kind, name)
+    except Exception:
+        return fallback
 NAME = sys.argv[1] if len(sys.argv) > 1 else 'guest1'
-SRC_UUID = sys.argv[2] if len(sys.argv) > 2 else '9e111e00-aaaa-4bbb-8ccc-000000000001'
-DST_UUID = sys.argv[3] if len(sys.argv) > 3 else '57ab1e00-aaaa-4bbb-8ccc-000000000001'
+# defaults from the facility manifest (volatile guest1 -> its stable copy)
+SRC_UUID = sys.argv[2] if len(sys.argv) > 2 else _fac_default('video', 'guest1', '9e111e00-aaaa-4bbb-8ccc-000000000001')
+DST_UUID = sys.argv[3] if len(sys.argv) > 3 else _fac_default('video', 'stabilized_guest1', '57ab1e00-aaaa-4bbb-8ccc-000000000001')
 LABEL = sys.argv[4] if len(sys.argv) > 4 else f'{NAME} stable'
 DOMAIN = '/mxl-domain'
 MARGIN_NS = 66_000_000

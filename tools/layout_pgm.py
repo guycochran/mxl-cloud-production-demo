@@ -36,9 +36,11 @@ from gi.repository import Gst, GLib
 CMD_URL = 'https://prodbots.com/api/mxl/layout-state'
 INPUT_URL = 'https://prodbots.com/api/mxl/input'      # fade choreography cuts
 DONE_URL = 'https://prodbots.com/api/mxl/fade-done'
-DST = '1a900700-aaaa-4bbb-8ccc-000000000001'   # Layout PGM
 SLOTS = ['cam', 'playout', 'pattern', 'cam2', 'guest1', 'guest2']
-FLOWS = {
+# Layout PGM output + the per-slot source flows — from the facility manifest,
+# baked-in fallbacks so the multiview runs if the manifest can't be loaded.
+_FALLBACK_DST = '1a900700-aaaa-4bbb-8ccc-000000000001'   # Layout PGM
+_FALLBACK_FLOWS = {
     'cam':     'ca111e00-aaaa-4bbb-8ccc-000000000001',
     'playout': '2f34c189-64bf-5971-993a-332a28a7a6ee',
     'pattern': '6b5d8d68-64ce-56f8-bea2-e79b6c282a86',
@@ -46,6 +48,16 @@ FLOWS = {
     'guest1':  '9e111e00-aaaa-4bbb-8ccc-000000000001',
     'guest2':  '9e222e00-aaaa-4bbb-8ccc-000000000001',
 }
+try:
+    from facility import video_flows, flow_uuid
+    _vf = video_flows()
+    DST = flow_uuid('video', 'layout')
+    FLOWS = {n: _vf.get(n, u) for n, u in _FALLBACK_FLOWS.items()}
+    print('layout_pgm: flow UUIDs from facility manifest', flush=True)
+except Exception as e:
+    DST = _FALLBACK_DST
+    FLOWS = dict(_FALLBACK_FLOWS)
+    print(f'layout_pgm: facility manifest unavailable ({e}); using baked-in flows', flush=True)
 MARGIN_NS = 66_000_000
 FRAME_NS = Gst.SECOND // 30
 
