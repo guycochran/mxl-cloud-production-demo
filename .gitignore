@@ -1,6 +1,13 @@
 __pycache__/
 *.pyc
-# local working copy with live tokens — NEVER commit (public repo)
+.pytest_cache/
+
+# secrets — NEVER commit (public repo)
+.env
+.env.*
+*.secrets
+config/local.*
+# local working copy with live tokens
 backend/server-enhanced.js
 web/vendor/ffmpeg/ffmpeg-core.wasm
 

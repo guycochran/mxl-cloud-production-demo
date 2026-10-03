@@ -113,7 +113,10 @@ sudo docker exec hls2mxl sh -c 'pkill -f run-cam1.sh; pkill -f cam_ingest.py; pk
 post 9603/pipeline/stop '{}'
 # file-based runner (2026-09-10): inline sh-c supervisors carry the kill
 # pattern in their own cmdline and die with every pattern-kill of the python
-sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nwhile :; do python3 /tmp/cam_ingest.py >> /tmp/cam-ingest.log 2>&1; echo RESTART >> /tmp/cam-ingest.log; sleep 2; done\n" > /tmp/run-cam1.sh && chmod +x /tmp/run-cam1.sh'
+# The live OHG facility opts INTO the ProdBots repair announce explicitly — the
+# contribution core now defaults to NO announce (open-core boundary), so this env
+# var is what keeps the selector auto-reattaching the cam here. (See contribution_core.py.)
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=https://prodbots.com/api/mxl/repair\nwhile :; do python3 /tmp/cam_ingest.py >> /tmp/cam-ingest.log 2>&1; echo RESTART >> /tmp/cam-ingest.log; sleep 2; done\n" > /tmp/run-cam1.sh && chmod +x /tmp/run-cam1.sh'
 sudo docker exec -d hls2mxl /tmp/run-cam1.sh
 sleep 6
 
@@ -126,7 +129,7 @@ sleep 6
 # (slices=4 broke mediamtx's TS parsing). Runner keeps cmdline pkill-safe.
 sudo docker cp /srv/mxl-tools/cam2_ingest.py hls2mxl:/tmp/cam2_ingest.py
 sudo docker exec hls2mxl sh -c 'pkill -f run-cam2.sh; pkill -f cam2_ingest.py; true'
-sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 10 python3 /tmp/cam2_ingest.py >> /tmp/cam2-ingest.log 2>&1; echo RESTART >> /tmp/cam2-ingest.log; sleep 2; done\n" > /tmp/run-cam2.sh && chmod +x /tmp/run-cam2.sh'
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=https://prodbots.com/api/mxl/repair\nwhile :; do nice -n 10 python3 /tmp/cam2_ingest.py >> /tmp/cam2-ingest.log 2>&1; echo RESTART >> /tmp/cam2-ingest.log; sleep 2; done\n" > /tmp/run-cam2.sh && chmod +x /tmp/run-cam2.sh'
 sudo docker exec -d hls2mxl /tmp/run-cam2.sh
 sleep 6
 

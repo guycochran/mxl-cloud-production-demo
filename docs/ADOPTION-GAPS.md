@@ -30,9 +30,8 @@ product under-promises. ✅ The single-VM quickstart path genuinely works for a 
 - **Idempotent + documented teardown** (`--down`). Self-contained: no prodbots backend, no
   tunnel, no tokens needed for the baseline.
 
-### Nits (cheap doc fixes, not blockers)
-- README/QUICKSTART timing says "~10 min" — update to the honest measured **~3 min** (website
-  lane; published copy).
+### Nits
+- ✅ README/QUICKSTART timing "~10 min" → honest measured **~3 min** (3-cloud strip). Done.
 - QUICKSTART's `mxl-info -d /mxl-domain -l` flow-list example: confirm the exact output format
   it prints (a casual grep for "flow" matched 0 lines though the selector clearly lists two
   input_flow_uuids — likely the listing uses a different word). Verify the documented command.
@@ -54,11 +53,16 @@ API tokens, studio camera IPs). A stranger can't run that cold.
 > Larix needs the **`srtstreamid`** QR param (not `streamid`/in-URL). Cameras + the Contribution‖Mixer
 > isolation tiers are now spec'd in **[CONTRIBUTION-SPLIT.md](CONTRIBUTION-SPLIT.md)**. Original plan below.
 
-### ⭐ Recommended next step (Guy's idea, and it's the right one): SRT guest slots in the quickstart
+<details>
+<summary><b>Original plan for the guest-slot work (now shipped — kept for the reasoning)</b></summary>
+
+> This was the recommended-next-step write-up before the work landed; it's preserved
+> because the *why* is still the clearest statement of the adoption thesis.
+
 **The fastest possible "first feed in" for a newcomer is a phone, not a camera:** scan a Larix
 Broadcaster QR → the app opens pre-configured → tap → you're a cuttable switcher button. We
 already built this for the live demo; the seam refactor turned it into a clean
-`SrtGuestAdapter` (SRT → conform → restamp → slot → announce). The work is to bring it **down
+`SrtGuestAdapter` (SRT → conform → restamp → slot → announce). The work was to bring it **down
 into the quickstart tier**, decoupled from the prodbots backend:
 
 1. Quickstart starts **mediamtx with SRT ingest enabled** (port 8890) + two guest selector
@@ -72,10 +76,22 @@ into the quickstart tier**, decoupled from the prodbots backend:
 4. Document the per-path latency reality (FINDINGS §9): ~1000 ms for a cellular phone, not the
    20 ms used for a wired camera — set the guest jitterbuffer accordingly.
 
-Why this is the right #1: it's the **"somebody else gets THEIR content on screen in 5 minutes"**
+Why this was the right #1: it's the **"somebody else gets THEIR content on screen in 5 minutes"**
 moment — the thing that turns an impressive demo into something a stranger feels ownership of.
 It needs no extra hardware, no RTSP, no config file. It also exercises the SourceAdapter seam
 end-to-end on the adoption path, which is lane 1 + lane 2 at once.
+
+</details>
+
+### Recommended next steps (open)
+With phone/SRT contribution shipped, the next adoption work is:
+1. **`setup.sh` "choose a source" menu** ([1] pattern [2] RTSP cam [3] SRT guest [4] native MXL) —
+   a thin front-door over adapters that already exist. Converts "impressive repo" → "someone
+   ran it their way."
+2. **`doctor.sh` is shipped** — a stranger can now self-diagnose (`scripts/doctor.sh`). Next:
+   surface it in the quickstart banner.
+3. **De-prodbots-ify `bring-up-mxl.sh`** so the full-facility path is also cold-clone portable
+   (bigger lift; the quickstart+guest tier is the proven on-ramp, so this is not urgent).
 
 ### Other gaps (lower priority)
 - The reviewer's **"choose a source" menu** (`setup.sh`: [1] pattern [2] RTSP [3] SRT guest

@@ -16,7 +16,10 @@
 #   docker build -f docker/guest-ingest.Dockerfile -t mxl-guest-ingest:local .
 # Run (quickstart wires this): one container per guest slot, SRT in → MXL flow.
 
-FROM ghcr.io/cbcrc/test-generator:latest
+# Base pinned by digest for reproducibility (docs/VERSIONS.md). Override to track
+# upstream:  docker build --build-arg BASE=ghcr.io/cbcrc/test-generator:latest ...
+ARG BASE=ghcr.io/cbcrc/test-generator@sha256:09cad0981475095ab948ca51511d4fbdc0521e2a23632d50abaf14fc3847cd92
+FROM ${BASE}
 
 USER root
 # the only missing piece: software H.264 decode for contribution ingest
