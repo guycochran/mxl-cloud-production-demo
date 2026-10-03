@@ -39,6 +39,35 @@ class SrtGuestAdapter(SourceAdapter):
         return _rtsp_h264_front(self._url, self.latency_ms)
 
 
+class AudioGuestAdapter(SourceAdapter):
+    """Contributor AUDIO leg: pulls a guest's audio from mediamtx over RTSP and the
+    core conforms it to F32LE/48k/2ch and restamps it as an MXL audio flow for the
+    program mixer. The audio twin of SrtGuestAdapter — one participant runs both.
+
+    essence='audio' makes the core use the audio conform caps + the duration-
+    accumulate restamp. Front end uses decodebin (audio codec varies by publisher);
+    default host is the facility's internal/VNet address, overridable.
+
+    Byte-for-byte reproduces tools/guest_audio.py's shipped pipeline (verified by
+    tests/test_launch_parity.py)."""
+    essence = 'audio'
+
+    def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
+                 rtsp_host: str = '10.0.0.5'):
+        self.path = path
+        self.flow_id = flow_id
+        self.label = label
+        self.latency_ms = latency_ms
+        self._url = f'rtsp://{rtsp_host}:8554/{path}'
+        self.description = f'contributor audio ({path})'
+
+    def source_fragment(self) -> str:
+        # decodebin: the publisher's audio codec (AAC/Opus/…) varies; the core adds
+        # `audioconvert ! audioresample ! <CANON_AUDIO_CAPS> ! queue`.
+        return (f'rtspsrc location={self._url} latency={self.latency_ms} protocols=tcp '
+                f'name=src ! decodebin ')
+
+
 class RtspCamAdapter(SourceAdapter):
     """Studio PTZ camera (H.264 over RTSP). videorate reconciles 30000/1001 -> 30/1
     (the v210 caps intermittently fail to negotiate on bare 29.97 — documented crash)."""
