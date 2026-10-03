@@ -10,7 +10,9 @@
 # Verified on the base image 2026-10-02: gst-inspect finds mxlsink/mxlsrc, gi +
 # GStreamer 1.24.2 import, rtspsrc/srtsrc/rtph264depay/h264parse present;
 # avdec_h264 is NOT (cbcrc functions handle decoded v210, not compressed in) →
-# gstreamer1.0-libav adds it.
+# gstreamer1.0-libav adds it. The DEFAULT guest transport is now SRT-direct
+# (srtsrc!tsdemux!h264parse/aacparse!avdec_*) — tsdemux (bad) + aacparse (good) +
+# avdec_aac (libav) are all present with the base + libav below.
 #
 # Build (run from repo root):
 #   docker build -f docker/guest-ingest.Dockerfile -t mxl-guest-ingest:local .

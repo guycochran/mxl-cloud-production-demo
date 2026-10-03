@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/guycochran/mxl-cloud-production-demo/config/facility.schema.json",
+  "title": "MXL facility manifest",
+  "description": "Single source of truth for the facility: domain, network, control ports, and flow UUIDs. Validated in CI (tests/test_facility_manifest.py).",
+  "type": "object",
+  "required": ["facility", "network", "control_api", "video_flows", "audio_flows", "program"],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "flow": {
+      "type": "object",
+      "required": ["uuid", "label"],
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "label": { "type": "string", "minLength": 1 },
+        "grouphint": { "type": "string" },
+        "role": { "type": "string" },
+        "writer": { "type": "string" }
+      }
+    },
+    "flow_map": {
+      "type": "object",
+      "description": "role name -> flow. _note keys are allowed and ignored.",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "patternProperties": {
+        "^(?!_)[a-z0-9_]+$": { "$ref": "#/$defs/flow" }
+      }
+    }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "_comment": { "type": ["string", "array"] },
+    "facility": {
+      "type": "object",
+      "required": ["name", "domain_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "domain_path": { "type": "string", "pattern": "^/" },
+        "resolution": { "type": "string" },
+        "framerate": { "type": "string" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "required": ["mxl_vm"],
+      "properties": {
+        "mxl_vm": { "type": "string", "minLength": 1 },
+        "mxl_vm_internal": { "type": "string" },
+        "docker_gateway": { "type": "string" },
+        "host_from_container": { "type": "string" }
+      }
+    },
+    "control_api": {
+      "type": "object",
+      "required": ["ports"],
+      "properties": {
+        "bind": { "type": "string" },
+        "ports": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": ["port"],
+            "properties": {
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "process": { "type": "string" },
+              "role": { "type": "string" },
+              "parked": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "video_flows": { "$ref": "#/$defs/flow_map" },
+    "audio_flows": { "$ref": "#/$defs/flow_map" },
+    "program": {
+      "type": "object",
+      "required": ["selector_inputs", "selector_out", "keyer_out", "encoder_video_in", "encoder_audio_in"],
+      "properties": {
+        "selector_inputs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "layout_inputs": { "type": "array", "items": { "type": "string" } },
+        "layout_input_labels": { "type": "array", "items": { "type": "string" } },
+        "selector_out": { "type": "string" },
+        "keyer_in": { "type": "string" },
+        "keyer_out": { "type": "string" },
+        "encoder_video_in": { "type": "string" },
+        "encoder_audio_in": { "type": "string" },
+        "legacy_cam_flow": { "$ref": "#/$defs/uuid" }
+      }
+    }
+  }
+}

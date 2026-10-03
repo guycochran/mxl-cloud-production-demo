@@ -194,3 +194,26 @@ def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]
     assert len(ports) == len(set(ports)), "duplicate control-API port in manifest"
+
+
+def test_schema_file_exists_and_is_referenced():
+    """The manifest declares "$schema": "./facility.schema.json" — that file must
+    exist (a dangling $schema ref is a broken promise once tooling trusts it)."""
+    schema = REPO / "config" / "facility.schema.json"
+    assert schema.is_file(), "config/facility.schema.json is missing (manifest references it)"
+    json.loads(schema.read_text())  # must be valid JSON
+    man = _load_manifest()
+    if "$schema" in man:
+        assert man["$schema"] == "./facility.schema.json"
+
+
+def test_manifest_validates_against_schema():
+    """Validate the manifest against its JSON Schema. Skips if jsonschema isn't
+    installed (CI is pytest-only) — the structural tests above still run everywhere."""
+    try:
+        import jsonschema
+    except ImportError:
+        import pytest
+        pytest.skip("jsonschema not installed")
+    schema = json.loads((REPO / "config" / "facility.schema.json").read_text())
+    jsonschema.validate(_load_manifest(), schema)
