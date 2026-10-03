@@ -175,6 +175,21 @@ def test_quickstart_guest_fallbacks_match_manifest():
     assert "9e222e00-aaaa-4bbb-8ccc-000000000002" not in sh, "quickstart still has the stale guest2 ...02 UUID"
 
 
+def test_flow_uuids_are_unique():
+    """Two flows sharing a UUID would silently alias — a cut to one shows the
+    other. Pin uniqueness across all video + audio flows and the legacy cam flow."""
+    man = _load_manifest()
+    seen = {}
+    for sec in ("video_flows", "audio_flows"):
+        for name, e in man[sec].items():
+            if isinstance(e, dict) and "uuid" in e:
+                key = f"{sec}.{name}"
+                assert e["uuid"] not in seen, f"UUID collision: {key} == {seen[e['uuid']]}"
+                seen[e["uuid"]] = key
+    legacy = man["program"]["legacy_cam_flow"]
+    assert legacy not in seen, f"legacy_cam_flow collides with {seen.get(legacy)}"
+
+
 def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]

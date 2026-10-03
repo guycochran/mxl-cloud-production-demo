@@ -74,3 +74,48 @@ def test_slot_map_marks_idle_guests():
     assert m["0"] == "Pattern Video"
     assert m["2"] == "Guest 1 (idle)"
     assert m["3"] == "Guest 2"
+
+
+# ── flow_stabilizer fold: guest slots prefer the STABLE flow when present ──────
+G1_STABLE = "s" * 36
+
+
+def test_prefers_stable_flow_over_volatile():
+    w = _watcher()
+    # both the volatile "Guest 1" and its "Guest 1 Stable" are present
+    fm = {"Pattern Video": PATTERN, "Clip Video": CLIP,
+          "Guest 1": G1, "Guest 1 Stable": G1_STABLE}
+    uuids, present = w.selector_inputs(fm)
+    assert uuids[2] == G1_STABLE, "slot should point at the stable flow, not volatile"
+    assert present == ["Guest 1 (stable)"]
+
+
+def test_reconnect_with_stable_present_needs_no_reattach():
+    """THE fold invariant: once a guest's stable flow exists, its raw flow coming
+    and going (a reconnect) must NOT change the uuid list — so the watcher issues
+    no selector re-attach and never reverts the active cut."""
+    w = _watcher()
+    connected = {"Pattern Video": PATTERN, "Clip Video": CLIP,
+                 "Guest 1": G1, "Guest 1 Stable": G1_STABLE}
+    reconnecting = {"Pattern Video": PATTERN, "Clip Video": CLIP,
+                    "Guest 1 Stable": G1_STABLE}  # raw dropped mid-reconnect, stable persists
+    assert w.selector_inputs(connected)[0] == w.selector_inputs(reconnecting)[0]
+
+
+def test_falls_back_to_volatile_without_stabilizer():
+    w = _watcher()
+    fm = {"Pattern Video": PATTERN, "Clip Video": CLIP, "Guest 1": G1}
+    assert w.selector_inputs(fm)[0][2] == G1  # no stable flow -> volatile, unchanged
+
+
+def test_prefer_stable_can_be_disabled():
+    import os
+    os.environ["PREFER_STABLE"] = "0"
+    try:
+        w = _watcher()
+        fm = {"Pattern Video": PATTERN, "Clip Video": CLIP,
+              "Guest 1": G1, "Guest 1 Stable": G1_STABLE}
+        assert w.selector_inputs(fm)[0][2] == G1  # stable ignored when disabled
+    finally:
+        del os.environ["PREFER_STABLE"]
+        _watcher()  # restore default-env module for any later test
