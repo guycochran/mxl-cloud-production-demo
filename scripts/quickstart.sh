@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # quickstart.sh — fresh Ubuntu VM → cuttable MXL switcher in one command.
 #
-#   curl -fsSL https://raw.githubusercontent.com/guycochran/mxl-cloud-production-demo/master/scripts/quickstart.sh | sudo bash
-#   (or clone the repo and: sudo scripts/quickstart.sh)
+#   git clone https://github.com/guycochran/mxl-cloud-production-demo
+#   cd mxl-cloud-production-demo
+#   sudo scripts/quickstart.sh
+#
+# Clone, don't curl|bash: the guest-contribution feature needs files from the
+# repo (docker/guest-ingest.Dockerfile, tools/), so a piped run silently skips
+# the phone-on-air slots — and piping master straight into root shell is a worse
+# security posture anyway.
 #
 # What you get: an EBU MXL shared-memory domain with a test generator, a file
 # player (sample clip auto-downloaded), a 7-slot input selector, an HTML5
-# graphics keyer (lower-third + clock), and a WebRTC encoder — all stock
-# ghcr.io/cbcrc containers — plus the curl one-liners to CUT between sources
-# and a browser URL to watch the program. No accounts, no external services.
+# graphics keyer (lower-third + clock), a WebRTC encoder, and two SRT guest
+# slots — all stock ghcr.io/cbcrc containers — plus the curl one-liners to CUT
+# between sources and a browser URL to watch the program. No external services.
 #
 # Requirements: Ubuntu 22.04/24.04, x86-64 CPU **with AVX** (any Azure
 # D-series v5, AWS m5/m6i, GCP n2; QEMU needs `-cpu host` — see FINDINGS §11),
@@ -48,7 +54,15 @@ else
 fi
 IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
 CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2"
-GUEST_IMAGE=mxl-guest-ingest:local            # built from docker/guest-ingest.Dockerfile (see below)
+# Guest image tag ENCODES THE MODE so a pinned run can't silently reuse an
+# edge-built base (or vice versa): `docker image inspect` keys on the tag, so
+# distinct tags = distinct cache entries. Pinned tag carries the base digest's
+# short id; edge is its own tag.
+if [ "${MXL_BLEEDING_EDGE:-0}" = 1 ]; then
+  GUEST_IMAGE=mxl-guest-ingest:edge
+else
+  GUEST_IMAGE="mxl-guest-ingest:pinned-$(printf '%s' "$IMG_TESTGEN_PIN" | sed 's/.*@sha256://' | cut -c1-12)"
+fi
 # Guest flow UUIDs from the facility manifest (config/facility.json) — the single
 # source of truth shared with the tools + backend. Fallback to the facility
 # standard (guest2 = ...01, matching every other consumer) if python/manifest is

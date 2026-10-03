@@ -56,8 +56,8 @@ jobs:
             | tar -xz gitleaks 2>/dev/null && ./gitleaks detect --no-banner --redact --exit-code 0 || \
             echo "gitleaks unavailable — pytest tests/test_no_secrets.py is the authoritative gate"
 
-  integration-smoke:
-    name: "MXL container smoke (manual • needs AVX hardware)"
+  integration-smoke-plan:
+    name: "integration-smoke-PLAN (no MXL yet — needs AVX runner)"
     # The quickstart pulls the cbcrc MXL images and runs a real v210 pipeline, which
     # requires AVX-512. GitHub-hosted runners are not guaranteed to have it, and this
     # pulls ~GBs of containers — so this job is OPT-IN via workflow_dispatch and skips
