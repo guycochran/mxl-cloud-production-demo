@@ -56,3 +56,26 @@ def test_builds_without_gstreamer():
     # the top-level import block must NOT import adapters (that pulls gi)
     head = src.split("class Participant")[0]
     assert "from adapters import" not in head, "participant.py imports adapters at module load (pulls gi)"
+
+
+def test_default_transport_is_srt_direct():
+    """The hardware-proven SRT-direct path must be the DEFAULT (review #1): an adopter
+    cloning master should get it, not the flap-prone RTSP path. Guard against regressing
+    the default back to rtsp in the guest entrypoints + Participant."""
+    import os
+    # entrypoints: default branch must reference the SRT-direct adapters
+    gi = (TOOLS / "guest_ingest.py").read_text()
+    ga = (TOOLS / "guest_audio.py").read_text()
+    assert "MXL_GUEST_TRANSPORT" in gi and "MXL_GUEST_TRANSPORT" in ga
+    assert "SrtGuestVideoAdapter" in gi, "guest_ingest default is not SRT-direct"
+    assert "SrtGuestAudioAdapter" in ga, "guest_audio default is not SRT-direct"
+
+    # Participant: default transport selects the SRT-direct adapter classes
+    os.environ.pop("MXL_GUEST_TRANSPORT", None)
+    import importlib, participant as pmod
+    importlib.reload(pmod)
+    p = pmod.Participant.guest(1)
+    assert p.transport == "srt-direct"
+    # rtsp escape hatch still available
+    p2 = pmod.Participant.guest(1, transport="rtsp")
+    assert p2.transport == "rtsp"

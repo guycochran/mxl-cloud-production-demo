@@ -238,25 +238,30 @@ if [ -n "$GUEST_IMAGE" ]; then
   # window) so the pipeline rebuilds within ~2s of a publisher appearing. This is
   # the same supervisor pattern the live demo uses (run-cam1.sh). The loop owns
   # liveness, so no docker --restart policy. ~1000ms jitterbuffer = cellular SRT.
+  # Guests default to SRT-direct (MXL_GUEST_TRANSPORT unset -> srt-direct): read the
+  # stream straight from mediamtx over SRT (srtsrc!tsdemux) — the hardware-proven path
+  # that avoids the RTSP two-track flap. Source host = host.docker.internal (the single
+  # box). Set MXL_GUEST_TRANSPORT=rtsp to force the legacy path.
   run_guest(){ # name srt-stream flow label
     docker rm -f "$1" >/dev/null 2>&1 || true
     docker run -d --name "$1" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
+      -e MXL_GUEST_HOST=host.docker.internal \
+      -e "MXL_GUEST_TRANSPORT=${MXL_GUEST_TRANSPORT:-srt-direct}" \
       --add-host host.docker.internal:host-gateway --entrypoint sh \
       "$GUEST_IMAGE" -c "while :; do python3 guest_ingest.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 2; done" \
       "$2" "$3" "$4" >/dev/null
   }
   # AUDIO leg (v0.3): a guest is A/V, so pair the video ingest with an audio one —
-  # same mediamtx path, the AudioGuestAdapter via guest_audio.py. On the single-box
-  # quickstart the source host is host.docker.internal (not the VNet 10.0.0.5 the
-  # live facility uses), so pass it explicitly. The program-audio mixer tolerates an
-  # absent audio flow, so this is additive — a guest still cuts video-only if audio
-  # is off. Set MXL_GUEST_AUDIO=0 to skip (e.g. a video-only test).
+  # same mediamtx path, via guest_audio.py (also SRT-direct by default). The program-
+  # audio mixer tolerates an absent audio flow, so this is additive — a guest still
+  # cuts video-only if audio is off. Set MXL_GUEST_AUDIO=0 to skip.
   run_guest_audio(){ # name srt-stream flow label
     docker rm -f "$1-audio" >/dev/null 2>&1 || true
     docker run -d --name "$1-audio" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
-      -e MXL_AUDIO_RTSP_HOST=host.docker.internal \
+      -e MXL_GUEST_HOST=host.docker.internal \
+      -e "MXL_GUEST_TRANSPORT=${MXL_GUEST_TRANSPORT:-srt-direct}" \
       --add-host host.docker.internal:host-gateway --entrypoint sh \
       "$GUEST_IMAGE" -c "while :; do python3 guest_audio.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 3; done" \
       "$2" "$3" "$4" >/dev/null

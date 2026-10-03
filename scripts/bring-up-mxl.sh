@@ -17,8 +17,8 @@ MXL_HTML=$HOME/prodbots-backend/public/mxl.html
 # each falls back to its exact historical literal if the manifest/python is
 # unavailable, so the restored pipelines are byte-identical either way.
 _FAC_JSON="$(dirname "$0")/../config/facility.json"
-_fac() {  # _fac <section> <name> <key> <fallback>
-  python3 - "$_FAC_JSON" "$1" "$2" "$3" "$4" 2>/dev/null <<'PY' || printf '%s' "$5"
+_fac() {  # _fac <section> <name> <key> <fallback>  — key is always "uuid" in callers
+  python3 - "$_FAC_JSON" "$1" "$2" "$3" 2>/dev/null <<'PY' || printf '%s' "$4"
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))

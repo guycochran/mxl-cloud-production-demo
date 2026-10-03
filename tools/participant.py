@@ -56,15 +56,16 @@ class Participant:
 
     def __init__(self, key, path=None, label=None,
                  video_latency_ms=200, audio_latency_ms=300,
-                 audio_rtsp_host=None):
+                 host=None, transport=None):
         self.key = key
         self.path = path or key
         self.label = label or f'Guest {key[-1]}'
         self.video_latency_ms = video_latency_ms
         self.audio_latency_ms = audio_latency_ms
-        # audio pulls from the VNet host by default; overridable (manifest/env)
-        self.audio_rtsp_host = (audio_rtsp_host
-                                or os.environ.get('MXL_AUDIO_RTSP_HOST', '10.0.0.5'))
+        # mediamtx host for both SRT read + RTSP. Default the docker-bridge gateway.
+        self.host = host or os.environ.get('MXL_GUEST_HOST', '172.17.0.1')
+        # 'srt-direct' (default, hardware-proven) | 'rtsp' (legacy)
+        self.transport = transport or os.environ.get('MXL_GUEST_TRANSPORT', 'srt-direct')
 
     @classmethod
     def guest(cls, n, **kw):
@@ -77,16 +78,26 @@ class Participant:
         return _aflow(self.key, _A_FALLBACK.get(self.key, ''))
 
     def video_adapter(self):
-        from adapters import SrtGuestAdapter  # lazy: needs GStreamer
-        return SrtGuestAdapter(path=self.path, flow_id=self.video_flow(),
-                               label=self.label, latency_ms=self.video_latency_ms)
+        if self.transport == 'rtsp':
+            from adapters import SrtGuestAdapter  # legacy rtspsrc
+            return SrtGuestAdapter(path=self.path, flow_id=self.video_flow(),
+                                   label=self.label, latency_ms=self.video_latency_ms,
+                                   rtsp_host=self.host)
+        from adapters import SrtGuestVideoAdapter  # default srtsrc!tsdemux
+        return SrtGuestVideoAdapter(path=self.path, flow_id=self.video_flow(),
+                                    label=self.label, latency_ms=self.video_latency_ms,
+                                    srt_host=self.host)
 
     def audio_adapter(self):
-        from adapters import AudioGuestAdapter  # lazy: needs GStreamer
-        return AudioGuestAdapter(path=self.path, flow_id=self.audio_flow(),
-                                 label=f'{self.label} Audio',
-                                 latency_ms=self.audio_latency_ms,
-                                 rtsp_host=self.audio_rtsp_host)
+        if self.transport == 'rtsp':
+            from adapters import AudioGuestAdapter  # legacy rtspsrc!decodebin
+            return AudioGuestAdapter(path=self.path, flow_id=self.audio_flow(),
+                                     label=f'{self.label} Audio',
+                                     latency_ms=self.audio_latency_ms, rtsp_host=self.host)
+        from adapters import SrtGuestAudioAdapter  # default srtsrc!tsdemux!aac
+        return SrtGuestAudioAdapter(path=self.path, flow_id=self.audio_flow(),
+                                    label=f'{self.label} Audio',
+                                    latency_ms=self.audio_latency_ms, srt_host=self.host)
 
     def legs(self):
         """The two legs a supervisor should launch as SEPARATE processes.

@@ -1,9 +1,19 @@
-# A/V Contribution — v0.3 scope
+# A/V Contribution — v0.3
 
-**Status: SCOPE / design, not built.** This proposes how to generalize the
-contribution seam from video-only to video **+ audio**, so a contributor
-(guest, camera, ZoomISO Cloud) is ingested as a *participant* — one front end,
-both essences — instead of two hand-maintained, divergent scripts.
+**Status: IMPLEMENTED / hardware validation in progress.** Capability state:
+
+| Capability | State |
+|---|---|
+| Audio essence in `ContributionCore` | ✅ VERIFIED (parity test + HW) |
+| Guest video+audio → separate MXL flows | ✅ VERIFIED on HW |
+| SRT-direct Larix A/V ingest | ✅ VERIFIED on HW, now the DEFAULT guest path |
+| Lip-sync ~16ms, no drift | ✅ VERIFIED (one run — see §8, torture-test TODO) |
+| Program audio in quickstart (audio → PGM → encoder) | ❌ NOT YET (next headline) |
+| ZoomISO A/V | 📋 PLANNED (beta) |
+
+This generalized the contribution seam from video-only to video **+ audio**, so a
+contributor (guest, camera, ZoomISO Cloud) is ingested as a *participant* — one
+front end per essence — instead of two hand-maintained, divergent scripts.
 
 Read [`CONTRIBUTION-SEAM.md`](CONTRIBUTION-SEAM.md) first; this extends it.
 
