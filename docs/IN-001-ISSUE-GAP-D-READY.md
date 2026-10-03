@@ -1,5 +1,9 @@
 # IN-001 §6.2 issue — READY TO POST (Gap D: liveness)
 
+> ✅ **POSTED Oct 1 2026 — AMWA-TV/in-001 issue #6: https://github.com/AMWA-TV/in-001/issues/6**
+> DO NOT re-post. Kept for reference / voice of follow-up gaps (B/F).
+
+
 Post this at **https://github.com/AMWA-TV/in-001/issues → "New issue"** under your own
 GitHub account. Paste the title into the title field and everything under "Body" into
 the body. Nothing else to do — no code, no PR. Soften to your own voice if you like.
