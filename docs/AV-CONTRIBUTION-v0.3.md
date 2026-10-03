@@ -115,10 +115,15 @@ flows), so an adopter's audio ingest never phones anyone.
    pins the generated pipeline BYTE-IDENTICAL to `guest_audio.py`'s. All via
    stubbed-gi, no hardware. `guest_audio.py` itself is untouched (it stays the
    reference until Phase 2 re-expresses it as adapter + core.run()).
-2. **`AudioGuestAdapter`** (+ `AudioRtspAdapter` if a camera needs embedded
-   audio later). Re-express `guest_audio.py` as `adapter + core.run()`, exactly
-   as `cam_ingest.py` was. Manifest-driven host/flow. Keep `guest_audio.py` as a
-   thin shim or retire it with a redirect note.
+2. **✅ DONE — `AudioGuestAdapter` + guest_audio.py as a thin shim.** Re-expressed
+   `guest_audio.py` as `AudioGuestAdapter + ContributionCore.run()`, exactly like
+   `cam_ingest.py`. Manifest-driven flow (arg > manifest `audio.guest1` > fallback);
+   host via `MXL_AUDIO_RTSP_HOST` (default `10.0.0.5`). CLI contract preserved
+   (bring-up's `guest_audio.py <path> <flow> <label>` still works; import-copy order
+   in bring-up already correct — core/adapters/facility land before guest_audio).
+   `test_guest_audio_is_a_thin_shim` guards against re-inlining a pipeline. Byte-
+   identical to the old pipeline (parity test). (`AudioRtspAdapter` for cams with
+   embedded audio = deferred, no current need.)
 3. **`Participant` helper + bring-up/quickstart wiring.** One call sets up both
    legs for a guest. Update `bring-up-mxl.sh`'s guest-audio loop and the
    quickstart guest path to use it. *(Live-side changes gated behind the usual
