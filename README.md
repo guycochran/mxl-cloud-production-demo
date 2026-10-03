@@ -28,7 +28,7 @@ You get a cuttable, keyed, browser-watchable MXL switcher:
 Then check it's healthy and cut between sources:
 
 ```bash
-sudo scripts/doctor.sh                                   # containers · flow presence · program path (+ unique-frame liveness when the grain probe is running)
+sudo scripts/mxl-doctor                                  # containers · flow presence · program path  (add --deep for unique-frame liveness)
 curl -X POST -d '{"slot":1}' http://127.0.0.1:9604/pipeline/active-input   # cut to the clip
 ```
 
@@ -268,7 +268,9 @@ This repo adds the glue that made it a *usable remote production*:
 | [`tools/grain_probe.py`](tools/grain_probe.py) | Health board: persistent readers on every flow reporting bps + unique-fps — the probe that catches repeat-last-grain wedges. |
 | [`tools/pgm_lite.py`](tools/pgm_lite.py) | 960×540 program copy (~0.33 Gbps) for fabric receivers behind GigE. |
 | [`tools/patch-target-ip.py`](tools/patch-target-ip.py) | The dmf-mxl#714 NAT workaround as a tool: rewrites the sockaddr inside a fabric TargetInfo to a public IP. |
-| [`tools/guest-leg-doctor.sh`](tools/guest-leg-doctor.sh) | 15s two-end healer for the guest fabric legs (initiator wedges *and* the target frozen-slices state). |
+| [`scripts/mxl-doctor`](scripts/mxl-doctor) | **One front door for lab health.** Read-only report by default; `--deep` adds unique-fps liveness (transient probe); `heal selector\|program\|guest` runs the live-facility auto-healers below. |
+| [`scripts/doctor.sh`](scripts/doctor.sh) | The read-only inspector `mxl-doctor` wraps: containers · flow presence · program path, backend-free. Still runnable directly. |
+| [`tools/guest-leg-doctor.sh`](tools/guest-leg-doctor.sh) | 15s two-end healer for the guest fabric legs (initiator wedges *and* the target frozen-slices state). `mxl-doctor heal guest`. |
 | [`tools/cam_relay.py`](tools/cam_relay.py) | The first-generation fixed-offset latency normalizer (superseded by `cam_ingest.py`, kept for the record — see FINDINGS). |
 | [`backend/mxl-routes.js`](backend/mxl-routes.js) | Express routes proxying browser clicks to the pipeline APIs (cut / key / pattern / one-call cascade repair). |
 | [`web/mxl.html`](web/mxl.html) | The kiosk page: WebRTC program feed + camera-control console + switcher bar. |

@@ -54,13 +54,19 @@ guest SRT publish point, and the control one-liners.
 ### Check its health
 
 ```bash
-sudo scripts/doctor.sh          # one-glance: containers, flow presence, program path (+ unique-frame liveness when the grain probe runs)
-sudo scripts/doctor.sh --watch  # refresh every 3s
+sudo scripts/mxl-doctor          # one-glance: containers, flow presence, program path
+sudo scripts/mxl-doctor --watch  # refresh every 3s
+sudo scripts/mxl-doctor --deep   # + true unique-frame liveness (starts a transient grain probe)
 ```
 
-`doctor.sh` reports not just "a flow exists" but whether it's carrying **fresh**
-media (unique frames/sec) — the signal that catches a repeat-wedged reader a
-plain frame-rate check misses.
+`mxl-doctor` is the single front door for lab health. The default report is
+read-only and backend-free. Add `--deep` and it reports not just "a flow exists"
+but whether it's carrying **fresh** media (unique frames/sec) — the signal that
+catches a repeat-wedged reader a plain frame-rate check misses. (It's opt-in
+because the liveness probe attaches a reader per flow and pushes CPU.)
+
+The default still works as `sudo scripts/doctor.sh`; `mxl-doctor` wraps it plus
+the live-facility auto-healers (`mxl-doctor heal selector|program|guest`).
 
 ## Drive it
 

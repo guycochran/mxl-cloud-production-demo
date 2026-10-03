@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# mxl-doctor — one front door for all MXL lab health tooling.
+#
+# Consolidates what used to be four separate scripts into one command with a
+# cheap, safe default and explicit opt-in for the expensive or destructive paths:
+#
+#   mxl-doctor [check]      read-only health report (containers · flows · program).
+#                           The DEFAULT. Backend-free, takes no action, safe to run
+#                           anywhere — on a stranger's quickstart box included.
+#   mxl-doctor --deep       check + true unique-frames-per-second liveness. If the
+#                           grain probe isn't already running, starts it briefly,
+#                           reads one window, then stops it. The probe attaches a
+#                           reader per flow and pushes CPU, so this is OPT-IN, never
+#                           the default (FINDINGS: 9 readers shoved VM1 to load 24).
+#   mxl-doctor --watch      the check report, refreshing every 3s.
+#   mxl-doctor heal <leg>   run a live-facility AUTO-HEALER (DESTRUCTIVE — restarts
+#                           containers / pipelines / fabric legs). These are the
+#                           prodbots/VM1 watchdogs; they need that environment
+#                           (prodbots.com, VM1 10.0.0.4, /home/guy/fabric, systemd).
+#                           <leg> = selector | program | guest
+#   mxl-doctor help         this help.
+#
+# WHY a `heal` verb instead of folding the healers into the report: the inspector
+# is portable and read-only by design; the healers take destructive action and are
+# wired to the live facility. Gating them behind an explicit verb keeps the default
+# safe for adopters while still giving one place to launch everything.
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+DOCTOR="$HERE/doctor.sh"                 # the read-only inspector (was scripts/doctor.sh)
+TOOLS="$REPO/tools"
+DOMAIN="${MXL_DOMAIN:-/mxl-domain}"
+SEL_CTR="${SELECTOR_CONTAINER:-input-selector}"
+
+die(){ echo "mxl-doctor: $*" >&2; exit 2; }
+
+# ── deep: ensure a grain probe has populated grains.json, then run the report ──
+# grain_probe.py is a persistent daemon writing grains.json every ~3s. For a
+# one-shot deep check we start it only if nothing is already producing liveness,
+# give it a couple of windows, run the normal report (which reads grains.json),
+# then stop the probe we started. A probe already running is left alone.
+run_deep(){
+  local started_probe=0
+  if ! docker exec "$SEL_CTR" sh -c "test -f $DOMAIN/thumbs/grains.json" 2>/dev/null; then
+    if docker exec "$SEL_CTR" sh -c "test -f /tmp/grain_probe.py" 2>/dev/null; then
+      echo "mxl-doctor: no liveness data — starting a transient grain probe (~8s)…" >&2
+      docker exec -d "$SEL_CTR" sh -c "python3 /tmp/grain_probe.py >/tmp/grain-probe-deep.log 2>&1" 2>/dev/null \
+        && started_probe=1
+      sleep 8
+    else
+      echo "mxl-doctor: grain probe not available in $SEL_CTR; reporting presence-only liveness." >&2
+    fi
+  fi
+  "$DOCTOR" "$@"
+  local rc=$?
+  if [ "$started_probe" = 1 ]; then
+    docker exec "$SEL_CTR" sh -c "pkill -f grain_probe.py" 2>/dev/null || true
+  fi
+  return $rc
+}
+
+# ── heal: dispatch to the live-facility watchdog scripts ──────────────────────
+run_heal(){
+  local leg="${1:-}"
+  case "$leg" in
+    selector) exec "$TOOLS/selector-doctor.sh" ;;
+    program)  exec "$TOOLS/program-fps-doctor.sh" ;;
+    guest)    exec "$TOOLS/guest-leg-doctor.sh" ;;
+    ""|help|-h|--help)
+      cat >&2 <<EOF
+mxl-doctor heal <leg> — run a live-facility auto-healer (DESTRUCTIVE).
+  selector   auto-restart the input-selector when its control API wedges
+  program    detect+restart a repeat-wedged encoder (byte-identical frames)
+  guest      two-end healer for the guest fabric legs (initiator + target)
+These are the prodbots/VM1 watchdogs and need that environment.
+EOF
+      exit 2 ;;
+    *) die "unknown heal leg '$leg' (want: selector | program | guest)" ;;
+  esac
+}
+
+# print the header comment block (stops at the first non-comment line)
+usage(){ sed -n '2,${/^[^#]/q;p;}' "$0" | sed 's/^# \{0,1\}//'; }
+
+cmd="${1:-check}"
+case "$cmd" in
+  check)        shift; exec "$DOCTOR" "$@" ;;
+  --deep|deep)  shift; run_deep "$@" ;;
+  --watch|watch) shift; exec "$DOCTOR" --watch "$@" ;;
+  heal)         shift; run_heal "$@" ;;
+  help|-h|--help) usage ;;
+  --*)          exec "$DOCTOR" "$cmd" "$@" ;;   # pass through unknown flags to the inspector
+  *)            die "unknown command '$cmd' — try: mxl-doctor help" ;;
+esac
