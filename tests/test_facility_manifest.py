@@ -160,6 +160,21 @@ def test_server_enhanced_fallbacks_match_manifest():
             assert table.get(role) == uuid, f"server-enhanced {fn} '{role}' fallback drifted"
 
 
+def test_quickstart_guest_fallbacks_match_manifest():
+    """quickstart.sh resolves GUEST1/2_FLOW from the manifest with literal
+    fallbacks. Both must match the manifest guest flows (guest2 was the one value
+    historically out of step — ...02 — now aligned to the facility standard ...01)."""
+    man = _load_manifest()
+    vf = {n: e["uuid"] for n, e in man["video_flows"].items() if isinstance(e, dict)}
+    sh = (REPO / "scripts" / "quickstart.sh").read_text()
+    for var, role in (("GUEST1_FLOW", "guest1"), ("GUEST2_FLOW", "guest2")):
+        m = re.search(var + r"=\$\(_qfac\s+\w+\s+(" + UUID_RE.pattern + r")\)", sh)
+        assert m, f"could not parse {var} fallback in quickstart.sh"
+        assert m.group(1) == vf[role], f"quickstart {var} fallback drifted from manifest"
+    # the stale ...02 must be gone
+    assert "9e222e00-aaaa-4bbb-8ccc-000000000002" not in sh, "quickstart still has the stale guest2 ...02 UUID"
+
+
 def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]
