@@ -206,6 +206,11 @@ class ContributionCore:
 
     # --- the cadence-preserving restamp (verbatim; the single most load-bearing idea) ---
     def _restamp(self, pad, info):
+        # Wait for caps before touching buffers — a dynamic-pad demux (tsdemux on the
+        # SRT path) negotiates the sink pad's caps after PLAYING; restamping first
+        # breaks negotiation. Harmless for static-pad sources (caps present at once).
+        if pad.get_current_caps() is None:
+            return Gst.PadProbeReturn.OK
         buf = info.get_buffer()
         clock = self.pipe.get_clock()
         if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
@@ -247,6 +252,11 @@ class ContributionCore:
     # the video probe, so a participant's two essences share one time base (see
     # docs/AV-CONTRIBUTION-v0.3.md §5 open-question 1 on lip-sync).
     def _restamp_audio(self, pad, info):
+        # With a dynamic-pad demux (tsdemux on the SRT path) the sink pad is linked
+        # and caps-negotiated AFTER PLAYING; touching buffers before caps settle
+        # breaks negotiation (not-negotiated -4). Wait for caps before restamping.
+        if pad.get_current_caps() is None:
+            return Gst.PadProbeReturn.OK
         buf = info.get_buffer()
         clock = self.pipe.get_clock()
         if not clock:
