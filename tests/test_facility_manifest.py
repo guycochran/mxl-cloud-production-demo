@@ -58,6 +58,23 @@ def test_grain_probe_fallback_matches_manifest():
         assert vf.get(name) == uuid, f"grain_probe fallback '{name}' drifted from manifest"
 
 
+def test_audio_pgm_fallback_matches_manifest():
+    man = _load_manifest()
+    af = {n: e["uuid"] for n, e in man["audio_flows"].items() if isinstance(e, dict)}
+
+    # SOURCES (mixer inputs) must match the manifest
+    fb = _fallback_map("tools/audio_pgm.py", "_FALLBACK_SOURCES")
+    assert fb, "could not parse audio_pgm _FALLBACK_SOURCES"
+    for name, uuid in fb.items():
+        assert af.get(name) == uuid, f"audio_pgm source '{name}' drifted from manifest"
+
+    # DST (PGM audio output) must match manifest 'pgm'
+    text = (REPO / "tools/audio_pgm.py").read_text()
+    m = re.search(r"_FALLBACK_DST\s*=\s*['\"]" + UUID_RE.pattern + r"['\"]", text)
+    assert m, "could not parse audio_pgm _FALLBACK_DST"
+    assert UUID_RE.search(m.group(0)).group(0) == af["pgm"], "audio_pgm DST drifted from manifest 'pgm'"
+
+
 def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]
