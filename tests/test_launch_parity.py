@@ -9,8 +9,12 @@ whether the change is intentional (update the golden) or a regression (revert).
 The string is built through the REAL ContributionCore + SrtGuestAdapter (stubbed gi),
 so it reflects the actual shipped pipeline, not a hand-written copy.
 """
+from pathlib import Path
+
 import contribution_core as cc
 from adapters import SrtGuestAdapter
+
+REPO = Path(__file__).resolve().parent.parent
 
 # The proven guest pipeline, as shipped. Front end = rtspsrc h264 decode (adapters.py
 # _rtsp_h264_front), back half = core conform (videorate/videoscale/videoconvert/v210)
@@ -96,3 +100,13 @@ def test_guest_audio_launch_string_matches_shipped_guest_audio():
         repair_url="",
     )
     assert core.pipe._launch == GOLDEN_GUEST_AUDIO_LAUNCH
+
+
+def test_guest_audio_is_a_thin_shim():
+    """Phase 2: guest_audio.py must route through the core, not carry its own
+    pipeline. Guards against a regression where someone re-inlines the gst-launch
+    (which would re-fork the audio path away from the hardened core)."""
+    src = (REPO / "tools" / "guest_audio.py").read_text()
+    assert "AudioGuestAdapter" in src and "ContributionCore" in src
+    assert "Gst.parse_launch" not in src, "guest_audio.py re-inlined a pipeline"
+    assert "mxlsink" not in src, "guest_audio.py still hand-builds the sink"
