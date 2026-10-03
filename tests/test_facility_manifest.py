@@ -75,6 +75,26 @@ def test_audio_pgm_fallback_matches_manifest():
     assert UUID_RE.search(m.group(0)).group(0) == af["pgm"], "audio_pgm DST drifted from manifest 'pgm'"
 
 
+def test_backend_js_fallbacks_match_manifest():
+    """The backend's mxl-routes.js carries baked-in UUID fallbacks (used when the
+    manifest can't be found). CI is Python-only, so scan the JS as text and pin
+    each fallback literal to the manifest — same drift-guard as the Python tools."""
+    man = _load_manifest()
+    vf = {n: e["uuid"] for n, e in man["video_flows"].items() if isinstance(e, dict)}
+    af = {n: e["uuid"] for n, e in man["audio_flows"].items() if isinstance(e, dict)}
+    js = (REPO / "backend" / "mxl-routes.js").read_text()
+
+    # each `_vf('role', 'uuid')` / `_af('role', 'uuid')` fallback must match
+    for fn, table in ((r"_vf", vf), (r"_af", af)):
+        for m in re.finditer(fn + r"\(\s*['\"](\w+)['\"]\s*,\s*['\"](" + UUID_RE.pattern + r")['\"]", js):
+            role, uuid = m.group(1), m.group(2)
+            assert table.get(role) == uuid, f"mxl-routes {fn} '{role}' fallback drifted from manifest"
+
+    # legacy cam flow fallback must match program.legacy_cam_flow
+    m = re.search(r"legacy_cam_flow\s*\)\s*\|\|\s*['\"](" + UUID_RE.pattern + r")['\"]", js)
+    assert m and m.group(1) == man["program"]["legacy_cam_flow"], "mxl-routes legacy cam fallback drifted"
+
+
 def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]

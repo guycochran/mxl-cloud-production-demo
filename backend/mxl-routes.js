@@ -12,16 +12,25 @@
 //   POST /api/mxl/pattern{pattern}  set generator pattern (whitelisted)
 //   POST /api/mxl/repair {slot,key} full downstream cascade rebuild
 //
-// Update the MXL_VM address and flow UUIDs for your deployment. Flow UUIDs are
-// deterministic from label/description/grouphint — capture yours from the
+// Flow UUIDs come from the facility manifest (config/facility.json) — the single
+// source of truth shared with the Python tools (grain_probe, audio_pgm, ...).
+// The baked-in fallbacks keep this module working if the manifest can't be found
+// (e.g. mounted standalone without the repo's config/ dir). Change a UUID in the
+// manifest and both the backend and the tools follow; capture yours from the
 // easy-mxl flows API once the writers are up.
+const facility = require('./facility');
+const _fac = facility.load();
+const _vf = (name, fallback) => { try { return facility.videoFlow(name); } catch { return fallback; } };
+const _af = (name, fallback) => { try { return facility.audioFlow(name); } catch { return fallback; } };
 
-const MXL_VM = process.env.MXL_VM_URL || 'http://YOUR_VM_IP';
-const MXL_CAM_FLOW = '991e65d8-4fc4-58de-b22a-2d02f5952252';   // gateway cam flow (legacy)
-const MXL_SEL_FLOW = '9437652d-20d9-565e-be6e-b98c36067930';   // Selector PGM
-const MXL_KEYER_OUT = '5c73394e-85df-50a3-8988-5edde5b5522a';  // Keyer PGM
-const MXL_PGM_AUDIO = 'a0d10000-aaaa-4bbb-8ccc-000000000001';  // audio_pgm.py output
-const MXL_CAMLIVE_FLOW = 'ca111e00-aaaa-4bbb-8ccc-000000000001'; // cam_ingest.py output
+const MXL_VM = process.env.MXL_VM_URL || (_fac && _fac.network && `http://${_fac.network.mxl_vm}`) || 'http://YOUR_VM_IP';
+const MXL_CAM_FLOW = (_fac && _fac.program && _fac.program.legacy_cam_flow) || '991e65d8-4fc4-58de-b22a-2d02f5952252'; // gateway cam flow (legacy)
+const MXL_SEL_FLOW = _vf('selector', '9437652d-20d9-565e-be6e-b98c36067930');  // Selector PGM
+const MXL_KEYER_OUT = _vf('keyer', '5c73394e-85df-50a3-8988-5edde5b5522a');    // Keyer PGM
+const MXL_PGM_AUDIO = _af('pgm', 'a0d10000-aaaa-4bbb-8ccc-000000000001');      // audio_pgm.py output
+const MXL_CAMLIVE_FLOW = _vf('cam', 'ca111e00-aaaa-4bbb-8ccc-000000000001');   // cam_ingest.py output
+if (_fac) console.log(`mxl-routes: flow UUIDs from facility manifest (${_fac._path})`);
+else console.log('mxl-routes: facility manifest not found; using baked-in UUIDs');
 const MXL_PATTERNS = ['100% bars','SMPTE 75%','SMPTE','Snow','Black','White','Red','Green','Blue',
   'Checkers 1','Checkers 2','Checkers 4','Checkers 8','Circular','Blink','Zone Plate','Gamut',
   'Chroma Zone Plate','Solid Color','Ball','Bar','Pinwheel','Spokes','Gradient','SMPTE RP-219'];
@@ -32,9 +41,16 @@ const mxlKeyerBody = (inputUuid) => ({ mode: 'key', domain_path: '/mxl-domain',
 const mxlEncoderBody = { domain_path: '/mxl-domain', video_flow_uuid: MXL_KEYER_OUT,
   use_mediamtx: true,
   encoder: { tune: 4, speed_preset: 2, bitrate: 6000, key_int_max: 30, intra_refresh: false } };
-const MXL_CAM2LIVE_FLOW = 'ca222e00-aaaa-4bbb-8ccc-000000000001'; // CAM 2 Live (Makito X4 static cam, cam2_ingest.py)
+const MXL_CAM2LIVE_FLOW = _vf('cam2', 'ca222e00-aaaa-4bbb-8ccc-000000000001'); // CAM 2 Live (Makito X4 static cam, cam2_ingest.py)
+// Selector inputs come from the manifest's program.selector_inputs (role names
+// -> UUIDs, in slot order). Fallback preserves the original [cam, playout,
+// pattern, cam2] order so slot numbers (0=cam,1=playout,2=pattern,3=cam2) hold.
+const _selInputs = (() => {
+  try { return facility.selectorInputs(); }
+  catch { return [MXL_CAMLIVE_FLOW, '2f34c189-64bf-5971-993a-332a28a7a6ee', '6b5d8d68-64ce-56f8-bea2-e79b6c282a86', MXL_CAM2LIVE_FLOW]; }
+})();
 const mxlSelectorBody = { domain_path: '/mxl-domain',
-  input_flow_uuids: [MXL_CAMLIVE_FLOW, '2f34c189-64bf-5971-993a-332a28a7a6ee', '6b5d8d68-64ce-56f8-bea2-e79b6c282a86', MXL_CAM2LIVE_FLOW],
+  input_flow_uuids: _selInputs,
   grouphint: 'Input-Selector', description: 'program out', label: 'Selector PGM' };
 
 module.exports = function registerMxlRoutes(app) {
