@@ -124,10 +124,20 @@ flows), so an adopter's audio ingest never phones anyone.
    `test_guest_audio_is_a_thin_shim` guards against re-inlining a pipeline. Byte-
    identical to the old pipeline (parity test). (`AudioRtspAdapter` for cams with
    embedded audio = deferred, no current need.)
-3. **`Participant` helper + bring-up/quickstart wiring.** One call sets up both
-   legs for a guest. Update `bring-up-mxl.sh`'s guest-audio loop and the
-   quickstart guest path to use it. *(Live-side changes gated behind the usual
-   byte-identical check before they touch the OHG box.)*
+3. **✅ DONE (quickstart) — `Participant` helper + quickstart A/V wiring.**
+   `tools/participant.py`: a DESCRIPTOR/BUILDER (not a runner — ContributionCore.run()
+   blocks, and the two essences must stay in separate processes). `Participant.guest(n)`
+   resolves video+audio adapters from the manifest; `.legs()` emits the two per-essence
+   launch commands, argv byte-compatible with the existing guest_ingest.py/guest_audio.py
+   CLI so a supervisor adopts it with no behaviour change. Adapters imported LAZILY so
+   the data path works with no GStreamer. **quickstart.sh now launches an audio leg per
+   guest** (`run_guest_audio`, `host.docker.internal` source for the single box,
+   `MXL_GUEST_AUDIO=0` to skip) — closing the adopter-path gap where guests were
+   video-only. `docker/guest-ingest.Dockerfile` now ships `guest_audio.py` + `facility.py`
+   + `config/facility.json`. `tests/test_participant.py` pins flows + CLI contract.
+   *(bring-up-mxl.sh left as-is — it already launches both legs correctly via its
+   guest-audio loop; converting it to Participant is a safe later cleanup, gated behind
+   a byte-identical check before it touches the OHG box.)*
 4. **ZoomISO audio.** The `ZoomIsoMxlAdapter` stub becomes a *pair* — a Zoom
    participant has audio too. Folds into the "measure at beta" open questions
    below; no build until the beta lands.
