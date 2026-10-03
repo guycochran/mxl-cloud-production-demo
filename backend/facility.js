@@ -84,8 +84,16 @@ function selectorInputs() {
   // resolve the program.selector_inputs role names -> UUIDs, in order
   return section('program').selector_inputs.map(videoFlow);
 }
+function layoutInputs() {
+  // the full live facility input list (role names -> UUIDs, in slot order)
+  return section('program').layout_inputs.map(videoFlow);
+}
+function layoutInputLabels() {
+  return section('program').layout_input_labels.slice();
+}
 
 module.exports = {
   FACILITY, load, loadOrThrow,
-  videoFlow, audioFlow, controlPort, domainPath, selectorInputs,
+  videoFlow, audioFlow, controlPort, domainPath,
+  selectorInputs, layoutInputs, layoutInputLabels,
 };

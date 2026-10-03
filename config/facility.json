@@ -25,10 +25,11 @@
   },
 
   "network": {
-    "mxl_vm": "10.0.0.5",
+    "mxl_vm": "20.64.205.144",
+    "mxl_vm_internal": "10.0.0.5",
     "docker_gateway": "172.17.0.1",
     "host_from_container": "host.docker.internal",
-    "_note": "mxl_vm is the host running the MXL shared-memory domain + writers; docker_gateway is how containers reach the host-side mediamtx RTSP."
+    "_note": "mxl_vm is the address the control-plane (backend) uses to reach the VM's easy-mxl APIs — the public/static IP. mxl_vm_internal is the VNet address used VM-to-VM (e.g. guest_audio RTSP). docker_gateway is how containers reach the host-side mediamtx RTSP."
   },
 
   "control_api": {
@@ -75,6 +76,9 @@
   "program": {
     "_note": "The live program path: selector picks an input, keyer adds graphics, encoder egresses. These reference video_flows keys.",
     "selector_inputs": ["cam", "playout", "pattern", "cam2"],
+    "_selector_inputs_note": "The portable 4-input demo order (slots 0=cam,1=playout,2=pattern,3=cam2). Used by mxl-routes.js + bring-up. The live prodbots facility exposes the full 7 below.",
+    "layout_inputs": ["cam", "playout", "pattern", "cam2", "guest1", "guest2", "layout"],
+    "layout_input_labels": ["Studio Cam 1", "Playout", "Pattern", "Studio Cam 2", "Guest 1", "Guest 2", "Layout"],
     "selector_out": "selector",
     "keyer_in": "selector",
     "keyer_out": "keyer",

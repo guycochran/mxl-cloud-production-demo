@@ -128,6 +128,38 @@ def test_single_dst_tool_fallbacks_match_manifest():
     assert man["program"]["legacy_cam_flow"] in UUID_RE.findall(text), "cam_relay legacy fallback drifted"
 
 
+def test_layout_inputs_shape():
+    """The live backend's 7-input slot list lives in the manifest. Pin its shape
+    and labels (the 'public 4-input vs live 7-input' gap this work closed)."""
+    man = _load_manifest()
+    assert man["program"]["layout_inputs"] == ["cam", "playout", "pattern", "cam2", "guest1", "guest2", "layout"]
+    assert len(man["program"]["layout_inputs"]) == len(man["program"]["layout_input_labels"])
+    # every layout input must resolve to a real video flow
+    vf = man["video_flows"]
+    for role in man["program"]["layout_inputs"]:
+        assert role in vf and "uuid" in vf[role], f"layout input '{role}' not a video flow"
+    # mxl_vm must be the public control-plane IP the backend fetches, not the VNet IP
+    assert man["network"]["mxl_vm"] == "20.64.205.144", "manifest mxl_vm must be the control-plane IP"
+
+
+def test_server_enhanced_fallbacks_match_manifest():
+    """The live backend (server-enhanced.js) derives its MXL UUIDs from the
+    manifest with literal fallbacks. It's gitignored (live-only), so SKIP when
+    it isn't checked out — this guard only runs where the file is present."""
+    js_path = REPO / "backend" / "server-enhanced.js"
+    if not js_path.is_file():
+        import pytest
+        pytest.skip("server-enhanced.js is gitignored / not present in this checkout")
+    man = _load_manifest()
+    vf = {n: e["uuid"] for n, e in man["video_flows"].items() if isinstance(e, dict)}
+    af = {n: e["uuid"] for n, e in man["audio_flows"].items() if isinstance(e, dict)}
+    js = js_path.read_text()
+    for fn, table in ((r"_vf", vf), (r"_af", af)):
+        for m in re.finditer(fn + r"\(\s*['\"](\w+)['\"]\s*,\s*['\"](" + UUID_RE.pattern + r")['\"]", js):
+            role, uuid = m.group(1), m.group(2)
+            assert table.get(role) == uuid, f"server-enhanced {fn} '{role}' fallback drifted"
+
+
 def test_control_ports_are_unique():
     man = _load_manifest()
     ports = [p["port"] for p in man["control_api"]["ports"].values()]
