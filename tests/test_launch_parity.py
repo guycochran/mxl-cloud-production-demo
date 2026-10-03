@@ -66,3 +66,33 @@ def test_cam_launch_string_is_pinned():
         repair_url="",
     )
     assert core.pipe._launch == GOLDEN_CAM_LAUNCH
+
+
+# The guest AUDIO leg (v0.3 A/V contribution, Phase 1). essence='audio' makes the
+# core use the F32LE/48k/2ch conform + the duration-accumulate restamp. This golden
+# string is BYTE-IDENTICAL to the shipped tools/guest_audio.py pipeline — that parity
+# is the whole safety argument for routing audio through the core. rtsp_host default
+# 10.0.0.5 (the facility VNet address), latency 300, path guest1.
+GOLDEN_GUEST_AUDIO_LAUNCH = (
+    "rtspsrc location=rtsp://10.0.0.5:8554/guest1 latency=300 protocols=tcp name=src "
+    "! decodebin "
+    "! audioconvert ! audioresample "
+    "! audio/x-raw,format=F32LE,layout=interleaved,rate=48000,"
+    "channels=2,channel-mask=(bitmask)0x3 "
+    "! queue max-size-buffers=32 "
+    "! mxlsink name=sink domain=/mxl-domain "
+    "flow-id=a1111e00-aaaa-4bbb-8ccc-000000000001 "
+    'label="Guest 1 Audio" description="contributor audio (guest1)" '
+    'group-hint="Guest1Audio:Audio" sync=false'
+)
+
+
+def test_guest_audio_launch_string_matches_shipped_guest_audio():
+    from adapters import AudioGuestAdapter
+    core = cc.ContributionCore(
+        AudioGuestAdapter(path="guest1",
+                          flow_id="a1111e00-aaaa-4bbb-8ccc-000000000001",
+                          label="Guest 1 Audio"),
+        repair_url="",
+    )
+    assert core.pipe._launch == GOLDEN_GUEST_AUDIO_LAUNCH

@@ -38,9 +38,13 @@ MARGIN_NS = 66_000_000      # 2 grains @30fps. Bigger => reader starvation ("too
 RESYNC_NS = 150_000_000     # out-of-band threshold before we consider re-locking the offset
 RESYNC_COUNT = 45           # consecutive out-of-band frames required to actually re-sync
 
-# --- canonical output format: the chain's one true grain spec ---
+# --- canonical output formats: the chain's one true grain spec, per essence ---
 CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
               'pixel-aspect-ratio=1/1,interlace-mode=progressive,colorimetry=bt709')
+# Audio canonical grain: F32LE 48k stereo, matching audio_pgm.py's mixer caps so a
+# contributed audio flow drops straight into the program mix with no reconvert.
+CANON_AUDIO_CAPS = ('audio/x-raw,format=F32LE,layout=interleaved,rate=48000,'
+                    'channels=2,channel-mask=(bitmask)0x3')
 DEFAULT_DOMAIN = '/mxl-domain'
 
 
@@ -71,6 +75,11 @@ class SourceAdapter(ABC):
     # --- front-end physics ---
     latency_ms: int = 200               #: SRT/RTSP jitterbuffer hint (ms); per-path physics
 
+    #: which media essence this adapter contributes. Selects the conform caps/
+    #: elements and the restamp probe. 'video' (default) or 'audio'. A participant
+    #: (guest/cam) with both runs ONE adapter+core per essence (never multiplexed).
+    essence: str = 'video'
+
     # --- the two orthogonal pipeline decisions the core actually makes ---
     #: run the v210 conform stage? False only when the source already emits canonical grains.
     needs_conform: bool = True
@@ -90,7 +99,8 @@ class SourceAdapter(ABC):
 
     @property
     def group_hint(self) -> str:
-        return f'{self.label.replace(" ", "")}:Video'
+        suffix = 'Audio' if self.essence == 'audio' else 'Video'
+        return f'{self.label.replace(" ", "")}:{suffix}'
 
     @abstractmethod
     def source_fragment(self) -> str:
@@ -138,7 +148,15 @@ class ContributionCore:
         if not a.needs_conform:
             # Grains already canonical — do NOT re-conform. (native-MXL path.)
             return f'{a.source_fragment()}! {sink}'
-        # Decode path: front end -> canonical conform -> mxlsink.
+        if a.essence == 'audio':
+            # Audio conform: front end -> F32LE/48k/2ch -> queue -> mxlsink. Byte-for-byte
+            # the chain guest_audio.py shipped (the queue sits AFTER the caps here, unlike
+            # the video stage). audioresample reconciles any input rate to 48k; audioconvert
+            # any layout/format to F32LE interleaved.
+            return (f'{a.source_fragment()}'
+                    f'! audioconvert ! audioresample ! {CANON_AUDIO_CAPS} '
+                    f'! queue max-size-buffers=32 ! {sink}')
+        # Video decode path: front end -> canonical conform -> mxlsink.
         # videorate reconciles any 30000/1001 (etc.) to exact 30/1 — WITHOUT it the
         # v210 capsfilter intermittently fails to negotiate (documented crash). It
         # lives here (conform), applied once; the adapter front end ends at the queue.
@@ -222,12 +240,42 @@ class ContributionCore:
             print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms", flush=True)
         return Gst.PadProbeReturn.OK
 
+    # --- the AUDIO restamp (verbatim from guest_audio.py) ---
+    # Audio can't use the video offset-map: audio buffers carry a sample-count
+    # DURATION, so we lay them end-to-end on a monotonically advancing PTS anchored
+    # to now+MARGIN, re-anchoring only on a big (>500ms) gap. Same clock + MARGIN as
+    # the video probe, so a participant's two essences share one time base (see
+    # docs/AV-CONTRIBUTION-v0.3.md §5 open-question 1 on lip-sync).
+    def _restamp_audio(self, pad, info):
+        buf = info.get_buffer()
+        clock = self.pipe.get_clock()
+        if not clock:
+            return Gst.PadProbeReturn.OK
+        now = clock.get_time() - self.pipe.get_base_time()
+        s = self.state
+        if s.get('next_pts') is None or abs(now + MARGIN_NS - s['next_pts']) > 500_000_000:
+            s['next_pts'] = now + MARGIN_NS
+            if s['offset'] is None:   # first lock -> announce if asked (parity w/ video)
+                s['offset'] = s['next_pts']
+                print(f'audio cadence anchored: {s["next_pts"]/1e6:.0f}ms', flush=True)
+                if self.a.announce_on_lock and self.repair_url:
+                    threading.Thread(target=self._announce, daemon=True).start()
+                elif self.a.announce_on_lock:
+                    print('announce skipped (no repair_url) — mixer tolerates absent flows', flush=True)
+        buf.pts = s['next_pts']
+        if buf.duration != Gst.CLOCK_TIME_NONE:
+            s['next_pts'] += buf.duration
+        return Gst.PadProbeReturn.OK
+
     def run(self):
         policy = self.a.timing_policy
+        # pick the essence-appropriate restamp probe (video offset-map vs audio
+        # duration-accumulate). Both reference the same clock + MARGIN_NS.
+        restamp_probe = self._restamp_audio if self.a.essence == 'audio' else self._restamp
         if policy == 'restamp':
             # Default: map the source onto the local clock (+2 grains). The probe
             # fires the announce itself on offset-lock.
-            self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, self._restamp)
+            self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, restamp_probe)
         else:
             # No restamp (align|preserve): grains carry their own timing. The probe
             # won't run, so announce directly here if requested.
@@ -238,7 +286,7 @@ class ContributionCore:
                 print('timing_policy=preserve: passing timestamps untouched', flush=True)
             else:
                 print(f'WARN unknown timing_policy "{policy}"; defaulting to restamp', flush=True)
-                self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, self._restamp)
+                self.sink.get_static_pad('sink').add_probe(Gst.PadProbeType.BUFFER, restamp_probe)
             if self.a.announce_on_lock and self.repair_url and policy in ('align', 'preserve'):
                 threading.Thread(target=self._announce, daemon=True).start()
         bus = self.pipe.get_bus()
