@@ -107,6 +107,12 @@ restart 9602 '{"domain":"/mxl-domain","file":"ohg-episode30.mp4","grouphint":"Fi
 # — need no bring-up change; they live in adapters.py which is already here.)
 sudo docker cp /srv/mxl-tools/contribution_core.py hls2mxl:/tmp/contribution_core.py
 sudo docker cp /srv/mxl-tools/adapters.py hls2mxl:/tmp/adapters.py
+# facility manifest + loader: the single source of truth for flow UUIDs/ports.
+# Tools import `facility` and read config/facility.json; copy both next to the
+# tools in /tmp so the in-container copies resolve it (loader walks up from /tmp
+# and also checks ./facility.json). Missing -> tools fall back to baked-in UUIDs.
+sudo docker cp /srv/mxl-tools/facility.py hls2mxl:/tmp/facility.py
+sudo docker cp /srv/mxl-tools/facility.json hls2mxl:/tmp/facility.json
 
 sudo docker cp /srv/mxl-tools/cam_ingest.py hls2mxl:/tmp/cam_ingest.py
 sudo docker exec hls2mxl sh -c 'pkill -f run-cam1.sh; pkill -f cam_ingest.py; pkill -f cam_relay.py; true'

@@ -33,7 +33,11 @@ from gi.repository import Gst
 
 Gst.init(None)
 
-FLOWS = {
+# Flow UUIDs come from the facility manifest (config/facility.json) — the single
+# source of truth shared with the backend, selector, audio mixer, and bring-up.
+# If the manifest can't be loaded (e.g. an old standalone copy without it), fall
+# back to the baked-in map so the probe still runs rather than crashing.
+_FALLBACK_FLOWS = {
     'cam':      'ca111e00-aaaa-4bbb-8ccc-000000000001',
     'playout':  '2f34c189-64bf-5971-993a-332a28a7a6ee',
     'pattern':  '6b5d8d68-64ce-56f8-bea2-e79b6c282a86',
@@ -44,6 +48,16 @@ FLOWS = {
     'selector': '9437652d-20d9-565e-be6e-b98c36067930',
     'keyer':    '5c73394e-85df-50a3-8988-5edde5b5522a',
 }
+try:
+    from facility import video_flows
+    _manifest = video_flows()
+    # keep only the flows the probe watches; manifest is authoritative for UUIDs
+    FLOWS = {n: _manifest.get(n, u) for n, u in _FALLBACK_FLOWS.items()}
+    print(f'grain_probe: flow UUIDs from facility manifest', flush=True)
+except Exception as e:
+    FLOWS = dict(_FALLBACK_FLOWS)
+    print(f'grain_probe: facility manifest unavailable ({e}); using baked-in flows', flush=True)
+
 OUT = '/mxl-domain/thumbs/grains.json'
 WINDOW_S = 3.0
 STALL_EXIT_S = 90     # all-flows-silent this long -> exit for fresh attaches

@@ -1,0 +1,84 @@
+{
+  "$schema": "./facility.schema.json",
+  "_comment": [
+    "Single source of truth for this MXL facility: the domain, the VM/network",
+    "endpoints, the per-process control ports, and every flow UUID + label.",
+    "",
+    "Before this file, these values were duplicated by hand across backend/,",
+    "tools/, and scripts/ (grain_probe.py, audio_pgm.py, mxl-routes.js,",
+    "bring-up-mxl.sh, ...). Change a UUID or port HERE and every consumer that",
+    "loads the manifest (tools/facility.py / backend facility loader) follows.",
+    "",
+    "Flow UUIDs: the 'aaaa-4bbb-8ccc' family are deterministic demo IDs chosen",
+    "for readability (prefix encodes the role: ca1=cam1, ca2=cam2, 9e1/9e2=",
+    "guests, a0d=pgm-audio, a1/a2=guest-audio, 1a9=layout, 57a=stabilizer).",
+    "The random-looking ones (2f34c189.., 5c73394e..) are MXL-assigned/legacy",
+    "and must match what the writers actually created — read them off the",
+    "easy-mxl flows API once the writers are up if you change the topology."
+  ],
+
+  "facility": {
+    "name": "OHG MXL Lab",
+    "domain_path": "/mxl-domain",
+    "resolution": "1920x1080",
+    "framerate": "30"
+  },
+
+  "network": {
+    "mxl_vm": "10.0.0.5",
+    "docker_gateway": "172.17.0.1",
+    "host_from_container": "host.docker.internal",
+    "_note": "mxl_vm is the host running the MXL shared-memory domain + writers; docker_gateway is how containers reach the host-side mediamtx RTSP."
+  },
+
+  "control_api": {
+    "_note": "Per-process easy-mxl control endpoints. Bound to 127.0.0.1 only (see quickstart.sh); reach them from the host, not the public internet.",
+    "bind": "127.0.0.1",
+    "ports": {
+      "test_generator":   { "port": 9600, "process": "easy-mxl TG", "role": "playout / test pattern source", "parked": false },
+      "encoder":          { "port": 9601, "process": "easy-mxl encoder", "role": "reads keyer PGM video + PGM audio -> mediamtx egress" },
+      "file_player":      { "port": 9602, "process": "easy-mxl file-player", "role": "looping clip source (pattern slot)" },
+      "cam_ingest":       { "port": 9603, "process": "cam_ingest.py", "role": "camera 1 ingest control" },
+      "selector":         { "port": 9604, "process": "easy-mxl selector", "role": "program input-selector (the cut)" },
+      "keyer":            { "port": 9605, "process": "easy-mxl HTML5 keyer", "role": "cam + lower-third graphics -> keyer PGM" },
+      "test_generator_2": { "port": 9606, "process": "easy-mxl TG2", "role": "second test generator", "parked": true },
+      "mxl_info_gui":     { "port": 9608, "process": "mxl-info-gui", "role": "hands-on inspector (optional)", "parked": true },
+      "whip_commentary":  { "port": 9609, "process": "webrtc2mxl", "role": "remote commentator mic via WHIP (voice)", "parked": true },
+      "whip_commentary2": { "port": 9610, "process": "webrtc2mxl", "role": "remote commentator 2 mic via WHIP (voice2)", "parked": true }
+    }
+  },
+
+  "video_flows": {
+    "_note": "Authoritative label->UUID map for video flows (was duplicated in grain_probe.py FLOWS + backend + layout_pgm + bring-up).",
+    "cam":      { "uuid": "ca111e00-aaaa-4bbb-8ccc-000000000001", "label": "CAM 1 Live",   "grouphint": "Camera",         "writer": "cam_ingest.py" },
+    "cam2":     { "uuid": "ca222e00-aaaa-4bbb-8ccc-000000000001", "label": "CAM 2 Live",   "grouphint": "Camera",         "writer": "cam2_ingest.py" },
+    "playout":  { "uuid": "2f34c189-64bf-5971-993a-332a28a7a6ee", "label": "TG Video",     "grouphint": "Test-Generator", "writer": "easy-mxl TG (:9600)" },
+    "pattern":  { "uuid": "6b5d8d68-64ce-56f8-bea2-e79b6c282a86", "label": "Clip Video",   "grouphint": "File-Player",    "writer": "easy-mxl file-player (:9602)" },
+    "guest1":   { "uuid": "9e111e00-aaaa-4bbb-8ccc-000000000001", "label": "Guest 1 Video", "grouphint": "Guest",         "writer": "guest_ingest.py" },
+    "guest2":   { "uuid": "9e222e00-aaaa-4bbb-8ccc-000000000001", "label": "Guest 2 Video", "grouphint": "Guest",         "writer": "guest_ingest.py" },
+    "layout":   { "uuid": "1a900700-aaaa-4bbb-8ccc-000000000001", "label": "Layout PGM",   "grouphint": "Layout",         "writer": "layout_pgm.py" },
+    "selector": { "uuid": "9437652d-20d9-565e-be6e-b98c36067930", "label": "Selector PGM", "grouphint": "Input-Selector", "writer": "easy-mxl selector (:9604)" },
+    "keyer":    { "uuid": "5c73394e-85df-50a3-8988-5edde5b5522a", "label": "Keyer PGM",    "grouphint": "HTML5-Keyer",    "writer": "easy-mxl keyer (:9605)" }
+  },
+
+  "audio_flows": {
+    "_note": "Authoritative label->UUID map for audio flows (was duplicated in audio_pgm.py SOURCES/DST + bring-up guest-audio loop).",
+    "pgm":     { "uuid": "a0d10000-aaaa-4bbb-8ccc-000000000001", "label": "PGM Audio",          "grouphint": "Audio-PGM",   "role": "program audio mix (encoder reads this)", "writer": "audio_pgm.py" },
+    "playout": { "uuid": "4a37a1ae-e0e1-59de-8354-c6884b25e551", "label": "TG Audio 1",         "grouphint": "Test-Generator", "role": "test-generator tone", "writer": "easy-mxl TG (:9600)" },
+    "guest1":  { "uuid": "a1111e00-aaaa-4bbb-8ccc-000000000001", "label": "Guest 1 Audio",      "grouphint": "Guest",       "writer": "guest_audio.py" },
+    "guest2":  { "uuid": "a2222e00-aaaa-4bbb-8ccc-000000000001", "label": "Guest 2 Audio",      "grouphint": "Guest",       "writer": "guest_audio.py" },
+    "voice":   { "uuid": "101fcb5f-8b42-5e92-a2c3-67542abedf6c", "label": "Commentary Audio",   "grouphint": "Commentary",  "role": "remote commentator via WHIP", "writer": "webrtc2mxl (:9609)" },
+    "voice2":  { "uuid": "e8eb9046-c6fa-53ed-97e8-8799c68fa55b", "label": "Commentary 2 Audio", "grouphint": "Commentary2", "role": "remote commentator 2 via WHIP", "writer": "webrtc2mxl (:9610)" }
+  },
+
+  "program": {
+    "_note": "The live program path: selector picks an input, keyer adds graphics, encoder egresses. These reference video_flows keys.",
+    "selector_inputs": ["cam", "playout", "pattern", "cam2"],
+    "selector_out": "selector",
+    "keyer_in": "selector",
+    "keyer_out": "keyer",
+    "encoder_video_in": "keyer",
+    "encoder_audio_in": "pgm",
+    "legacy_cam_flow": "991e65d8-4fc4-58de-b22a-2d02f5952252"
+  }
+}
