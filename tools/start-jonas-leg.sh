@@ -20,7 +20,7 @@ if [ -n "$PUB" ]; then
 fi
 pkill -f "jonas-leg" 2>/dev/null || true
 LD_LIBRARY_PATH=$HOME/fabric/lib nohup $HOME/fabric/bin/mxl-fabrics-demo/mxl-fabrics-demo \
-  -i -d /dev/shm/mxl/domain_1 -p tcp -n 10.0.0.4 -f "$FLOW" -t @"$PWD/$TJ" \
+  -i -d /dev/shm/mxl/domain_1 -p tcp -n "${MXL_VM1_IP:-10.0.0.4}" -f "$FLOW" -t @"$PWD/$TJ" \
   > jonas-leg.log 2>&1 &
 echo "initiator started (flow $FLOW) — watch: tail -f ~/fabric/jonas/jonas-leg.log"
 sleep 6

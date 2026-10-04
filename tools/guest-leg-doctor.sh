@@ -6,8 +6,14 @@
 # still counting grains. Heal order matters: restart the VM1 TARGET first
 # (rewrites rkeys), then the local initiator (ExecStartPre fetches them).
 # Replaces the 2-min guest-initiator-watchdog cron (too slow for phone churn).
+# Site config (env-overridable; defaults = current production values — docs/CONFIG.md).
+# NOTE: /home/guy/... paths below are still literal (follow-up).
+VM1_IP=${MXL_VM1_IP:-10.0.0.4}            # fabric target host
+VM2_IP=${MXL_VM2_IP:-10.0.0.5}            # this box's fabric address
+VM1_USER=${MXL_VM1_SSH_USER:-guy}
+BACKEND_URL=${MXL_BACKEND_URL:-https://prodbots.com}; BACKEND_URL=${BACKEND_URL%/}
 TOKEN=$(grep -oP '^EASY_MXL_TOKEN=\K.*' /etc/default/easy-mxl)
-SSH_VM1="ssh -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/home/guy/.ssh/known_hosts guy@10.0.0.4"
+SSH_VM1="ssh -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/home/guy/.ssh/known_hosts $VM1_USER@$VM1_IP"
 declare -A cooldown
 PGM_BODY='{"domain_path":"/mxl-domain","video_flow_uuid":"373517cc-9e60-446a-af59-c115240edbc0","use_mediamtx":true,"encoder":{"tune":4,"speed_preset":2,"bitrate":6000,"key_int_max":30,"intra_refresh":false}}'
 heal_pgm(){
@@ -15,9 +21,9 @@ heal_pgm(){
   pid=$(pgrep -f "domain_fabric.*-s 1313" | head -1)
   [ -n "$pid" ] && kill -9 "$pid"
   sleep 1
-  sudo -u guy bash -c 'nohup /home/guy/mxl/build/Linux-GCC-Release/tools/mxl-fabrics-demo/mxl-fabrics-demo -d /dev/shm/mxl/domain_fabric -p tcp -n 10.0.0.5 -s 1313 -f /home/guy/fabric/pgm-flow.json -t @/home/guy/fabric/pgm-target.json >> /home/guy/fabric/pgm-target.log 2>&1 &'
+  sudo -u guy bash -c 'nohup /home/guy/mxl/build/Linux-GCC-Release/tools/mxl-fabrics-demo/mxl-fabrics-demo -d /dev/shm/mxl/domain_fabric -p tcp -n '"$VM2_IP"' -s 1313 -f /home/guy/fabric/pgm-flow.json -t @/home/guy/fabric/pgm-target.json >> /home/guy/fabric/pgm-target.log 2>&1 &'
   sleep 3
-  scp -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o UserKnownHostsFile=/home/guy/.ssh/known_hosts /home/guy/fabric/pgm-target.json guy@10.0.0.4:/home/guy/fabric/pgm-target.json
+  scp -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o UserKnownHostsFile=/home/guy/.ssh/known_hosts /home/guy/fabric/pgm-target.json $VM1_USER@$VM1_IP:/home/guy/fabric/pgm-target.json
   $SSH_VM1 "sudo systemctl restart mxl-pgm-initiator"
   docker restart mxl2webrtc >/dev/null
   sleep 8
@@ -76,7 +82,7 @@ for f in json.load(sys.stdin):
     # until a cascade repair reattaches it (found live 9/11: guest1
     # "not smooth 30p" with every hop measuring a clean 30fps)
     sleep 6
-    curl -s -m 20 -X POST -H "Content-Type: application/json" -d '{"auto":1}' https://prodbots.com/api/mxl/repair >/dev/null \
+    curl -s -m 20 -X POST -H "Content-Type: application/json" -d '{"auto":1}' $BACKEND_URL/api/mxl/repair >/dev/null \
       && logger -t guest-leg-doctor "$leg heal: cascade repair announced"
   done
 done
