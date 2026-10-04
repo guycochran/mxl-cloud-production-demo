@@ -77,44 +77,93 @@ module.exports = function registerMxlRoutes(app) {
 
   // Slot roles for the status slots[] array — the configured selector inputs, in
   // order (slot 0..N). A slot whose UUID is a real flow is "wired"; the selector's
-  // active_input tells us which one is actually on air. This is the manifest-driven
-  // fallback for per-slot live when the server can't read the MXL domain directly
-  // (documented in docs/LOCAL-CONTROL-PLANE.md).
-  const _slotUuids = _selInputs.slice();
+  // active_input tells us which one is actually on air.
+  //
+  // CANONICAL SLOT SPACE: the UI builds its tiles from /api/mxl/slots (the full
+  // facility layout — program.layout_inputs, or selector_inputs when no layout is
+  // defined). status[] must use the SAME slot space, or the tally paints the wrong
+  // tile. The trap: the selector's own input_flow_uuids are indexed by its CURRENT
+  // wiring (which changes as guests attach/detach), NOT by the stable layout slot.
+  // So we resolve pgm/pvw/live by matching the selector's active flow UUID against
+  // each layout slot's manifest UUID — the flow UUID is the join key, never the
+  // array position. (This is how the pro server-enhanced.js maps logical slots.)
+  const _layout = (() => {
+    const p = (_fac && _fac.program) || {};
+    const roles = p.layout_inputs || p.selector_inputs || [];
+    const labels = p.layout_input_labels || null;
+    return roles.map((role, i) => ({
+      slot: i, role,
+      label: (labels && labels[i]) || role,
+      uuid: _vf(role, null),
+    }));
+  })();
 
   async function mxlStatus() {
     const [keyer, sel, tg1] = await Promise.all([
       mxlApi(9605, '/pipeline/status'), mxlApi(9604, '/pipeline/status'),
       mxlApi(9600, '/pipeline/status')
     ]);
+    // Which flow UUID is actually on program right now? The selector reports its
+    // active_input as an INDEX into its own live input_flow_uuids, so translate
+    // that index to a UUID before matching it to a layout slot.
+    const wired = Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids : [];
     const onCam = keyer.input_flow_uuid === MXL_CAM_FLOW;
-    const input = onCam ? 0 : sel.active_input;
-    // Per-slot live: the selector reports the flow UUIDs currently wired to each
-    // input. A slot is "live" if the selector has a real flow on it; the active
-    // slot is additionally the on-air one. Falls back to the configured inputs if
-    // the selector doesn't echo its wiring.
-    const wired = Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids : _slotUuids;
-    const slots = _slotUuids.map((uuid, i) => ({
-      slot: i,
-      flow: wired[i] || uuid || null,
-      live: !!(wired[i] || uuid),   // a real flow is wired to this input
-      pgm: i === input,
-      pvw: i === pvw,
+    const pgmUuid = onCam ? MXL_CAM_FLOW
+      : (sel.active_input != null && wired[sel.active_input]) || null;
+    const pvwUuid = pvw != null ? (_layout[pvw] && _layout[pvw].uuid) : null;
+    const wiredSet = new Set(wired);
+
+    const slots = _layout.map((s) => ({
+      slot: s.slot,
+      role: s.role,
+      flow: s.uuid,
+      // live = this layout slot's flow is currently wired into the selector (a real
+      // source is attached). Degrades gracefully if the selector doesn't echo wiring.
+      live: wiredSet.size ? wiredSet.has(s.uuid) : false,
+      pgm: !!(s.uuid && s.uuid === pgmUuid),
+      pvw: !!(s.uuid && s.uuid === pvwUuid),
     }));
-    return { input, pvw, key: !!keyer.key_on, busy: mxlBusy, slots,
+    // input = the layout slot index on program (stable UI slot), or null if the
+    // on-air flow isn't in the layout.
+    const pgmSlot = slots.findIndex((s) => s.pgm);
+    return { input: pgmSlot >= 0 ? pgmSlot : null, pvw,
+      key: !!keyer.key_on, busy: mxlBusy, slots,
       patterns: { tg1: tg1.video && tg1.video.pattern }, available: MXL_PATTERNS };
   }
 
-  // Cut the selector. Every switch — camera included — is a ~30ms cut with the
-  // key staying up, because cam_ingest.py aligns the camera flow's grain index
-  // with the locally-generated flows.
+  // Resolve a UI slot number (role name, cam/cam2 alias, or layout index) to the
+  // stable LAYOUT slot index — the canonical space the UI and status[] share.
+  function toLayoutSlot(input) {
+    if (typeof input === 'string') {
+      const byRole = _layout.findIndex((s) => s.role === input);
+      if (byRole >= 0) return byRole;
+    }
+    const n = input === 'cam' ? 0 : input === 'cam2' ? 3 : Number(input);
+    return Number.isInteger(n) ? n : -1;
+  }
+
+  // Cut the selector. The UI sends a stable LAYOUT slot; the selector's own
+  // active-input is an index into its CURRENT wiring (which shifts as guests
+  // attach), so translate layout slot -> flow UUID -> the selector's live index.
+  // Every switch is a ~30ms cut with the key staying up.
   async function mxlSetInput(input) {
-    const slot = input === 'cam' ? 0 : input === 'cam2' ? 3 : Number(input);
-    if (![0, 1, 2, 3].includes(slot)) throw Object.assign(new Error('input must be "cam", "cam2", 0, 1, 2 or 3'), { status: 400 });
+    const slot = toLayoutSlot(input);
+    const layoutEntry = _layout[slot];
+    if (slot < 0 || !layoutEntry) {
+      throw Object.assign(new Error('unknown input (use a role name, "cam"/"cam2", or a layout slot index)'), { status: 400 });
+    }
     if (mxlBusy) throw Object.assign(new Error('switch in progress'), { status: 409 });
     mxlBusy = true;
     try {
-      await mxlApi(9604, '/pipeline/active-input', { slot });
+      // Map the layout slot's flow UUID to the selector's current input index.
+      const sel = await mxlApi(9604, '/pipeline/status');
+      const wired = Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids : [];
+      let selIndex = layoutEntry.uuid ? wired.indexOf(layoutEntry.uuid) : -1;
+      if (selIndex < 0) {
+        // Flow isn't wired into the selector right now — can't cut to it.
+        throw Object.assign(new Error(`source "${layoutEntry.role}" is not attached to the selector`), { status: 409 });
+      }
+      await mxlApi(9604, '/pipeline/active-input', { slot: selIndex });
       // self-heal: if the keyer is wired cam-direct (pre-relay topology), move it
       const keyer = await mxlApi(9605, '/pipeline/status');
       if (keyer.input_flow_uuid !== MXL_SEL_FLOW) {
@@ -141,12 +190,12 @@ module.exports = function registerMxlRoutes(app) {
   });
 
   // Arm the preview bus. Pure server-side state — no device call, so it's instant
-  // and never conflicts with an in-flight cut. Accepts the same slot forms as /input.
+  // and never conflicts with an in-flight cut. Accepts a role name, "cam"/"cam2",
+  // or a layout slot index — the same canonical slot space as /input and status[].
   app.post('/api/mxl/preview', (req, res) => {
-    const input = req.body.input;
-    const slot = input === 'cam' ? 0 : input === 'cam2' ? 3 : Number(input);
-    if (![0, 1, 2, 3].includes(slot)) {
-      return res.status(400).json({ error: 'input must be "cam", "cam2", 0, 1, 2 or 3' });
+    const slot = toLayoutSlot(req.body.input);
+    if (slot < 0 || !_layout[slot]) {
+      return res.status(400).json({ error: 'unknown input (use a role name, "cam"/"cam2", or a layout slot index)' });
     }
     pvw = slot;
     res.json({ ok: true, pvw });

@@ -72,9 +72,12 @@ app.get('/api/mxl/thumbs/:name', (req, res) => {
   if (!/^[A-Za-z0-9_.\-]+\.jpg$/.test(name)) return res.status(400).end();
   if (THUMBS_ORIGIN) {
     const t = new URL(THUMBS_ORIGIN);
+    // Honor a base path in the origin (e.g. http://host:8086/thumbs) — some thumbs
+    // servers serve the JPEGs under a subpath rather than at the root.
+    const base = t.pathname.replace(/\/$/, '');
     const pr = http.request({
       hostname: t.hostname, port: t.port || 80, method: 'GET',
-      path: `/${name}`, headers: { host: t.host },
+      path: `${base}/${name}`, headers: { host: t.host },
     }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
     pr.on('error', () => res.status(502).end());
     pr.end();
