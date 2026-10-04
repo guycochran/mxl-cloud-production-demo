@@ -101,6 +101,7 @@ if [ "${1:-}" = "--down" ]; then
   pkill -f "http.server 8086" 2>/dev/null || true
   pkill -f "guest_slot_watcher.py" 2>/dev/null || true
   pkill -f "backend/local-server.js" 2>/dev/null || true
+  pkill -f "mxl-selfheal.sh" 2>/dev/null || true
   echo "Done. ($BASE and the domain dir are left in place; rm -rf $BASE to remove.)"
   exit 0
 fi
@@ -404,6 +405,20 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
   sleep 1
   CONTROL_UI_URL="http://127.0.0.1:$CTRL_PORT/"
   echo "  ✓ control UI → $CONTROL_UI_URL (localhost-only; tunnel it to drive remotely)"
+fi
+
+# ── 3e. self-healer (opt-in, default on) ──────────────────────────────────────
+# The facility drifts: the selector pipeline can stop (every cut 409s) and the
+# WebRTC relay can get stuck waiting for an audio flow a bare quickstart never
+# starts (program shows "stream not found"). This backend-free watcher polls the
+# local control ports and recovers both, so the switcher stays up unattended —
+# the adopter equivalent of the live facility's watchdogs. MXL_SELFHEAL=0 to skip.
+if [ "${MXL_SELFHEAL:-1}" = 1 ] && [ -f "$REPO/tools/mxl-selfheal.sh" ]; then
+  step "Self-healer"
+  pkill -f "mxl-selfheal.sh" 2>/dev/null || true
+  MXL_FACILITY_JSON="${GEN_FACILITY:-$REPO/config/facility.json}" \
+    nohup bash "$REPO/tools/mxl-selfheal.sh" --watch >/tmp/mxl-selfheal.log 2>&1 &
+  echo "  ✓ self-healer watching (selector + relay) — log: /tmp/mxl-selfheal.log"
 fi
 
 # ── 4. done ───────────────────────────────────────────────────────────────────
