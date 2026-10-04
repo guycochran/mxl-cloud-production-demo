@@ -48,7 +48,7 @@ def test_ui_uses_only_open_routes():
     prodbots-only endpoints."""
     html = HTML.read_text()
     called = set(re.findall(r"/api/mxl/([a-z]+)", html))
-    allowed = {"status", "input", "preview", "take", "key", "pattern",
+    allowed = {"status", "input", "preview", "take", "warmup", "key", "pattern",
                "repair", "slots", "thumbs"}
     extra = called - allowed
     assert not extra, f"local.html calls non-portable routes: {extra}"
@@ -87,6 +87,14 @@ def test_routes_define_preview_and_take():
     # status must surface pvw + per-slot live for the UI's tally
     assert "pvw" in src, "mxl-routes has no preview-bus state"
     assert "slots" in src and "live" in src, "status doesn't report slots[].live"
+
+
+def test_routes_have_warmup():
+    """The cold-reader wedge fix: a warmup sweep must exist so a cut can't stick
+    on the previous source after a flow is recreated (seen on HW Oct 4)."""
+    src = ROUTES.read_text()
+    assert "/api/mxl/warmup" in src, "mxl-routes missing POST /api/mxl/warmup"
+    assert "active-input" in src and "400" in src, "warmup doesn't sweep readers"
 
 
 def test_package_pins_express():

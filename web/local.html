@@ -181,7 +181,8 @@
           <select class="btn" id="patSel"><option value="">—</option></select>
         </div>
         <div class="crow"><span class="lbl">Recover</span>
-          <button class="btn" id="repairBtn" title="Rebuild the downstream program path">Repair program</button>
+          <button class="btn" id="primeBtn" title="Prime every source's reader — fixes a cut that sticks on the previous source">Prime sources</button>
+          <button class="btn" id="repairBtn" title="Rebuild the downstream program path (heavier)">Repair program</button>
         </div>
         <div class="msg" id="msg"></div>
       </div>
@@ -197,7 +198,7 @@
   var wall=$('#wall'), conn=$('#conn'), connText=$('#connText'), pgmChip=$('#pgmChip'),
       pgmName=$('#pgmName'), pgmV=$('#pgmV'), pvwV=$('#pvwV'),
       takeBtn=$('#take'), takeSub=$('#takeSub'), keyBtn=$('#keyBtn'),
-      patSel=$('#patSel'), repairBtn=$('#repairBtn'), msg=$('#msg');
+      patSel=$('#patSel'), repairBtn=$('#repairBtn'), primeBtn=$('#primeBtn'), msg=$('#msg');
 
   // no-signal slate — same house style as mxl-multiview.html
   var NOSIG='data:image/svg+xml;utf8,'+encodeURIComponent(
@@ -211,7 +212,7 @@
   var liveMap={};      // slot -> bool
 
   function setBusy(b,t){ busy=b;
-    [keyBtn,patSel,repairBtn].forEach(function(el){el.disabled=b;});
+    [keyBtn,patSel,repairBtn,primeBtn].forEach(function(el){el.disabled=b;});
     takeBtn.disabled = b || pvw===null || pvw===pgm;
     if(t!==undefined){ msg.textContent=t; msg.classList.toggle('err', /^⚠/.test(t)); }
   }
@@ -321,6 +322,14 @@
     repairBtn.disabled=true; repairBtn.textContent='Repairing…';
     post('/api/mxl/repair',{}).catch(function(){}).finally(function(){
       setTimeout(function(){ repairBtn.disabled=false; repairBtn.textContent='Repair program'; }, 2500); });
+  });
+  // Prime: sweep every source's reader so the next cut can't land on a cold one
+  // (the "switch sticks on the old source" fix). Lighter than Repair; takes ~400ms
+  // per attached source. The server restores program to the current PGM slot.
+  primeBtn.addEventListener('click', function(){
+    primeBtn.disabled=true; var was=primeBtn.textContent; primeBtn.textContent='Priming…';
+    post('/api/mxl/warmup',{}).catch(function(){}).finally(function(){
+      setTimeout(function(){ primeBtn.disabled=false; primeBtn.textContent=was; refresh(); }, 600); });
   });
 
   // number keys arm preview; Enter/Space (outside a tile) takes

@@ -11,6 +11,8 @@
 //   POST /api/mxl/input  {input}    cut program (hot-cut): "cam"|0|1|2 (~30ms)
 //   POST /api/mxl/preview{input}    arm the preview bus (PVW) — no device call
 //   POST /api/mxl/take   {}         take: cut the armed PVW to PGM (~30ms)
+//   POST /api/mxl/warmup {input?}   prime every reader (clears the cold-reader
+//                                   "switch sticks on the old source" wedge)
 //   POST /api/mxl/key    {on}       toggle the keyer
 //   POST /api/mxl/pattern{pattern}  set generator pattern (whitelisted)
 //   POST /api/mxl/repair {slot,key} full downstream cascade rebuild
@@ -164,6 +166,12 @@ module.exports = function registerMxlRoutes(app) {
         throw Object.assign(new Error(`source "${layoutEntry.role}" is not attached to the selector`), { status: 409 });
       }
       await mxlApi(9604, '/pipeline/active-input', { slot: selIndex });
+      // Force an IDR right after the cut. With a fixed GOP, a mid-GOP source
+      // change smears (P-frames predict from the old scene) until the next
+      // keyframe — on a cut to a COLD reader this reads as "program stuck on the
+      // old source." Best-effort: /pipeline/keyframe only exists on a patched
+      // encoder (stock mxl2webrtc ignores it), so never block the cut on it.
+      mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
       // self-heal: if the keyer is wired cam-direct (pre-relay topology), move it
       const keyer = await mxlApi(9605, '/pipeline/status');
       if (keyer.input_flow_uuid !== MXL_SEL_FLOW) {
@@ -179,9 +187,52 @@ module.exports = function registerMxlRoutes(app) {
     } finally { mxlBusy = false; }
   }
 
+  // Warm-up sweep. The input-selector keeps one reader per input; a reader for a
+  // slot that hasn't been activated since its flow was (re)created is COLD, and
+  // the FIRST cut to it lands at the selector yet shows stale/late content until
+  // the reader catches up — the "switch works once then the program sticks on the
+  // old source" wedge (seen on HW Oct 4 after an SRT guest re-ingest recreated a
+  // flow). Momentarily activating every attached slot (~400ms each) warms every
+  // reader, then we restore program. Kept MANUAL (not run on every cut): doing it
+  // per-cut flashes every source through program. Call it once after sources
+  // attach/reconnect, or when a cut looks stuck. Runs inside the busy lock.
+  async function mxlWarmup(restoreLayoutSlot) {
+    const sel = await mxlApi(9604, '/pipeline/status');
+    const flows = Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids : [];
+    for (let i = 0; i < flows.length; i++) {
+      await mxlApi(9604, '/pipeline/active-input', { slot: i }).catch(() => {});
+      await new Promise(r => setTimeout(r, 400));
+    }
+    // restore program to the requested layout slot (or the first wired slot)
+    const entry = restoreLayoutSlot != null ? _layout[restoreLayoutSlot] : null;
+    const restoreIdx = entry && entry.uuid ? flows.indexOf(entry.uuid) : 0;
+    if (restoreIdx >= 0) await mxlApi(9604, '/pipeline/active-input', { slot: restoreIdx }).catch(() => {});
+    mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
+  }
+
   app.get('/api/mxl/status', async (req, res) => {
     try { res.json(await mxlStatus()); }
     catch (e) { res.status(502).json({ error: e.message }); }
+  });
+
+  // Prime every source's reader so no cut lands on a cold/wedged reader. Sweeps
+  // all attached slots, then restores program (to the current PGM slot, or the
+  // optional {input} if given). Run after guests attach/reconnect.
+  app.post('/api/mxl/warmup', async (req, res) => {
+    const waitStart = Date.now();
+    while (mxlBusy && Date.now() - waitStart < 12000) await new Promise(r => setTimeout(r, 250));
+    if (mxlBusy) return res.status(409).json({ error: 'busy' });
+    mxlBusy = true;
+    try {
+      let restore = req.body && req.body.input != null ? toLayoutSlot(req.body.input) : null;
+      if (restore == null || restore < 0) {
+        const st = await mxlStatus().catch(() => null);
+        restore = st && st.input != null ? st.input : null;
+      }
+      await mxlWarmup(restore);
+      res.json({ ok: true, warmed: true, restored: restore });
+    } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
+    finally { mxlBusy = false; }
   });
 
   app.post('/api/mxl/input', async (req, res) => {
