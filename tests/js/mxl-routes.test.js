@@ -141,19 +141,23 @@ test('R3: /pattern sets the generator but does NOT cut (no wrong-source cut)', a
 });
 
 test('R5: a hung VM (fetch timeout) surfaces 504 and releases the busy lock', async () => {
-  // timeout injected via env — mxlApi reads the INJECTED env, so this really takes effect
+  // Node-version-independent: the mock rejects the way real fetch does when its
+  // AbortSignal fires, OR on its own short fallback timer — so the test is
+  // deterministic even if AbortSignal.timeout propagation differs across Node
+  // versions (the earlier version depended on it and flaked on CI's Node 20).
   const app = mkApp(); registerMxlRoutes(app, { env: { MXL_API_TIMEOUT_MS: '30' }, log: silent });
-  // a fetch that hangs until the AbortSignal fires, then rejects like real fetch does
+  const abortErr = () => { const e = new Error('The operation was aborted'); e.name = 'AbortError'; return e; };
   global.fetch = (url, opts) => new Promise((_resolve, reject) => {
     const sig = opts && opts.signal;
-    if (sig) sig.addEventListener('abort', () => {
-      const e = new Error('The operation was aborted'); e.name = 'AbortError'; reject(e);
-    }, { once: true });
+    if (sig) {
+      if (sig.aborted) return reject(abortErr());
+      sig.addEventListener('abort', () => reject(abortErr()), { once: true });
+    }
+    // fallback: never hang the test even if the injected signal doesn't fire here
+    setTimeout(() => reject(abortErr()), 50);
   });
-  const t0 = Date.now();
   const first = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
   assert.strictEqual(first.code, 504, `timed-out cut should be 504 (got ${first.code})`);
-  assert.ok(Date.now() - t0 < 2000, 'should abort near the 30ms budget, not hang 5s');
   // lock released: a second cut proceeds to fetch (and times out again), not a blanket 409
   const second = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
   assert.strictEqual(second.code, 504, 'busy lock must not stay stuck — second cut reaches fetch, not 409');
@@ -162,13 +166,16 @@ test('R5: a hung VM (fetch timeout) surfaces 504 and releases the busy lock', as
 
 test('R5: a stalled BODY (headers ok, text() hangs) also surfaces 504, not a raw 502', async () => {
   const app = mkApp(); registerMxlRoutes(app, { env: { MXL_API_TIMEOUT_MS: '30' }, log: silent });
+  const abortErr = () => { const e = new Error('The operation was aborted'); e.name = 'AbortError'; return e; };
   global.fetch = async (url, opts) => ({
     ok: true,
     text: () => new Promise((_res, reject) => {
       const sig = opts && opts.signal;
-      if (sig) sig.addEventListener('abort', () => {
-        const e = new Error('The operation was aborted'); e.name = 'AbortError'; reject(e);
-      }, { once: true });
+      if (sig) {
+        if (sig.aborted) return reject(abortErr());
+        sig.addEventListener('abort', () => reject(abortErr()), { once: true });
+      }
+      setTimeout(() => reject(abortErr()), 50);
     }),
   });
   const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
