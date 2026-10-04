@@ -398,8 +398,20 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
   fi
   pkill -f "backend/local-server.js" 2>/dev/null || true
   CTRL_PORT="${MXL_CONTROL_PORT:-3100}"
+  # Generate a facility manifest from the flows THIS box actually discovered, so the
+  # UI's slots + cuts match the running selector (review R2 — the repo's
+  # config/facility.json has the lab's fixed UUIDs, which don't exist on a fresh box).
+  GEN_FACILITY="$BASE/facility.generated.json"
+  if docker exec input-selector sh -c "/opt/mxl/tools/mxl-info/mxl-info -d /mxl-domain -l" 2>/dev/null \
+       | python3 "$REPO/tools/facility_from_discovery.py" --vm 127.0.0.1 > "$GEN_FACILITY" 2>/tmp/mxl-facility-gen.log; then
+    echo "  ✓ facility manifest generated from discovered flows → $GEN_FACILITY"
+  else
+    echo "  ⚠ could not generate manifest from discovery (see /tmp/mxl-facility-gen.log) — UI falls back to repo manifest"
+    GEN_FACILITY=""
+  fi
   MXL_VM_URL="http://127.0.0.1" MXL_THUMBS_ORIGIN="${THUMBS_ORIGIN:-http://127.0.0.1:8086/thumbs}" \
     MXL_PROGRAM_ORIGIN="http://127.0.0.1:8889" MXL_CONTROL_PORT="$CTRL_PORT" \
+    ${GEN_FACILITY:+MXL_FACILITY_JSON="$GEN_FACILITY"} \
     nohup node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
   sleep 1
   CONTROL_UI_URL="http://127.0.0.1:$CTRL_PORT/"
