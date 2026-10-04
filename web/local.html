@@ -196,6 +196,27 @@
   <footer>Driving the MXL facility through <code>/api/mxl/*</code> — the open control routes · no external services</footer>
 
 <script>
+// Optional control token (only needed when the backend sets MXL_CONTROL_TOKEN).
+// Open the page once as  <url>#token=<secret>  — it's kept in this browser's
+// localStorage and sent as X-MXL-Token on POSTs to /api/mxl/*. The fragment never
+// reaches the server and is stripped from the address bar. No token => no change,
+// so this is a no-op on a localhost/LAN deploy that leaves auth off.
+(function(){
+  try{
+    var m=/[#&]token=([^&]+)/.exec(location.hash||'');
+    if(m){ localStorage.setItem('mxl_control_token', decodeURIComponent(m[1]));
+      history.replaceState(null,'',location.pathname+location.search); }
+    var tok=localStorage.getItem('mxl_control_token');
+    if(tok && window.fetch){ var _f=window.fetch.bind(window);
+      window.fetch=function(u,o){
+        if(tok && typeof u==='string' && u.indexOf('/api/mxl/')===0 && o && o.method && o.method.toUpperCase()==='POST'){
+          o=Object.assign({},o,{headers:Object.assign({},o.headers||{},{'X-MXL-Token':tok})}); }
+        return _f(u,o); };
+    }
+  }catch(e){}
+})();
+</script>
+<script>
 (function(){
   "use strict";
   var $=function(s){return document.querySelector(s);};
