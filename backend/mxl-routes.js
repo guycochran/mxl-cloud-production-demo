@@ -19,7 +19,11 @@
 //                                   flashes sources and can blip the WebRTC relay)
 //   POST /api/mxl/key    {on}       toggle the keyer
 //   POST /api/mxl/pattern{pattern}  set generator pattern (whitelisted)
-//   POST /api/mxl/repair {slot,key} full downstream cascade rebuild
+//   POST /api/mxl/repair {slot,key} full downstream cascade rebuild (rate limited)
+//
+// Auth (optional, default off): set MXL_CONTROL_TOKEN to require
+// `Authorization: Bearer <token>` or `X-MXL-Token: <token>` on the four POST routes
+// (GET /status stays open). See backend/mxl-auth.js and SECURITY.md.
 //
 // PVW/PGM dual-bus: PGM is the live selector slot (what's on air); PVW is a
 // server-side "armed" slot the operator stages before a TAKE. Preview is pure
@@ -33,6 +37,7 @@
 // manifest and both the backend and the tools follow; capture yours from the
 // easy-mxl flows API once the writers are up.
 const facility = require('./facility');
+const { createAuth, rateLimiterFromEnv } = require('./mxl-auth');
 const _fac = facility.load();
 const _vf = (name, fallback) => { try { return facility.videoFlow(name); } catch { return fallback; } };
 const _af = (name, fallback) => { try { return facility.audioFlow(name); } catch { return fallback; } };
@@ -67,7 +72,13 @@ const mxlSelectorBody = { domain_path: '/mxl-domain',
   input_flow_uuids: _selInputs,
   grouphint: 'Input-Selector', description: 'program out', label: 'Selector PGM' };
 
-module.exports = function registerMxlRoutes(app) {
+module.exports = function registerMxlRoutes(app, opts = {}) {
+  // Optional shared-token auth (MXL_CONTROL_TOKEN) on the mutating routes, plus a
+  // rate limit on /repair. Unset token => unchanged open behaviour + startup warning.
+  // `opts.env` / `opts.log` exist for tests; production passes nothing.
+  const env = opts.env || process.env;
+  const auth = createAuth(env, opts.log || console).middleware;
+  const repairLimit = rateLimiterFromEnv(env);
   async function mxlApi(port, apiPath, body) {
     const opts = body !== undefined
       ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -236,8 +247,9 @@ module.exports = function registerMxlRoutes(app) {
 
   // Prime every source's reader so no cut lands on a cold/wedged reader. Sweeps
   // all attached slots, then restores program (to the current PGM slot, or the
-  // optional {input} if given). Run after guests attach/reconnect.
-  app.post('/api/mxl/warmup', async (req, res) => {
+  // optional {input} if given). Run after guests attach/reconnect. Mutating, so
+  // it carries the same optional auth as the other control routes.
+  app.post('/api/mxl/warmup', auth, async (req, res) => {
     const waitStart = Date.now();
     while (mxlBusy && Date.now() - waitStart < 12000) await new Promise(r => setTimeout(r, 250));
     if (mxlBusy) return res.status(409).json({ error: 'busy' });
@@ -254,7 +266,7 @@ module.exports = function registerMxlRoutes(app) {
     finally { mxlBusy = false; }
   });
 
-  app.post('/api/mxl/input', async (req, res) => {
+  app.post('/api/mxl/input', auth, async (req, res) => {
     try { res.json(await mxlSetInput(req.body.input)); }
     catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
@@ -262,7 +274,8 @@ module.exports = function registerMxlRoutes(app) {
   // Arm the preview bus. Pure server-side state — no device call, so it's instant
   // and never conflicts with an in-flight cut. Accepts a role name, "cam"/"cam2",
   // or a layout slot index — the same canonical slot space as /input and status[].
-  app.post('/api/mxl/preview', (req, res) => {
+  // Mutating (changes the armed bus), so it carries the same optional auth.
+  app.post('/api/mxl/preview', auth, (req, res) => {
     const slot = toLayoutSlot(req.body.input);
     if (slot < 0 || !_layout[slot]) {
       return res.status(400).json({ error: 'unknown input (use a role name, "cam"/"cam2", or a layout slot index)' });
@@ -273,7 +286,7 @@ module.exports = function registerMxlRoutes(app) {
 
   // Take: cut the armed preview to program (PVW -> PGM), the way an operator
   // presses TAKE after staging a source on preview.
-  app.post('/api/mxl/take', async (req, res) => {
+  app.post('/api/mxl/take', auth, async (req, res) => {
     if (pvw === null) return res.status(409).json({ error: 'nothing armed on preview' });
     try {
       const st = await mxlStatus();
@@ -287,14 +300,14 @@ module.exports = function registerMxlRoutes(app) {
     } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
 
-  app.post('/api/mxl/key', async (req, res) => {
+  app.post('/api/mxl/key', auth, async (req, res) => {
     try {
       await mxlApi(9605, '/pipeline/key', { on: !!req.body.on });
       res.json({ ok: true, key: !!req.body.on });
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
 
-  app.post('/api/mxl/pattern', async (req, res) => {
+  app.post('/api/mxl/pattern', auth, async (req, res) => {
     const pattern = req.body.pattern;
     if (!MXL_PATTERNS.includes(pattern)) return res.status(400).json({ error: 'unknown pattern' });
     try {
@@ -308,7 +321,7 @@ module.exports = function registerMxlRoutes(app) {
 
   // Full downstream cascade rebuild — needed whenever a source flow is
   // recreated (readers wedge on recreated flows; see docs/FINDINGS.md).
-  app.post('/api/mxl/repair', async (req, res) => {
+  app.post('/api/mxl/repair', auth, repairLimit, async (req, res) => {
     if (mxlBusy) return res.status(409).json({ error: 'busy' });
     mxlBusy = true;
     try {

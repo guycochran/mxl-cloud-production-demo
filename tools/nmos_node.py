@@ -27,6 +27,7 @@ stdlib only. Peer-to-peer queryable without a registry:
 """
 import argparse
 import json
+import os
 import socket
 import threading
 import time
@@ -267,7 +268,7 @@ def main():
     ap.add_argument('--port', type=int, default=8021)
     ap.add_argument('--href', default=None)
     ap.add_argument('--registry', default=None)
-    ap.add_argument('--facility', default='https://prodbots.com')
+    ap.add_argument('--facility', default=os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com'))
     args = ap.parse_args()
     if not args.href:
         args.href = f'http://{socket.gethostbyname(socket.gethostname())}:{args.port}/'

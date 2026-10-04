@@ -46,6 +46,13 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           find . -path ./.git -prune -o -name '*.sh' -print -exec shellcheck -S warning {} + || true
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Backend JS tests (auth middleware + rate limit; no npm deps)
+        run: node --test tests/js/*.test.js
+
       - name: Seam unit tests + secret tripwire (stubbed gi — no GStreamer needed)
         run: python -m pytest tests/ -q
 

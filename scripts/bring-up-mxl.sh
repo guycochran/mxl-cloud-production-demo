@@ -6,10 +6,21 @@
 # Run from the prodbots box:  ~/Projects/bring-up-mxl.sh
 set -uo pipefail
 
-VM_IP=20.64.205.144           # Standard SKU public IP = static
-SSH_KEY=$HOME/.ssh/mxl-lab
-SSH="ssh -i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=8 guy@$VM_IP"
-MXL_HTML=$HOME/prodbots-backend/public/mxl.html
+# ── Site config: every value below can be overridden from the environment; the
+# defaults are the CURRENT PRODUCTION values, so running with no env set is
+# identical to before. See docs/CONFIG.md.
+VM_IP=${MXL_VM_IP:-20.64.205.144}                 # Standard SKU public IP = static
+VM_USER=${MXL_VM_SSH_USER:-guy}                   # SSH user on the VM
+SSH_KEY=${MXL_SSH_KEY:-$HOME/.ssh/mxl-lab}
+SITE_IP=${MXL_SITE_IP:-50.106.4.50}               # the only IP the VM's NSG allows (used in messages)
+MAKITO_IP=${MXL_MAKITO_IP:-192.168.8.177}         # CAM 2 Makito X4 encoder (informational)
+BACKEND_URL=${MXL_BACKEND_URL:-https://prodbots.com}   # facility backend (kiosk + /api/mxl/*)
+BACKEND_URL=${BACKEND_URL%/}
+FEED_URL=${MXL_FEED_URL:-https://mxl-feed.cochran.cloud}  # public WebRTC feed tunnel
+AZ_RG=${MXL_AZ_RESOURCE_GROUP:-ohg-mxl-lab}
+AZ_VM=${MXL_AZ_VM_NAME:-mxl-lab}
+SSH="ssh -i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=8 $VM_USER@$VM_IP"
+MXL_HTML=${MXL_HTML:-$HOME/prodbots-backend/public/mxl.html}
 
 # ── Flow UUIDs from the facility manifest (single source of truth) ───────────
 # config/facility.json is the shared map used by the Python tools + backend JS.
@@ -43,16 +54,16 @@ die()  { echo "✗ $*" >&2; exit 1; }
 step "Checking VM $VM_IP"
 if ! $SSH true 2>/dev/null; then
   echo "  VM unreachable — trying az vm start (ok if az not logged in)…"
-  az vm start -g ohg-mxl-lab -n mxl-lab 2>/dev/null \
+  az vm start -g "$AZ_RG" -n "$AZ_VM" 2>/dev/null \
     || die "VM down and az start failed. Login first: az login --service-principal (SP mxl-lab-cli), then re-run."
   for i in $(seq 1 30); do $SSH true 2>/dev/null && break; sleep 10; done
-  $SSH true 2>/dev/null || die "VM started but SSH still unreachable (NSG allows only site IP 50.106.4.50/32 — did the site IP change?)"
+  $SSH true 2>/dev/null || die "VM started but SSH still unreachable (NSG allows only site IP $SITE_IP/32 — did the site IP change?)"
 fi
 echo "  ✓ SSH ok"
 
 # ── 1. Containers + graphics server on the VM ────────────────────────────────
 step "Starting containers + graphics server on VM"
-$SSH 'bash -s' <<'VMEOF'
+$SSH "MXL_BACKEND_URL='$BACKEND_URL' bash -s" <<'VMEOF'
 set -u
 # test-generator-2 deliberately NOT started — parked 2026-09-10 for CPU headroom
 # (cam2 HEVC decode needs the core; backend /api/mxl/status tolerates it being down)
@@ -103,7 +114,7 @@ echo "  ✓ cam push (re)started"
 # Labels/descriptions/grouphints MUST stay byte-identical: flow UUIDs are
 # deterministic from them, and selector/keyer/encoder reference those UUIDs.
 step "Restarting pipelines on VM (containers boot stateless)"
-$SSH 'bash -s' <<'VMEOF'
+$SSH "MXL_BACKEND_URL='$BACKEND_URL' bash -s" <<'VMEOF'
 set -u
 post() { curl -s -m 20 -X POST -H "Content-Type: application/json" -d "$2" "http://127.0.0.1:$1" >/dev/null; }
 restart() { post "$1/pipeline/stop" '{}'; sleep 1; post "$1/pipeline/start" "$2"; }
@@ -147,12 +158,12 @@ post 9603/pipeline/stop '{}'
 # The live OHG facility opts INTO the ProdBots repair announce explicitly — the
 # contribution core now defaults to NO announce (open-core boundary), so this env
 # var is what keeps the selector auto-reattaching the cam here. (See contribution_core.py.)
-sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=https://prodbots.com/api/mxl/repair\nwhile :; do python3 /tmp/cam_ingest.py >> /tmp/cam-ingest.log 2>&1; echo RESTART >> /tmp/cam-ingest.log; sleep 2; done\n" > /tmp/run-cam1.sh && chmod +x /tmp/run-cam1.sh'
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=%s/api/mxl/repair\nwhile :; do python3 /tmp/cam_ingest.py >> /tmp/cam-ingest.log 2>&1; echo RESTART >> /tmp/cam-ingest.log; sleep 2; done\n" "$0" > /tmp/run-cam1.sh && chmod +x /tmp/run-cam1.sh' "${MXL_BACKEND_URL:-https://prodbots.com}"
 sudo docker exec -d hls2mxl /tmp/run-cam1.sh
 sleep 6
 
 # CAM 2 Live ingest (Makito X4 static SDI cam -> SRT publish:cam2 -> mediamtx).
-# The Makito (192.168.8.177, encoder 1 + stream "MXL Cam2 SRT", saved to startup
+# The Makito (default 192.168.8.177 = $MAKITO_IP, encoder 1 + stream "MXL Cam2 SRT", saved to startup
 # preset) calls in on its own — nothing to start VM-side for the feed itself.
 # Makito encoder 1 = H.264 High 4:2:0 12 Mbps, SRT latency 20ms (2026-09-10, RTT~6ms) (switched from HEVC 2026-09-10:
 # HEVC software-decode was ~130% of a core and starved the keyer; H.264 ~50%).
@@ -160,7 +171,7 @@ sleep 6
 # (slices=4 broke mediamtx's TS parsing). Runner keeps cmdline pkill-safe.
 sudo docker cp /srv/mxl-tools/cam2_ingest.py hls2mxl:/tmp/cam2_ingest.py
 sudo docker exec hls2mxl sh -c 'pkill -f run-cam2.sh; pkill -f cam2_ingest.py; true'
-sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=https://prodbots.com/api/mxl/repair\nwhile :; do nice -n 10 python3 /tmp/cam2_ingest.py >> /tmp/cam2-ingest.log 2>&1; echo RESTART >> /tmp/cam2-ingest.log; sleep 2; done\n" > /tmp/run-cam2.sh && chmod +x /tmp/run-cam2.sh'
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=%s/api/mxl/repair\nwhile :; do nice -n 10 python3 /tmp/cam2_ingest.py >> /tmp/cam2-ingest.log 2>&1; echo RESTART >> /tmp/cam2-ingest.log; sleep 2; done\n" "$0" > /tmp/run-cam2.sh && chmod +x /tmp/run-cam2.sh' "${MXL_BACKEND_URL:-https://prodbots.com}"
 sudo docker exec -d hls2mxl /tmp/run-cam2.sh
 sleep 6
 
@@ -264,7 +275,7 @@ if ! $SSH 'sudo docker exec hls2mxl sh -c "ls /mxl-domain/ 2>/dev/null | grep -q
   systemctl --user restart mxl-cam-push.service; sleep 6
 fi
 step "Ensuring exactly one of each pipeline writer"
-scp -q -i "$SSH_KEY" "$HOME/Projects/ensure-single-writers.sh" guy@$VM_IP:/tmp/ensure-single-writers.sh
+scp -q -i "$SSH_KEY" "$HOME/Projects/ensure-single-writers.sh" $VM_USER@$VM_IP:/tmp/ensure-single-writers.sh
 $SSH 'bash /tmp/ensure-single-writers.sh --start'
 sleep 12
 # Report which source flows actually exist now
@@ -283,7 +294,6 @@ $SSH 'sudo docker exec hls2mxl sh -c "pkill -9 -f \"[r]un-layout\"; pkill -9 -f 
 # systemd auto-starts it on boot — this just makes sure and verifies.
 step "Ensuring mxl-feed named tunnel on VM"
 $SSH 'sudo systemctl start mxl-feed-tunnel.service; systemctl is-active mxl-feed-tunnel.service' | tail -1
-FEED_URL=https://mxl-feed.cochran.cloud
 echo "  ✓ feed tunnel: $FEED_URL (stable — mxl.html needs no rewriting)"
 
 # ── 5. Repair cascade + cut to Cam 1 ─────────────────────────────────────────
@@ -292,18 +302,18 @@ echo "  ✓ feed tunnel: $FEED_URL (stable — mxl.html needs no rewriting)"
 # freshly respawned writers a moment to create their flows first.
 step "Repair cascade + program to Cam 1"
 sleep 8
-curl -s -m 30 -X POST -H 'Content-Type: application/json' -d '{}' https://prodbots.com/api/mxl/repair >/dev/null 2>&1 || true
+curl -s -m 30 -X POST -H 'Content-Type: application/json' ${MXL_CONTROL_TOKEN:+-H "X-MXL-Token: $MXL_CONTROL_TOKEN"} -d '{}' $BACKEND_URL/api/mxl/repair >/dev/null 2>&1 || true
 sleep 3
-curl -s -m 15 -X POST -H 'Content-Type: application/json' -d '{"input":0}' https://prodbots.com/api/mxl/input >/dev/null 2>&1 || true
+curl -s -m 15 -X POST -H 'Content-Type: application/json' ${MXL_CONTROL_TOKEN:+-H "X-MXL-Token: $MXL_CONTROL_TOKEN"} -d '{"input":0}' $BACKEND_URL/api/mxl/input >/dev/null 2>&1 || true
 echo "  ✓ repaired + on Cam 1"
 
 # ── 6. Verify ────────────────────────────────────────────────────────────────
 step "Verifying"
 sleep 5
-c1=$(curl -s -o /dev/null -w '%{http_code}' https://prodbots.com/mxl.html)
+c1=$(curl -s -o /dev/null -w '%{http_code}' $BACKEND_URL/mxl.html)
 c2=$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$FEED_URL/mxl2webrtc/")
 # Health endpoint = source of truth for slot liveness + writer census.
-hs=$(curl -s -m 10 https://prodbots.com/api/mxl/status | python3 -c 'import json,sys
+hs=$(curl -s -m 10 $BACKEND_URL/api/mxl/status | python3 -c 'import json,sys
 try: d=json.load(sys.stdin)
 except: print("status unreachable"); raise SystemExit
 live=[s["name"] for s in d["slots"] if s["live"]]; down=[s["name"] for s in d["slots"] if not s["live"]]
@@ -311,13 +321,13 @@ print(f"pgm=slot{d[\"input\"]} live={\",\".join(live)} down={\",\".join(down) or
 echo "  mxl.html: $c1 | feed: $c2"
 echo "  $hs"
 # Duplicate-writer guard — the exact failure the Sep 11 resize hit.
-dups=$(curl -s -m 10 https://prodbots.com/api/mxl/health | python3 -c 'import json,sys
+dups=$(curl -s -m 10 $BACKEND_URL/api/mxl/health | python3 -c 'import json,sys
 try: h=json.load(sys.stdin)
 except: raise SystemExit
 d=[f"{k}x{v}" for k,v in (h.get("procs") or {}).items() if v>1]
 print("DUPLICATE WRITERS: "+",".join(d) if d else "writers: all single")' 2>/dev/null)
 echo "  $dups"
 echo
-echo "✅ DEMO: https://prodbots.com/mxl.html"
+echo "✅ DEMO: $BACKEND_URL/mxl.html"
 echo "   Teardown: pkill cloudflared on VM; systemctl --user stop mxl-cam-push;"
-echo "             az vm deallocate -g ohg-mxl-lab -n mxl-lab"
+echo "             az vm deallocate -g $AZ_RG -n $AZ_VM"
