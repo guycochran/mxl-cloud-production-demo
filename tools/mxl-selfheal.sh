@@ -33,36 +33,58 @@ RELAY_CTR="${RELAY_CONTAINER:-mxl2webrtc}"
 DOMAIN="${MXL_DOMAIN:-/mxl-domain}"
 KEYER_FLOW=""   # discovered lazily
 
+# Use `docker` directly if we can (quickstart runs as root), else `sudo docker`.
+if docker ps >/dev/null 2>&1; then DOCKER="docker"; else DOCKER="sudo docker"; fi
+
 log(){ printf '%s mxl-selfheal: %s\n' "$(date -u +%H:%M:%SZ)" "$*"; }
 _get(){ curl -s -m 5 "http://127.0.0.1:$1$2" 2>/dev/null; }
 _post(){ curl -s -m 25 -X POST -H 'Content-Type: application/json' -d "$3" "http://127.0.0.1:$1$2" 2>/dev/null; }
 _json(){ python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))" 2>/dev/null; }
 
-# selector inputs to restore: prefer the generated manifest, else re-discover the
-# two base sources by label (same method quickstart used).
+# UUIDs that actually exist in the domain right now (one per line).
+existing_flows(){
+  $DOCKER exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
+    | grep -oE '[0-9a-f-]{36}' | sort -u
+}
+
+# selector inputs to restore: the manifest's inputs INTERSECTED with the flows that
+# actually exist. Restarting with a flow that isn't present makes the selector start
+# FAIL (found on HW — the manifest lists 4, but a fresh/partial facility may have
+# only 2), so we must never wire a phantom flow. Falls back to the two base sources
+# by label if no manifest is given.
 selector_inputs_json(){
+  local present; present=$(existing_flows)
+  [ -n "$present" ] || return 1   # can't read the domain — don't guess
   if [ -n "${MXL_FACILITY_JSON:-}" ] && [ -f "$MXL_FACILITY_JSON" ]; then
-    python3 - "$MXL_FACILITY_JSON" <<'PY' 2>/dev/null && return 0
-import json, sys
+    MXL_PRESENT="$present" python3 - "$MXL_FACILITY_JSON" <<'PY' 2>/dev/null && return 0
+import json, os, sys
 d = json.load(open(sys.argv[1]))
 vf = d.get("video_flows", {})
 roles = d.get("program", {}).get("selector_inputs") or d.get("program", {}).get("layout_inputs") or []
-uuids = [vf[r]["uuid"] for r in roles if r in vf]
-print(json.dumps(uuids))
+present = set(os.environ.get("MXL_PRESENT", "").split())
+uuids = [vf[r]["uuid"] for r in roles if r in vf and vf[r]["uuid"] in present]
+# only emit if we found at least one real, present source
+if uuids:
+    print(json.dumps(uuids))
+else:
+    sys.exit(1)
 PY
   fi
-  # fallback: discover the pattern + clip flows live
-  local pat clip
-  pat=$(docker exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
+  # fallback: discover pattern + clip by label, keep only the present ones
+  local pat clip out=()
+  pat=$($DOCKER exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
     | grep -E "^\s+Video : [0-9a-f-]{36} - Pattern Video\$" | grep -oE '[0-9a-f-]{36}' | head -1)
-  clip=$(docker exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
+  clip=$($DOCKER exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
     | grep -E "^\s+Video : [0-9a-f-]{36} - Clip Video\$" | grep -oE '[0-9a-f-]{36}' | head -1)
-  [ -n "$pat" ] && [ -n "$clip" ] && printf '["%s","%s"]' "$pat" "$clip"
+  for u in "$pat" "$clip"; do
+    [ -n "$u" ] && printf '%s\n' "$present" | grep -qx "$u" && out+=("$u")
+  done
+  [ ${#out[@]} -gt 0 ] && printf '[%s]' "$(printf '"%s",' "${out[@]}" | sed 's/,$//')"
 }
 
 keyer_out_flow(){
   [ -n "$KEYER_FLOW" ] && { printf '%s' "$KEYER_FLOW"; return; }
-  KEYER_FLOW=$(docker exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
+  KEYER_FLOW=$($DOCKER exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -l" 2>/dev/null \
     | grep -E "^\s+Video : [0-9a-f-]{36} - Keyer PGM\$" | grep -oE '[0-9a-f-]{36}' | head -1)
   printf '%s' "$KEYER_FLOW"
 }
@@ -85,7 +107,7 @@ heal_selector(){
 # ── heal 2: relay waiting for audio → (re)start it video-only ───────────────────
 heal_relay(){
   local st running mode
-  st=$(docker exec "$RELAY_CTR" sh -c "curl -s -m5 http://127.0.0.1:9600/pipeline/status" 2>/dev/null) || return 0
+  st=$($DOCKER exec "$RELAY_CTR" sh -c "curl -s -m5 http://127.0.0.1:9600/pipeline/status" 2>/dev/null) || return 0
   running=$(printf '%s' "$st" | _json running)
   mode=$(printf '%s' "$st" | _json mode)
   # broken state = not running, OR running in a mode that waits for an absent audio flow
@@ -93,7 +115,7 @@ heal_relay(){
   local key; key=$(keyer_out_flow)
   [ -n "$key" ] || { log "relay unhealthy but keyer flow not found yet — skipping"; return 0; }
   log "RELAY unhealthy (running=$running mode=$mode) — restarting VIDEO-ONLY on keyer $key"
-  docker exec "$RELAY_CTR" sh -c "curl -s -m5 -X POST http://127.0.0.1:9600/pipeline/stop >/dev/null; sleep 1; \
+  $DOCKER exec "$RELAY_CTR" sh -c "curl -s -m5 -X POST http://127.0.0.1:9600/pipeline/stop >/dev/null; sleep 1; \
     curl -s -m8 -X POST -H 'Content-Type: application/json' \
     -d '{\"domain_path\":\"$DOMAIN\",\"video_flow_uuid\":\"$key\",\"audio_flow_uuid\":null,\"mode\":\"video\"}' \
     http://127.0.0.1:9600/pipeline/start >/dev/null" 2>/dev/null

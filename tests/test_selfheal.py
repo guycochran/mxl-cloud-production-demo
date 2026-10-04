@@ -109,3 +109,49 @@ def test_both_broken_both_healed(tmp_path):
     )
     assert any("9604/pipeline/start" in a for a in actions)
     assert any("DOCKER-POST" in a and "pipeline/start" in a for a in actions)
+
+
+def test_phantom_flows_filtered_on_restart(tmp_path):
+    """HW-found bug: the manifest may list flows that DON'T exist in the domain right
+    now (a fresh/partial facility). Restarting the selector with a phantom flow makes
+    the start FAIL. The healer must restart with ONLY the flows mxl-info reports."""
+    # a manifest whose pattern uuid matches the stub's mxl-info 'Pattern Video', but
+    # whose cam/cam2 uuids are phantoms the stub never lists.
+    manifest = {
+        "video_flows": {
+            "pattern": {"uuid": "aa11bb22-0000-4000-8000-000000000001", "label": "Pattern"},
+            "cam": {"uuid": "ffffffff-0000-4000-8000-000000000001", "label": "Cam"},     # phantom
+            "cam2": {"uuid": "eeeeeeee-0000-4000-8000-000000000001", "label": "Cam2"},   # phantom
+        },
+        "program": {"selector_inputs": ["cam", "pattern", "cam2"]},
+    }
+    man = tmp_path / "manifest.json"
+    man.write_text(json.dumps(manifest))
+
+    bindir = tmp_path / "bin"; bindir.mkdir()
+    actions_log = tmp_path / "actions.log"
+    (bindir / "curl").write_text(f"""#!/usr/bin/env bash
+args="$*"
+if [[ "$args" == *"9604/pipeline/status"* && "$args" != *"-X POST"* ]]; then
+  echo '{{"running":"False","input_flow_uuids":[]}}'; exit 0
+fi
+if [[ "$args" == *"-X POST"* ]]; then echo "POST $args" >> "{actions_log}"; echo '{{}}'; exit 0; fi
+echo '{{}}'
+""")
+    # mxl-info lists ONLY the pattern flow (cam/cam2 are phantoms)
+    (bindir / "docker").write_text(f"""#!/usr/bin/env bash
+args="$*"
+if [[ "$args" == *"9600/pipeline/status"* ]]; then echo '{{"running":"True","mode":"video"}}'; exit 0; fi
+if [[ "$args" == *"mxl-info"* ]]; then printf '\\tVideo : aa11bb22-0000-4000-8000-000000000001 - Pattern Video\\n'; exit 0; fi
+exit 0
+""")
+    for f in ("curl", "docker"):
+        p = bindir / f; p.chmod(p.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    env = dict(os.environ); env["PATH"] = f"{bindir}:{env['PATH']}"; env["MXL_FACILITY_JSON"] = str(man)
+    subprocess.run(["bash", str(HEALER)], capture_output=True, text=True, env=env)
+    starts = [a for a in actions_log.read_text().splitlines() if "9604/pipeline/start" in a]
+    assert starts, "selector should have been restarted"
+    body = starts[0]
+    assert "aa11bb22" in body, "the present pattern flow must be wired"
+    assert "ffffffff" not in body and "eeeeeeee" not in body, "phantom flows must NOT be wired"
