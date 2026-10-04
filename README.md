@@ -24,6 +24,7 @@ You get a cuttable, keyed, browser-watchable MXL switcher:
 - ✓ HTML5 lower-third graphics keyer
 - ✓ WebRTC program output (watch in any browser)
 - ✓ **Two SRT contribution slots** — point Larix / OBS / vMix at `srt://YOUR-IP:8890`
+- ✓ **A browser switcher** — preview/program with TAKE + a live multiview of every source
 
 Then check it's healthy and cut between sources:
 
@@ -31,6 +32,14 @@ Then check it's healthy and cut between sources:
 sudo scripts/mxl-doctor                                  # containers · flow presence · program path  (add --deep for unique-frame liveness)
 curl -X POST -d '{"slot":1}' http://127.0.0.1:9604/pipeline/active-input   # cut to the clip
 ```
+
+Or drive it from a browser — `quickstart.sh` launches a self-contained switcher UI
+([`web/local.html`](web/local.html), localhost-only) at `http://127.0.0.1:3100/`:
+arm a source on preview, press **TAKE** to cut it to program, watch every input in
+the multiview. No prodbots backend, no external hosts — just the open `/api/mxl/*`
+routes. See [the control-plane doc](docs/LOCAL-CONTROL-PLANE.md).
+
+![The MXL Switcher browser UI — preview/program dual-bus with TAKE and a live multiview](docs/images/switcher-ui.png)
 
 *Cold-clone verified Oct 2026: **GCP 2m33s · AWS 3m59s · Azure 4m17s**, each → ON AIR → cut landed.*
 

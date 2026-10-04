@@ -98,7 +98,9 @@ if [ "${1:-}" = "--down" ]; then
   step "Tearing down quickstart containers + graphics server"
   docker rm -f $CONTAINERS 2>/dev/null || true
   pkill -f "http.server 8085" 2>/dev/null || true
+  pkill -f "http.server 8086" 2>/dev/null || true
   pkill -f "guest_slot_watcher.py" 2>/dev/null || true
+  pkill -f "backend/local-server.js" 2>/dev/null || true
   echo "Done. ($BASE and the domain dir are left in place; rm -rf $BASE to remove.)"
   exit 0
 fi
@@ -281,6 +283,46 @@ if [ -n "$GUEST_IMAGE" ]; then
   echo "  ✓ Guest 1/2 slots armed ($_audio_note) · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"
 fi
 
+# ── 3c. multiview thumbnails (opt-in, default on) ─────────────────────────────
+# One low-rate JPEG per source (no decode, tiny CPU) into <domain>/thumbs, served
+# on 127.0.0.1:8086 for the control UI's multiview grid. Runs mxl_thumbs.py inside
+# input-selector (it has mxlsrc + the domain mount). Self-healing restart loop,
+# mirrors scripts/bring-up-mxl.sh. Skips cleanly if the tool is absent.
+CONTROL_UI_URL=""
+if [ "${MXL_THUMBS:-1}" = 1 ] && [ -f "$REPO/tools/mxl_thumbs.py" ]; then
+  step "Multiview thumbnails"
+  docker cp "$REPO/tools/mxl_thumbs.py" input-selector:/tmp/mxl_thumbs.py 2>/dev/null && {
+    docker exec input-selector sh -c 'pkill -9 -f run-thumbs.sh; pkill -9 -f mxl_thumbs.py; true' 2>/dev/null || true
+    docker exec input-selector sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 15 python3 /tmp/mxl_thumbs.py >> /tmp/mxl-thumbs.log 2>&1; echo RESTART >> /tmp/mxl-thumbs.log; sleep 3; done\n" > /tmp/run-thumbs.sh && chmod +x /tmp/run-thumbs.sh'
+    docker exec -d input-selector /tmp/run-thumbs.sh
+    mkdir -p /srv/thumbs-www && ln -sfn "$DOMAIN_HOST/thumbs" /srv/thumbs-www/thumbs
+    pgrep -f "http.server 8086" >/dev/null || \
+      nohup python3 -m http.server 8086 --directory /srv/thumbs-www/thumbs --bind 127.0.0.1 >/tmp/thumbs-8086.log 2>&1 &
+    echo "  ✓ thumbnails live → 127.0.0.1:8086 (one JPEG/source, self-healing)"
+  } || echo "  ⚠ could not copy mxl_thumbs.py into input-selector — skipping thumbnails"
+fi
+
+# ── 3d. browser control UI (opt-in, default on if node is present) ────────────
+# The self-contained switcher: web/local.html driven by the open /api/mxl/* routes
+# through backend/local-server.js. Localhost-only by default (no auth of its own —
+# put it behind an SSH tunnel / reverse proxy to reach it remotely). Skips cleanly
+# if node isn't installed; the raw-curl path below still works either way.
+if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
+  step "Browser control UI"
+  if [ ! -d "$REPO/backend/node_modules/express" ]; then
+    (cd "$REPO/backend" && npm install --no-audit --no-fund >/tmp/mxl-control-npm.log 2>&1) \
+      || echo "  ⚠ npm install failed (see /tmp/mxl-control-npm.log) — UI may not start"
+  fi
+  pkill -f "backend/local-server.js" 2>/dev/null || true
+  CTRL_PORT="${MXL_CONTROL_PORT:-3100}"
+  MXL_VM_URL="http://127.0.0.1" MXL_THUMBS_ORIGIN="http://127.0.0.1:8086" \
+    MXL_PROGRAM_ORIGIN="http://127.0.0.1:8889" MXL_CONTROL_PORT="$CTRL_PORT" \
+    nohup node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
+  sleep 1
+  CONTROL_UI_URL="http://127.0.0.1:$CTRL_PORT/"
+  echo "  ✓ control UI → $CONTROL_UI_URL (localhost-only; tunnel it to drive remotely)"
+fi
+
 # ── 4. done ───────────────────────────────────────────────────────────────────
 sleep 4
 cat <<EOF
@@ -288,6 +330,10 @@ cat <<EOF
 ✅ YOUR MXL SWITCHER IS ON AIR
    Watch the program:   http://$PUBLIC_IP:8889/mxl2webrtc/
    (black video? open 8889/tcp AND 8189/udp in your cloud firewall)
+${CONTROL_UI_URL:+
+   🎛  Drive it in a browser: $CONTROL_UI_URL
+      (localhost-only — from your laptop:  ssh -L ${MXL_CONTROL_PORT:-3100}:127.0.0.1:${MXL_CONTROL_PORT:-3100} user@$PUBLIC_IP  then open the URL)
+}
 
    CUT to the clip:     curl -X POST -H 'Content-Type: application/json' -d '{"slot":1}' http://127.0.0.1:9604/pipeline/active-input
    CUT to the pattern:  curl -X POST -H 'Content-Type: application/json' -d '{"slot":0}' http://127.0.0.1:9604/pipeline/active-input
