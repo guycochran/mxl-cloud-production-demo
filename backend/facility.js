@@ -35,13 +35,25 @@ function candidates() {
   return out;
 }
 
+// Env overrides for the manifest's network section (manifest values stay the defaults,
+// so nothing changes unless a variable is set). See docs/CONFIG.md.
+const NETWORK_ENV = { MXL_VM_IP: 'mxl_vm', MXL_VM_INTERNAL_IP: 'mxl_vm_internal', MXL_DOCKER_GATEWAY: 'docker_gateway' };
+function applyEnvOverrides(data) {
+  if (!data.network) return data;
+  for (const [envName, key] of Object.entries(NETWORK_ENV)) {
+    const v = (process.env[envName] || '').trim();
+    if (v) data.network[key] = v;
+  }
+  return data;
+}
+
 function load() {
   for (const p of candidates()) {
     try {
       if (p && fs.existsSync(p)) {
         const data = JSON.parse(fs.readFileSync(p, 'utf8'));
         data._path = p;
-        return data;
+        return applyEnvOverrides(data);
       }
     } catch (e) {
       // malformed at this path — keep looking, surface via loadOrThrow if needed
@@ -93,7 +105,7 @@ function layoutInputLabels() {
 }
 
 module.exports = {
-  FACILITY, load, loadOrThrow,
+  FACILITY, load, loadOrThrow, applyEnvOverrides,
   videoFlow, audioFlow, controlPort, domainPath,
   selectorInputs, layoutInputs, layoutInputLabels,
 };
