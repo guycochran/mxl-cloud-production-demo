@@ -18,6 +18,8 @@ breaks the media path.
 | `test_contribution_core.py` | Cadence constants (2-grain margin, sustained-drift re-sync), the conform-vs-native branch, the **one-videorate** rule (a past double-videorate bug), `mxlsrc video-flow-id` vs `mxlsink flow-id`, the orthogonal `needs_conform`/`timing_policy` properties, the `zoomiso_adapters()` factory (both flow shapes), backend-free `repair_url` disabling. |
 | `test_launch_parity.py` | Golden-string pin of the full guest SRT launch pipeline — the "byte-identical after the seam refactor" guarantee, enforced forever. |
 | `test_docs_links.py` | Every repo-relative Markdown link resolves on disk. |
+| `test_js_backend.py` + `js/*.test.js` | Backend control-route auth (`MXL_CONTROL_TOKEN`) + `/repair` rate limit (Node `--test`, no npm deps; skipped without `node`). |
+| `test_quickstart_hardening.py` | quickstart graphics-server bind/no-listing, optional guest SRT passphrase config, SRI-pinned CDN scripts. |
 
 If a test fails, **do not just update the test** — re-read the cited FINDINGS section
 first. These numbers and strings cost real debugging to discover.

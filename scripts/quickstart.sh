@@ -97,7 +97,7 @@ post(){ curl -s -m 25 -X POST -H 'Content-Type: application/json' -d "$2" "http:
 if [ "${1:-}" = "--down" ]; then
   step "Tearing down quickstart containers + graphics server"
   docker rm -f $CONTAINERS 2>/dev/null || true
-  pkill -f "http.server 8085" 2>/dev/null || true
+  pkill -f "http.server 8085|graphics_server.py" 2>/dev/null || true
   pkill -f "guest_slot_watcher.py" 2>/dev/null || true
   echo "Done. ($BASE and the domain dir are left in place; rm -rf $BASE to remove.)"
   exit 0
@@ -150,9 +150,43 @@ html,body{margin:0;width:1920px;height:1080px;background:transparent;overflow:hi
 </style><div id=bar><div id=name>MXL SWITCHER</div><div id=sub>quickstart — cloud shared-memory production</div></div>
 <div id=clock></div><script>setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour12:false})},250)</script>
 HTML
-pkill -f "http.server 8085" 2>/dev/null || true
-nohup python3 -m http.server 8085 --directory "$BASE/graphics" --bind 0.0.0.0 >/tmp/quickstart-graphics.log 2>&1 &
-echo "  ✓ clip: $CLIP · graphics on :8085"
+pkill -f "http.server 8085|graphics_server.py" 2>/dev/null || true
+# Graphics server (:8085) — only the html5-keyer CONTAINER needs to reach it (via
+# host.docker.internal -> the docker bridge gateway). So by default we bind to that
+# bridge address, NOT 0.0.0.0: unreachable from the internet, still reachable from
+# containers. (127.0.0.1 would break the keyer: containers can't reach host loopback.)
+#   MXL_GRAPHICS_BIND=0.0.0.0     opt back in to the old all-interfaces behaviour
+#   MXL_GRAPHICS_BIND=<ip>        bind a specific address (e.g. 127.0.0.1 if you
+#                                 front the keyer differently)
+# Directory listing is disabled (files are served by exact name only).
+GRAPHICS_BIND="${MXL_GRAPHICS_BIND:-}"
+if [ -z "$GRAPHICS_BIND" ]; then
+  GRAPHICS_BIND=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
+  [ -n "$GRAPHICS_BIND" ] || GRAPHICS_BIND=172.17.0.1
+fi
+cat > "$BASE/graphics_server.py" <<'PY'
+import http.server, os, sys
+# usage: graphics_server.py <port> <bind> <directory>
+class NoListing(http.server.SimpleHTTPRequestHandler):
+    """Static files by exact name; directories 404 (no index/listing)."""
+    def list_directory(self, path):
+        self.send_error(404, "Not found")
+        return None
+    def send_head(self):
+        p = self.translate_path(self.path)
+        if os.path.isdir(p):
+            self.send_error(404, "Not found")
+            return None
+        return super().send_head()
+port, bind, root = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+os.chdir(root)
+http.server.ThreadingHTTPServer((bind, port), NoListing).serve_forever()
+PY
+nohup python3 "$BASE/graphics_server.py" 8085 "$GRAPHICS_BIND" "$BASE/graphics" >/tmp/quickstart-graphics.log 2>&1 &
+sleep 1
+kill -0 $! 2>/dev/null || { echo "  ⚠ graphics server failed to bind $GRAPHICS_BIND:8085 — see /tmp/quickstart-graphics.log (retry with MXL_GRAPHICS_BIND=0.0.0.0)"; }
+[ "$GRAPHICS_BIND" = 0.0.0.0 ] && echo "  ⚠ MXL_GRAPHICS_BIND=0.0.0.0: graphics server is reachable from all interfaces"
+echo "  ✓ clip: $CLIP · graphics on $GRAPHICS_BIND:8085"
 
 # ── 2. containers (exact wiring of the live mxlswitcher.com deployment) ─────
 step "Containers"
@@ -161,7 +195,46 @@ docker rm -f $CONTAINERS >/dev/null 2>&1 || true
 # server backgrounded above, which never exits (hung the script; found 9/13)
 pull_pids=(); for i in $IMAGES; do docker pull -q "$i" >/dev/null & pull_pids+=($!); done
 wait "${pull_pids[@]}"
-docker run -d --name mediamtx --network host --restart unless-stopped \
+# ── optional per-guest SRT publish passphrase (default: OFF, open contribution) ──
+#   MXL_GUEST1_SRT_PASSPHRASE / MXL_GUEST2_SRT_PASSPHRASE   per-slot secret
+#   MXL_GUEST_SRT_PASSPHRASE                                 same secret for both
+# SRT passphrases are 10–79 chars. When set, mediamtx only accepts a publisher on that
+# slot whose SRT connection is encrypted with the passphrase (Larix: Passphrase field;
+# ffmpeg: ...&passphrase=SECRET). Our own readers (guest ingest) are unaffected. When
+# NOTHING is set no config is mounted and behaviour is byte-for-byte unchanged.
+# --- BEGIN guest-srt-conf (extracted by tests/test_quickstart_hardening.py) ---
+_srt_pass_for(){ # <slot 1|2>  → passphrase (per-slot wins over the shared one)
+  local v="MXL_GUEST${1}_SRT_PASSPHRASE"
+  printf '%s' "${!v:-${MXL_GUEST_SRT_PASSPHRASE:-}}"
+}
+_srt_pass_ok(){ # 10–79 chars, no quote/backslash/newline/control chars (goes into YAML)
+  local n=${#1}
+  [ "$n" -ge 10 ] && [ "$n" -le 79 ] || return 1
+  case "$1" in *\'*|*\"*|*\\*|*$'\n'*|*$'\r'*|*$'\t'*) return 1;; esac
+  return 0
+}
+render_mediamtx_guest_conf(){ # prints YAML on stdout; empty output = no auth configured
+  local i p out=""
+  for i in 1 2; do
+    p=$(_srt_pass_for "$i")
+    [ -n "$p" ] || continue
+    _srt_pass_ok "$p" || { echo "✗ guest $i SRT passphrase must be 10-79 chars with no quotes/backslashes/control chars" >&2; return 1; }
+    out+="  guest$i:"$'\n'"    srtPublishPassphrase: '$p'"$'\n'
+  done
+  [ -n "$out" ] && printf 'paths:\n%s  all_others:\n' "$out"
+  return 0
+}
+# --- END guest-srt-conf ---
+MTX_CONF_ARGS=()
+GUEST_CONF=$(render_mediamtx_guest_conf) || exit 1
+if [ -n "$GUEST_CONF" ]; then
+  umask 077; printf '%s\n' "$GUEST_CONF" > "$BASE/mediamtx.guest-auth.yml"; umask 022
+  MTX_CONF_ARGS=(-v "$BASE/mediamtx.guest-auth.yml":/mediamtx.yml:ro)
+  echo "  ✓ SRT publish passphrase REQUIRED for: $([ -n "$(_srt_pass_for 1)" ] && printf 'guest1 ')$([ -n "$(_srt_pass_for 2)" ] && printf 'guest2')"
+else
+  echo "  ⚠ guest SRT slots are OPEN (any publisher who knows the stream id). Set MXL_GUEST_SRT_PASSPHRASE to require one — see SECURITY.md"
+fi
+docker run -d --name mediamtx --network host --restart unless-stopped "${MTX_CONF_ARGS[@]}" \
   -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" "$IMG_MEDIAMTX" >/dev/null
 run_mf(){ # name hostport image extra...
   local name=$1 port=$2 image=$3; shift 3
@@ -283,6 +356,8 @@ fi
 
 # ── 4. done ───────────────────────────────────────────────────────────────────
 sleep 4
+GUEST_PASS_NOTE=""
+[ -n "$GUEST_CONF" ] && GUEST_PASS_NOTE="         Passphrase: the SRT passphrase you configured for that slot (encryption AES, required)"
 cat <<EOF
 
 ✅ YOUR MXL SWITCHER IS ON AIR
@@ -298,6 +373,7 @@ cat <<EOF
       Install "Larix Broadcaster" (free, iOS/Android). New connection → SRT →
          URL:  srt://$PUBLIC_IP:8890
          Mode: Caller   ·   Stream ID:  publish:guest1   (or publish:guest2)
+$GUEST_PASS_NOTE
       Tap to go live → it appears as Guest 1, cuttable like any source:
          curl -X POST -H 'Content-Type: application/json' -d '{"slot":2}' http://127.0.0.1:9604/pipeline/active-input
       (OBS/vMix/ffmpeg work too — same URL. Open 8890/udp in your cloud firewall.)

@@ -33,6 +33,24 @@ down. In particular:
 - **The SRT guest slots accept any publisher** that knows the stream id — that's the
   point (open contribution), but it means anyone who learns `srt://your-ip:8890` +
   `publish:guest1` can push video. Rotate/scope stream ids for anything beyond a demo.
+  **Optional hardening (off by default):** run the quickstart with a per-guest SRT
+  passphrase and mediamtx will reject any publisher on that slot that doesn't encrypt with it:
+  ```bash
+  sudo MXL_GUEST1_SRT_PASSPHRASE='long-secret-for-guest-1' \
+       MXL_GUEST2_SRT_PASSPHRASE='different-secret-guest-2' scripts/quickstart.sh
+  # or one shared secret for both slots:  MXL_GUEST_SRT_PASSPHRASE='…'
+  ```
+  Passphrases are 10–79 characters (SRT's limit; no quotes/backslashes). The guest then
+  enters the same value in Larix's **Passphrase** field (or `…&passphrase=SECRET` on an
+  ffmpeg/OBS SRT URL). The config is written to `/srv/mxl-quickstart/mediamtx.guest-auth.yml`
+  (mode 600) and mounted into mediamtx; it only affects the guest slots you set a passphrase
+  for. With nothing set, behaviour is unchanged and the quickstart prints a reminder.
+  Rotating = re-run the quickstart with a new value (briefly restarts mediamtx).
+- **The graphics server (`:8085`)** is bound to the docker bridge gateway (reachable by the
+  keyer container, not by the internet) rather than all interfaces, and serves files by exact
+  name only (no directory listing). `MXL_GRAPHICS_BIND=0.0.0.0` restores the old behaviour.
+- **Browser pages that load CDN scripts** (`web/mxl-clip.html`, `web/mxl-tams.html`) pin
+  hls.js to 1.5.15 and qrcodejs to an exact commit, both with Subresource Integrity hashes.
 - **Container images are pinned by digest** ([docs/VERSIONS.md](docs/VERSIONS.md)) for
   reproducibility; `MXL_BLEEDING_EDGE=1` opts into upstream `:latest`.
 - **No secrets belong in this repo.** The open core is deliberately decoupled from the
