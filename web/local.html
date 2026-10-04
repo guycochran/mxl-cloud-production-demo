@@ -50,9 +50,13 @@
     grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px;padding:14px}
   .col{display:flex;flex-direction:column;gap:12px;min-height:0}
 
-  /* ── program monitor (the confidence feed) ── */
+  /* ── program monitor (the confidence feed) ──
+     Cap the height so it never eats the viewport and pushes TAKE / the controls
+     below the fold. The 16:9 box is centred; it shrinks to fit the cap, and on a
+     wide window the leftover width is just letterbox, not a giant monitor. */
   .pgmwrap{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;
-    overflow:hidden;aspect-ratio:16/9;flex:0 0 auto}
+    overflow:hidden;aspect-ratio:16/9;flex:0 1 auto;
+    max-height:48vh;max-width:calc(48vh * 16 / 9);width:100%;align-self:center}
   .pgmwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
   .onair{position:absolute;top:11px;left:11px;z-index:2;display:inline-flex;align-items:center;gap:7px;
     font-family:var(--disp);font-size:13px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;
