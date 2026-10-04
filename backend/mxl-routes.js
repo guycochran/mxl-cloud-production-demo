@@ -91,25 +91,32 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
   // and no timeout, a hung / half-up VM kept mxlBusy=true until Node's default
   // socket timeout, so every later cut 409'd "switch in progress" forever.)
   // AbortSignal.timeout aborts the fetch; the busy lock's `finally` then releases.
-  const MXL_API_TIMEOUT_MS = parseInt(process.env.MXL_API_TIMEOUT_MS || '5000', 10);
+  // Read from the INJECTED env (not process.env) so tests can set it. Pipeline
+  // start/stop (keyer/CEF, encoder) are slow — give them a longer budget than a
+  // plain cut (quickstart allows ~25s for a start).
+  const MXL_API_TIMEOUT_MS = parseInt(env.MXL_API_TIMEOUT_MS || '5000', 10);
+  const MXL_API_SLOW_MS = parseInt(env.MXL_API_SLOW_MS || '25000', 10);
+  const _isSlow = (apiPath) => /\/pipeline\/(start|stop)/.test(apiPath);
   async function mxlApi(port, apiPath, body) {
+    const timeoutMs = _isSlow(apiPath) ? MXL_API_SLOW_MS : MXL_API_TIMEOUT_MS;
     const opts = {
-      signal: AbortSignal.timeout(MXL_API_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       ...(body !== undefined
         ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         : {}),
     };
+    const asTimeout = (e) => (e && (e.name === 'TimeoutError' || e.name === 'AbortError'))
+      ? Object.assign(new Error(`MXL :${port}${apiPath} timed out after ${timeoutMs}ms`), { status: 504 })
+      : e;
     let r;
     try {
       r = await fetch(`${MXL_VM}:${port}${apiPath}`, opts);
-    } catch (e) {
-      if (e.name === 'TimeoutError' || e.name === 'AbortError') {
-        throw Object.assign(new Error(`MXL :${port}${apiPath} timed out after ${MXL_API_TIMEOUT_MS}ms`), { status: 504 });
-      }
-      throw e;
-    }
+    } catch (e) { throw asTimeout(e); }
     if (!r.ok) throw new Error(`MXL :${port}${apiPath} -> ${r.status}`);
-    const text = await r.text();
+    // wrap text() too — a stalled BODY (headers sent, body hangs) also aborts here,
+    // and should surface as a clean 504, not a raw "operation was aborted" 502.
+    let text;
+    try { text = await r.text(); } catch (e) { throw asTimeout(e); }
     try { return JSON.parse(text); } catch { return text; }
   }
 
@@ -121,7 +128,7 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
   // container's internal port — so this is a no-op there and off by default. Set
   // MXL_KEYFRAME_NUDGE=1 only if your encoder actually serves /pipeline/keyframe.)
   const keyframeNudge = () => {
-    if (process.env.MXL_KEYFRAME_NUDGE === '1') mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
+    if (env.MXL_KEYFRAME_NUDGE === '1') mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
   };
 
   // Slot roles for the status slots[] array — the configured selector inputs, in
@@ -230,8 +237,8 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
       // moves toward where we're cutting — unlike a full warmup sweep, it never
       // flashes other sources through program or drops the downstream WebRTC relay.
       // Skip the pre-warm when we're already on this slot, or via MXL_PREWARM=0.
-      const prewarm = process.env.MXL_PREWARM !== '0';
-      const prewarmMs = parseInt(process.env.MXL_PREWARM_MS || '250', 10);
+      const prewarm = env.MXL_PREWARM !== '0';
+      const prewarmMs = parseInt(env.MXL_PREWARM_MS || '250', 10);
       if (prewarm && sel.active_input !== selIndex) {
         await mxlApi(9604, '/pipeline/active-input', { slot: selIndex }).catch(() => {});
         await new Promise(r => setTimeout(r, prewarmMs));
@@ -347,16 +354,16 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
     const pattern = req.body.pattern;
     if (!MXL_PATTERNS.includes(pattern)) return res.status(400).json({ error: 'unknown pattern' });
     try {
-      const st = await mxlStatus();
+      // Set the test generator's pattern. Deliberately do NOT auto-cut to it.
+      // (Review R3: the old code cut to a hardcoded slot 2, and even "fix it to the
+      // pattern role" is wrong here — this facility's manifest role labels are
+      // inconsistent (role `pattern` is labelled "Clip Video" = the file player;
+      // the TG's own output is role `playout` labelled "TG Video"), and the
+      // manifest↔quickstart role naming disagrees. Rather than guess which slot the
+      // TG feeds, we only set the pattern; the operator cuts to the source they want
+      // via the normal bus. Unambiguous and can't cut to the wrong input.)
       await mxlApi(9600, '/video/test-pattern', { pattern });
-      // Cut to the PATTERN role, not a hardcoded slot index. (Review R3: `2` was a
-      // magic index that only happens to be `pattern` in this manifest; on another
-      // layout it could be a different source.) If the facility has no pattern slot
-      // wired, just set the generator and don't cut.
-      const patSlot = toLayoutSlot('pattern');
-      let cut = false;
-      if (patSlot >= 0 && st.input !== patSlot) { await mxlSetInput(patSlot); cut = true; }
-      res.json({ ok: true, pattern, cut });
+      res.json({ ok: true, pattern, cut: false });
     } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
 

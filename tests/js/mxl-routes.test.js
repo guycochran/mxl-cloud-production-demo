@@ -128,33 +128,49 @@ test('R4: a valid role name and a numeric index still work', async () => {
   assert.strictEqual(res.body.input, 0);
 });
 
-test('R3: /pattern cuts to the pattern ROLE slot, not a hardcoded index', async () => {
+test('R3: /pattern sets the generator but does NOT cut (no wrong-source cut)', async () => {
   const app = mkApp(); registerMxlRoutes(app, { env: {}, log: silent });
-  // pattern role is slot 2 in the manifest; wire the selector so slot 2's flow is attached
-  const patternFlow = '6b5d8d68-64ce-56f8-bea2-e79b6c282a86';
-  // selector currently on slot 0, with pattern flow present at index 0 of a 1-input wiring
-  const calls = mkFetch(statusResponder(99, [patternFlow]));
+  const calls = mkFetch(statusResponder(0, ['ca111e00-aaaa-4bbb-8ccc-000000000001']));
   const res = await call(app, 'POST /api/mxl/pattern', { headers: {}, body: { pattern: 'SMPTE' }, ip: '1.1.1.1' });
   assert.strictEqual(res.code, 200);
+  assert.strictEqual(res.body.cut, false, 'pattern must not auto-cut');
   // it set the generator pattern...
   assert.ok(calls.some((c) => c.url.includes('/video/test-pattern') && c.body && c.body.pattern === 'SMPTE'));
-  // ...and cut to the pattern flow (not blindly slot "2"): active-input targeting the pattern flow's index
-  const cut = calls.find((c) => c.url.includes('/pipeline/active-input'));
-  assert.ok(cut, 'should cut to the pattern slot');
-  assert.strictEqual(cut.body.slot, 0, 'cut index resolves to the pattern flow in the live wiring, not a literal 2');
+  // ...and issued NO active-input cut (the old bug cut to a hardcoded slot 2 = the clip player)
+  assert.ok(!calls.some((c) => c.url.includes('/pipeline/active-input')), 'pattern must not issue a cut');
 });
 
-test('R5: a hung VM (fetch timeout) surfaces as an error and releases the busy lock', async () => {
-  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_API_TIMEOUT_MS: '20' }, log: silent });
-  // fetch that never resolves until aborted -> AbortSignal.timeout fires
+test('R5: a hung VM (fetch timeout) surfaces 504 and releases the busy lock', async () => {
+  // timeout injected via env — mxlApi reads the INJECTED env, so this really takes effect
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_API_TIMEOUT_MS: '30' }, log: silent });
+  // a fetch that hangs until the AbortSignal fires, then rejects like real fetch does
   global.fetch = (url, opts) => new Promise((_resolve, reject) => {
-    if (opts && opts.signal) opts.signal.addEventListener('abort', () => {
-      const e = new Error('aborted'); e.name = 'TimeoutError'; reject(e);
-    });
+    const sig = opts && opts.signal;
+    if (sig) sig.addEventListener('abort', () => {
+      const e = new Error('The operation was aborted'); e.name = 'AbortError'; reject(e);
+    }, { once: true });
   });
+  const t0 = Date.now();
   const first = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
-  assert.ok(first.code === 504 || first.code === 502, `timed-out cut should error (got ${first.code})`);
-  // lock must be released: a second cut should NOT be a blanket 409 "switch in progress"
+  assert.strictEqual(first.code, 504, `timed-out cut should be 504 (got ${first.code})`);
+  assert.ok(Date.now() - t0 < 2000, 'should abort near the 30ms budget, not hang 5s');
+  // lock released: a second cut proceeds to fetch (and times out again), not a blanket 409
   const second = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
-  assert.notStrictEqual(second.body && second.body.error, 'switch in progress', 'busy lock must not stay stuck after a timeout');
+  assert.strictEqual(second.code, 504, 'busy lock must not stay stuck — second cut reaches fetch, not 409');
+  assert.notStrictEqual(second.body && second.body.error, 'switch in progress', 'no stuck busy lock');
+});
+
+test('R5: a stalled BODY (headers ok, text() hangs) also surfaces 504, not a raw 502', async () => {
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_API_TIMEOUT_MS: '30' }, log: silent });
+  global.fetch = async (url, opts) => ({
+    ok: true,
+    text: () => new Promise((_res, reject) => {
+      const sig = opts && opts.signal;
+      if (sig) sig.addEventListener('abort', () => {
+        const e = new Error('The operation was aborted'); e.name = 'AbortError'; reject(e);
+      }, { once: true });
+    }),
+  });
+  const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 504, `stalled body should be 504 (got ${res.code}: ${res.body && res.body.error})`);
 });

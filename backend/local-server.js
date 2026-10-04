@@ -119,7 +119,11 @@ app.use('/program', proxyTo((req) => `/${PROGRAM_PATH}` + (req.url === '/' ? '/'
 app.use('/' + PROGRAM_PATH, proxyTo((req) => `/${PROGRAM_PATH}${req.url}`));
 
 app.listen(PORT, BIND, () => {
-  const vm = (facility && facility.network && facility.network.mxl_vm) || '127.0.0.1';
+  // Report the ACTUAL target mxl-routes resolved (Review R6d: this used to print the
+  // manifest IP even when the routes defaulted to 127.0.0.1 — a misleading log).
+  const vm = process.env.MXL_VM_URL
+    || (process.env.MXL_VM_FROM_MANIFEST === '1' && facility && facility.network && `http://${facility.network.mxl_vm}`)
+    || 'http://127.0.0.1';
   console.log(`mxl local control: http://${BIND}:${PORT}/  (controlling MXL VM ${vm})`);
   if (BIND === '127.0.0.1') {
     console.log('  localhost-only. Set MXL_CONTROL_BIND=0.0.0.0 to reach it on the LAN.');
