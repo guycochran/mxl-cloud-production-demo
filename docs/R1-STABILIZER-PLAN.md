@@ -54,9 +54,44 @@ The PoC proved the stabilizer survives recreation, but a clean end-to-end needs:
    selector-output-reader needs the same stabilizer treatment, or a restamp
    alignment). This is the piece to finish before claiming the wedge is GONE.
 
+## UPDATE (Oct 4, 2nd VM session) — the §4 detail is a KNOWN hard problem; approach revised
+
+Stood up the full chain (cam1+cam2 each through a stabilizer → selector on the two
+stable flows). Result: the selector errored **`read source grain N: Out of range -
+too early`** and the program rendered blank. Root cause identified:
+
+- The stabilizer restamps its output to `now + MARGIN` (free-running clock). The
+  **selector needs the offset-lock-FOLLOWING-the-buffer-timeline restamp** instead
+  (the cam_ingest / layout_pgm-v3 model, `RESYNC_NS=150ms` re-lock). This exact
+  "grain too early" failure + its fix is documented in MXL-NOTES (slot-6 layout
+  saga): free-running restamp → unbounded ring drift → readers read past the write
+  index. The stabilizer uses the WRONG restamp model for a selector consumer.
+- Separately, MXL-NOTES flags that a prior stabilizer-per-source deployment once
+  **wedged VM1** (D-state I/O pileup, load 163/32, ~60 zombie python procs from an
+  unreaped supervisor, spawn storm). So a stabilizer PER cut-source carries real
+  operational risk at scale, not just CPU.
+
+### Revised recommendation (cheaper AND safer than a separate stabilizer)
+The ingest (`contribution_core` / cam_ingest / guest_ingest) **already** restamps
+correctly onto the local clock — that's why cutting to volatile ingest flows works.
+The only reason the wedge exists is that the ingest **recreates its flow** on
+reconnect. So the right fix is to fold the stabilizer's "create-once-never-recreate
++ swap-reader-in-place" behaviour INTO the ingest pipeline, reusing the ingest's
+ALREADY-CORRECT restamp — rather than bolting a separate stabilizer (wrong restamp,
+extra process, zombie/spawn risk) after it. One flow, correct timeline, no wedge,
+no extra process.
+
+That's a change to `contribution_core` (make the mxlsink flow persistent across
+reconnects + swap the source leg in-place), which is a focused piece of work with a
+clear design — but bigger than a config tweak, and it must not regress the
+HW-proven A/V lip-sync path. Until it's done and HW-verified (A→B→A across a
+reconnect, zero wedge via the keyer-PGM grab), the current **per-cut pre-warm stays
+as the safe interim** — it's imperfect (250ms window, can't recover a stuck current
+source) but it doesn't risk a spawn-storm wedge.
+
 ## Why this isn't shipped yet
-Wiring half of this (stabilizers without the selector/keyer alignment in #4) would
-be worse than the current pre-warm — it adds CPU (a stabilizer per source) without
-fully closing the wedge. Finishing it right is a focused VM session: stand up the
-full stabilizer chain, confirm A→B→A across a guest reconnect shows zero wedge via
-the keyer-PGM frame grab, THEN remove the pre-warm. Tracked as the R1 follow-up.
+Wiring stabilizers naively (the first idea) is WORSE than the pre-warm: wrong
+restamp → blank program, plus the spawn-storm risk. The correct fix (persistent
+flow inside the ingest) is the right next step but is real work on the lip-sync-
+critical ingest path — do it in a dedicated session with the A/V regression in
+mind, THEN remove the pre-warm. Tracked as the R1 follow-up.
