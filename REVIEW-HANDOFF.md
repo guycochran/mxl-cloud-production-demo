@@ -97,13 +97,14 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
   `~/Projects/mxl-cloud-production-demo` — the dir wasn't renamed because live systemd units
   reference that path; the GitHub repo IS renamed and the old URL redirects). Everything is
   committed (verify: `git status` clean, `git log --oneline origin/master..HEAD` empty).
-- **Deployed service:** `mxl-switcher-ui.service` (systemd **user** unit on the prodbots
-  home box, `~/.config/systemd/user/`). Runs `node backend/local-server.js` on
-  `127.0.0.1:3100`. Verify: `systemctl --user status mxl-switcher-ui`.
-- **Public URL:** `https://mxl-switcher.cochran.cloud` → system cloudflared
-  (`/etc/cloudflared/config.yml`, a cloudflared named-tunnel UUID) → localhost:3100.
-- **Facility:** Azure VM `<VM_NAME>` (`<VM_PUBLIC_IP>`, RG `<RESOURCE_GROUP>`). ⚠️ **BILLING WHILE UP** —
-  deallocate when review is done: `az vm deallocate -g <RESOURCE_GROUP> -n <VM_NAME>`.
+- **Deployed service:** `mxl-switcher-ui.service` (systemd **user** unit). Runs
+  `node backend/local-server.js` on `127.0.0.1:3100`, behind a cloudflared tunnel.
+  Verify: `systemctl --user status mxl-switcher-ui`.
+- **Public URL + facility:** the specific public URL, tunnel UUID, VM IP, resource
+  group, SSH key path, and env-file location are **deployment-specific and live in a
+  private ops note, not this repo** (Review R6e). An operator with that note can
+  deallocate the lab VM when done (it bills while up). This doc stays about *what to
+  verify*, not *where the live box is*.
 
 ---
 
@@ -160,18 +161,18 @@ has the token ON.
 VERIFY (code): `grep -nE "app\.(get|post)\('/api/mxl" backend/mxl-routes.js` — every POST
   should have `auth`; GET /status should not.
 VERIFY (live, from the box):
-    curl -sI https://mxl-switcher.cochran.cloud/ | head -1                         # 200 (page open)
+    curl -sI https://<your-switcher-url>/ | head -1                         # 200 (page open)
     curl -s -o/dev/null -w "%{http_code}\n" -XPOST -d '{"input":0}' \
-      --resolve mxl-switcher.cochran.cloud:443:104.21.74.205 \
-      https://mxl-switcher.cochran.cloud/api/mxl/input                             # 401 (no token)
+      --resolve <your-switcher-url>:443:<edge-ip> \
+      https://<your-switcher-url>/api/mxl/input                             # 401 (no token)
     # with token (from ~/.env.stack MXL_CONTROL_TOKEN) -> NOT 401 (200 if VM up, 502 if down)
   NOTE: control API is unauthenticated-by-default by design; the token is a shared secret
   over HTTPS, not a real auth system. The security boundary is "view open, control gated."
 
 ### 6. External reachability (the thing the author got wrong, then proved)
-CLAIM: `https://mxl-switcher.cochran.cloud` is reachable from the public internet.
+CLAIM: `https://<your-switcher-url>` is reachable from the public internet.
 VERIFY (independent, off this box AND off the operator's network):
-    curl -s "https://api.hackertarget.com/httpheaders/?q=https://mxl-switcher.cochran.cloud/" | head -1
+    curl -s "https://api.hackertarget.com/httpheaders/?q=https://<your-switcher-url>/" | head -1
   → `HTTP/1.1 200 OK`. The DNS record resolves on 12+ public resolvers + both authoritative
   Cloudflare NS + Google/Cloudflare DoH (status 0). The operator's browser showed NXDOMAIN —
   that is a STALE NEGATIVE CACHE on their PC/router (the record was created ~19:15 UTC and
@@ -190,7 +191,7 @@ VERIFY (independent, off this box AND off the operator's network):
   audio_pgm or pin the relay to video-only.
 - **Selector pipeline can stop on a facility hiccup**, leaving `running:false, inputs:[]` —
   cuts then 409 ("source not attached"). Needs a restart + re-wire of the cam inputs. The
-  live mxlswitcher.com facility has watchdog services for this class (selector-doctor);
+  live production facility has watchdog services for this class (selector-doctor);
   this ad-hoc VM bring-up does not.
 - **Fresh-selector settling window:** right after the selector pipeline is RECREATED, the
   first cut's program output can lag a few seconds before catching up (the output reader is
@@ -219,4 +220,4 @@ VERIFY (independent, off this box AND off the operator's network):
    that matters most and is the easiest to over-trust.
 4. Hit the public URL from a clean network; confirm 200 + 401-without-token + token works.
 5. Sanity-check the auth model is actually what you'd want for a public control plane.
-6. When done: `az vm deallocate -g <RESOURCE_GROUP> -n <VM_NAME>` (stop billing).
+6. When done: `az vm deallocate -g <resource-group> -n <vm-name>` (stop billing).

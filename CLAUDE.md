@@ -39,9 +39,10 @@ cut returns "source not attached." Fix = generate the slot map from discovered I
 - **Air-gap rule:** `web/local.html` must load NOTHING from external hosts (fonts are
   self-hosted woff2 in `web/fonts/`). `tests/test_local_ui.py` enforces this.
 - **Auth:** `MXL_CONTROL_TOKEN` (optional) gates all mutating routes; `GET /status` open.
-- **Deployed:** `mxl-switcher.cochran.cloud` via `mxl-switcher-ui.service` (user systemd
-  on the prodbots box) — see memory `mxl-switcher-deploy-2026-10`. DO NOT redeploy or
-  touch the tunnel from a review branch.
-- **Facility:** Azure VM `<VM_NAME>` (<VM_PUBLIC_IP>, RG `<RESOURCE_GROUP>`) — ⚠️ bills while up,
-  deallocate when HW testing is done. HW truth-check for program-follows-cut: grab the
-  keyer-PGM flow frame (`gst-launch mxlsrc video-flow-id=5c73394e-… ! jpegenc`) in hls2mxl.
+- **Deployed:** a public URL via `mxl-switcher-ui.service` (user systemd, behind a
+  cloudflared tunnel). The specific URL, VM IP, resource group, and tunnel UUID are
+  deployment-specific and live in a private ops note, NOT this repo (Review R6e).
+  DO NOT redeploy or touch the tunnel from a review branch.
+- **Facility:** the lab Azure VM ⚠️ bills while up — deallocate when HW testing is
+  done. HW truth-check for program-follows-cut: grab the keyer-PGM flow frame
+  (`gst-launch mxlsrc video-flow-id=<keyer-uuid> ! jpegenc`) inside the ingest container.

@@ -95,3 +95,69 @@ test('rate limiter: max=0 disables; env parsing falls back to defaults', () => {
   ok = 0; for (let i = 0; i < 14; i++) if (run(junk, { ip: 'c', headers: {} }).nexted) ok++;
   assert.strictEqual(ok, 10);
 });
+
+// ── R6a: real-client keying behind a proxy (CF-Connecting-IP / X-Forwarded-For) ──
+const { clientKeyFactory } = require(path.join(__dirname, '..', '..', 'backend', 'mxl-auth.js'));
+
+test('R6a: clientKey prefers CF-Connecting-IP, then XFF, then req.ip', () => {
+  const key = clientKeyFactory({});
+  assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.9' } }), '203.0.113.9');
+  assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'x-forwarded-for': '198.51.100.7, 10.0.0.1' } }), '198.51.100.7');
+  assert.strictEqual(key({ ip: '10.0.0.1', headers: {} }), '10.0.0.1');
+});
+
+test('R6a: MXL_TRUST_PROXY_HEADERS=0 ignores the headers (direct-exposure case)', () => {
+  const key = clientKeyFactory({ MXL_TRUST_PROXY_HEADERS: '0' });
+  assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.9' } }), '10.0.0.1');
+});
+
+test('R6a: the /repair limiter buckets per REAL client, not the shared tunnel IP', () => {
+  // two clients behind the same tunnel (same req.ip) but different CF-Connecting-IP
+  const limit = rateLimiterFromEnv({ MXL_REPAIR_RATE_MAX: '2' });
+  const mk = (cf) => ({ ip: '172.17.0.1', headers: { 'cf-connecting-ip': cf } });
+  // client A: 2 ok then 429
+  assert.ok(run(limit, mk('1.1.1.1')).nexted);
+  assert.ok(run(limit, mk('1.1.1.1')).nexted);
+  assert.strictEqual(run(limit, mk('1.1.1.1')).res.code, 429);
+  // client B shares the tunnel IP but should have its OWN bucket — not already limited
+  assert.ok(run(limit, mk('2.2.2.2')).nexted, 'second client must not inherit the first client\'s count');
+});
+
+// ── R6b: failed-auth throttle ──
+test('R6b: repeated bad tokens get throttled (429) after MXL_AUTH_FAIL_MAX', () => {
+  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '3' }, quiet());
+  const bad = { ip: '9.9.9.9', headers: { 'x-mxl-token': 'wrong' } };
+  assert.strictEqual(run(middleware, bad).res.code, 401); // 1
+  assert.strictEqual(run(middleware, bad).res.code, 401); // 2
+  assert.strictEqual(run(middleware, bad).res.code, 401); // 3 -> hits max
+  const locked = run(middleware, bad).res;                 // 4 -> locked out
+  assert.strictEqual(locked.code, 429);
+  assert.ok(locked.headers['Retry-After']);
+});
+
+test('R6b: a correct token clears the failure count (not locked after success)', () => {
+  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '3' }, quiet());
+  const bad = { ip: '8.8.8.8', headers: { 'x-mxl-token': 'wrong' } };
+  const good = { ip: '8.8.8.8', headers: { 'x-mxl-token': TOK } };
+  run(middleware, bad); run(middleware, bad);           // 2 fails
+  assert.ok(run(middleware, good).nexted, 'correct token should pass');
+  // count reset — two more bad attempts should NOT yet lock (would have at 3 cumulative)
+  assert.strictEqual(run(middleware, bad).res.code, 401);
+  assert.strictEqual(run(middleware, bad).res.code, 401);
+});
+
+test('R6b: MXL_AUTH_FAIL_MAX=0 disables the throttle (always 401, never 429)', () => {
+  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '0' }, quiet());
+  const bad = { ip: '7.7.7.7', headers: { 'x-mxl-token': 'wrong' } };
+  for (let i = 0; i < 30; i++) assert.strictEqual(run(middleware, bad).res.code, 401);
+});
+
+test('R6b: failed-auth throttle is per-client (CF-IP), so one attacker can\'t lock out others', () => {
+  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '2' }, quiet());
+  const attacker = { ip: '172.17.0.1', headers: { 'cf-connecting-ip': '6.6.6.6', 'x-mxl-token': 'wrong' } };
+  run(middleware, attacker); run(middleware, attacker);
+  assert.strictEqual(run(middleware, attacker).res.code, 429); // attacker locked
+  // a different real client (same tunnel) is NOT locked
+  const victim = { ip: '172.17.0.1', headers: { 'cf-connecting-ip': '5.5.5.5', 'x-mxl-token': 'wrong' } };
+  assert.strictEqual(run(middleware, victim).res.code, 401, 'different client must not be locked by the attacker');
+});

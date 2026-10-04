@@ -63,6 +63,8 @@ Already env-driven before this change (unchanged): `MXL_GUEST_HOST`, `MXL_GUEST_
 | `MXL_CONTROL_TOKEN` | `backend/mxl-routes.js` — require this shared token on `POST /api/mxl/input\|key\|pattern\|repair` | unset = open (startup warning) |
 | `MXL_CONTROL_REQUIRE_TOKEN` | same — `1` = answer 503 if no token configured (fail closed) | unset |
 | `MXL_REPAIR_RATE_MAX`, `MXL_REPAIR_RATE_WINDOW_S` | same — `/repair` calls per window per client (`0` = no limit) | `10`, `60` |
+| `MXL_AUTH_FAIL_MAX`, `MXL_AUTH_FAIL_WINDOW_S` | `backend/mxl-auth.js` — failed-auth attempts per client before a `429` lockout (throttles brute-forcing the shared token; `0` = no limit) | `20`, `60` |
+| `MXL_TRUST_PROXY_HEADERS` | `backend/mxl-auth.js` — use `CF-Connecting-IP` / `X-Forwarded-For` as the rate-limit client key (so visitors behind the tunnel get separate buckets, not the tunnel's one IP). Set `0` only if the server is exposed directly, not behind a trusted proxy | `1` (on) |
 | `MXL_GUEST1_SRT_PASSPHRASE`, `MXL_GUEST2_SRT_PASSPHRASE`, `MXL_GUEST_SRT_PASSPHRASE` | `scripts/quickstart.sh` — require an SRT passphrase to publish on a guest slot | unset = open |
 | `MXL_GRAPHICS_BIND` | `scripts/quickstart.sh` — bind address of the `:8085` graphics server | docker bridge gateway (e.g. `172.17.0.1`); `0.0.0.0` = old behaviour |
 
