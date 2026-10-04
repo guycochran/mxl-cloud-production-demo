@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # mxl-selfheal.sh — a portable self-healer for the quickstart MXL switcher.
 #
-# The adopter stack has no watchdog (the live mxlswitcher.com facility does, but
+# The adopter stack has no watchdog (the live production facility does, but
 # those healers are wired to prodbots/VM1 — see mxl-doctor). Yet the facility drifts:
 # across a long session we repeatedly hit two failures, both of which black out the
 # program with no automatic recovery:
