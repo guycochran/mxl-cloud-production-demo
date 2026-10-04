@@ -6,11 +6,19 @@
 //   registerMxlRoutes(app);   // uses global fetch (Node 18+) or node-fetch
 //
 // Endpoints:
-//   GET  /api/mxl/status            aggregated program/key/pattern state
-//   POST /api/mxl/input  {input}    cut program: "cam"|0|1|2 (~30ms)
+//   GET  /api/mxl/status            aggregated program/preview/key/pattern state
+//                                   + slots[] with per-slot live signal
+//   POST /api/mxl/input  {input}    cut program (hot-cut): "cam"|0|1|2 (~30ms)
+//   POST /api/mxl/preview{input}    arm the preview bus (PVW) — no device call
+//   POST /api/mxl/take   {}         take: cut the armed PVW to PGM (~30ms)
 //   POST /api/mxl/key    {on}       toggle the keyer
 //   POST /api/mxl/pattern{pattern}  set generator pattern (whitelisted)
 //   POST /api/mxl/repair {slot,key} full downstream cascade rebuild
+//
+// PVW/PGM dual-bus: PGM is the live selector slot (what's on air); PVW is a
+// server-side "armed" slot the operator stages before a TAKE. Preview is pure
+// state — arming costs nothing until TAKE cuts it to program. This mirrors the
+// ATEM preview/program model broadcast operators expect.
 //
 // Flow UUIDs come from the facility manifest (config/facility.json) — the single
 // source of truth shared with the Python tools (grain_probe, audio_pgm, ...).
@@ -65,6 +73,14 @@ module.exports = function registerMxlRoutes(app) {
   }
 
   let mxlBusy = false;
+  let pvw = null;   // armed preview slot (0..3) — server-side, no device call
+
+  // Slot roles for the status slots[] array — the configured selector inputs, in
+  // order (slot 0..N). A slot whose UUID is a real flow is "wired"; the selector's
+  // active_input tells us which one is actually on air. This is the manifest-driven
+  // fallback for per-slot live when the server can't read the MXL domain directly
+  // (documented in docs/LOCAL-CONTROL-PLANE.md).
+  const _slotUuids = _selInputs.slice();
 
   async function mxlStatus() {
     const [keyer, sel, tg1] = await Promise.all([
@@ -72,7 +88,20 @@ module.exports = function registerMxlRoutes(app) {
       mxlApi(9600, '/pipeline/status')
     ]);
     const onCam = keyer.input_flow_uuid === MXL_CAM_FLOW;
-    return { input: onCam ? 0 : sel.active_input, key: !!keyer.key_on, busy: mxlBusy,
+    const input = onCam ? 0 : sel.active_input;
+    // Per-slot live: the selector reports the flow UUIDs currently wired to each
+    // input. A slot is "live" if the selector has a real flow on it; the active
+    // slot is additionally the on-air one. Falls back to the configured inputs if
+    // the selector doesn't echo its wiring.
+    const wired = Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids : _slotUuids;
+    const slots = _slotUuids.map((uuid, i) => ({
+      slot: i,
+      flow: wired[i] || uuid || null,
+      live: !!(wired[i] || uuid),   // a real flow is wired to this input
+      pgm: i === input,
+      pvw: i === pvw,
+    }));
+    return { input, pvw, key: !!keyer.key_on, busy: mxlBusy, slots,
       patterns: { tg1: tg1.video && tg1.video.pattern }, available: MXL_PATTERNS };
   }
 
@@ -109,6 +138,34 @@ module.exports = function registerMxlRoutes(app) {
   app.post('/api/mxl/input', async (req, res) => {
     try { res.json(await mxlSetInput(req.body.input)); }
     catch (e) { res.status(e.status || 502).json({ error: e.message }); }
+  });
+
+  // Arm the preview bus. Pure server-side state — no device call, so it's instant
+  // and never conflicts with an in-flight cut. Accepts the same slot forms as /input.
+  app.post('/api/mxl/preview', (req, res) => {
+    const input = req.body.input;
+    const slot = input === 'cam' ? 0 : input === 'cam2' ? 3 : Number(input);
+    if (![0, 1, 2, 3].includes(slot)) {
+      return res.status(400).json({ error: 'input must be "cam", "cam2", 0, 1, 2 or 3' });
+    }
+    pvw = slot;
+    res.json({ ok: true, pvw });
+  });
+
+  // Take: cut the armed preview to program (PVW -> PGM), the way an operator
+  // presses TAKE after staging a source on preview.
+  app.post('/api/mxl/take', async (req, res) => {
+    if (pvw === null) return res.status(409).json({ error: 'nothing armed on preview' });
+    try {
+      const st = await mxlStatus();
+      if (pvw === st.input) {
+        // already on air — nothing to cut, but clear the arm so the UI settles
+        return res.json({ ok: true, input: st.input, pvw, noop: true });
+      }
+      const result = await mxlSetInput(pvw);   // the ~30ms cut
+      pvw = result.input;                        // armed source is now PGM
+      res.json({ ok: true, input: result.input, pvw });
+    } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
 
   app.post('/api/mxl/key', async (req, res) => {

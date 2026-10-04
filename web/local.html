@@ -5,216 +5,337 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MXL Switcher</title>
 <style>
+  /* ── self-hosted fonts (bundled woff2 — works on an air-gapped box) ───── */
+  @font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-600.woff2') format('woff2')}
+  @font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-700.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:500;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-600.woff2') format('woff2')}
+
   :root{
-    --bg:#0c0e12; --panel:#14171d; --panel2:#1b1f27; --line:#272c36;
-    --ink:#e9edf2; --muted:#8a93a0; --faint:#5b6472;
-    --tally:#e5484d; --tally-glow:#e5484d88; --live:#30a46c; --amber:#d9a441;
-    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
-    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --bg:#05070c; --panel:#0b1018; --panel2:#101725; --line:#1d2940;
+    --ink:#e8eeff; --dim:#7e8aa8; --faint:#4b5878;
+    --acc:#5b8cff; --acc2:#9d6bff; --amber:#ffb400; --cyan:#35e0ff;
+    --red:#e5484d; --grn:#23d97c;           /* sacred: PGM red, PVW green */
+    --red-glow:rgba(229,72,77,.5); --grn-glow:rgba(35,217,124,.35);
+    --disp:'Barlow Condensed',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
   }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
-  body{
-    background:var(--bg);color:var(--ink);font-family:var(--sans);
-    -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;min-height:100%;
-  }
-  /* ── top bar: rack silkscreen ── */
-  .rack{display:flex;align-items:center;gap:.9rem;padding:.7rem 1.1rem;border-bottom:1px solid var(--line);background:var(--panel)}
-  .rack .brand{font-weight:800;letter-spacing:.02em;font-size:.95rem}
-  .rack .brand span{color:var(--muted);font-weight:600}
-  .rack .spacer{flex:1}
-  .pill{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;
-        text-transform:uppercase;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:.22rem .5rem}
-  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
-  .pill.ok .dot{background:var(--live);box-shadow:0 0 6px var(--live)}
-  .pill.ok{color:var(--ink)}
-  .pill b{color:var(--ink);font-weight:700}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--disp);
+    display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
 
-  main{flex:1;display:flex;flex-direction:column;max-width:1100px;width:100%;margin:0 auto;padding:1rem 1.1rem 2rem;gap:1rem}
+  /* ── rack header ── */
+  header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:10px 18px;
+    background:#070b13;border-bottom:1px solid var(--line)}
+  .wordmark{font-size:22px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;line-height:1}
+  .wordmark b{font-weight:700;background:linear-gradient(90deg,var(--acc),var(--acc2));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .wordmark span{color:var(--dim);font-weight:600}
+  header .spacer{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;
+    font-weight:500;letter-spacing:.5px;color:var(--dim);border:1px solid var(--line);
+    border-radius:6px;padding:5px 9px;text-transform:uppercase}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .chip.ok{color:var(--ink)} .chip.ok .dot{background:var(--grn);box-shadow:0 0 7px var(--grn-glow)}
+  .chip.bad .dot{background:var(--red);box-shadow:0 0 7px var(--red-glow)}
+  .chip b{color:var(--ink);font-weight:600}
 
-  /* ── program monitor ── */
-  .monitor{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:16/9}
-  .monitor iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-  .monitor .pgmtag{position:absolute;top:10px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:.45rem;
-    font-family:var(--mono);font-size:.7rem;font-weight:700;letter-spacing:.14em;color:#fff;
-    background:var(--tally);padding:.25rem .55rem;border-radius:4px;box-shadow:0 0 14px var(--tally-glow)}
-  .monitor .pgmtag .live{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1.6s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  @media (prefers-reduced-motion:reduce){.monitor .pgmtag .live{animation:none}}
+  /* ── layout: program hero left, bus + controls right ── */
+  main{flex:1 1 auto;min-height:0;display:grid;
+    grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);gap:14px;padding:14px}
+  .col{display:flex;flex-direction:column;gap:12px;min-height:0}
 
-  /* ── cut bar ── */
-  .barhead{display:flex;align-items:baseline;justify-content:space-between;margin-top:.2rem}
-  .barhead h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0;font-weight:700}
-  .barhead .hint{font-size:.76rem;color:var(--faint)}
-  .bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem}
-  .src{
-    position:relative;appearance:none;cursor:pointer;font-family:var(--sans);text-align:left;
-    background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:9px;
-    padding:.8rem .8rem .7rem;overflow:hidden;transition:border-color .12s,background .12s,transform .05s;
-  }
-  .src:hover{border-color:#3a414d;background:#1f242d}
-  .src:active{transform:translateY(1px)}
-  .src .num{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
-  .src .name{display:block;margin-top:.5rem;font-weight:650;font-size:.98rem;line-height:1.2}
-  .src .tally{position:absolute;left:0;right:0;top:0;height:3px;background:transparent}
-  /* ON AIR tally — the signature */
-  .src.live{border-color:var(--tally);background:#241315}
-  .src.live .tally{background:var(--tally);box-shadow:0 0 12px var(--tally-glow)}
-  .src.live .num{color:var(--tally)}
-  .src.live .name::after{content:"ON AIR";float:right;font-family:var(--mono);font-size:.6rem;font-weight:700;
-    letter-spacing:.1em;color:var(--tally);border:1px solid var(--tally);border-radius:3px;padding:.05rem .3rem;margin-top:.05rem}
+  /* ── program monitor (the confidence feed) ── */
+  .pgmwrap{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;aspect-ratio:16/9;flex:0 0 auto}
+  .pgmwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .onair{position:absolute;top:11px;left:11px;z-index:2;display:inline-flex;align-items:center;gap:7px;
+    font-family:var(--disp);font-size:13px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;
+    color:#fff;background:var(--red);padding:5px 11px;border-radius:5px;box-shadow:0 0 16px var(--red-glow);
+    animation:pulse 2s ease-in-out infinite}
+  .onair .d{width:8px;height:8px;border-radius:50%;background:#fff}
+  @keyframes pulse{50%{box-shadow:0 0 4px var(--red-glow)}}
+  .pgmname{position:absolute;bottom:11px;left:11px;z-index:2;font-family:var(--mono);font-size:11px;
+    font-weight:600;color:var(--ink);background:rgba(5,7,13,.72);padding:4px 9px;border-radius:5px}
 
-  /* ── controls row ── */
-  .controls{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:.3rem}
-  .btn{appearance:none;cursor:pointer;font-family:var(--sans);font-weight:600;font-size:.86rem;
-    background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:.55rem .9rem;transition:border-color .12s,background .12s}
-  .btn:hover{border-color:#3a414d;background:#1f242d}
-  .btn.on{border-color:var(--amber);color:var(--amber);background:#241e10}
-  select.btn{padding-right:.6rem}
-  .grp{display:flex;align-items:center;gap:.5rem}
-  .grp .lbl{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  /* ── multiview wall ── */
+  .wallhead{display:flex;align-items:baseline;justify-content:space-between}
+  .wallhead h2{font-size:14px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--dim)}
+  .wallhead .k{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.3px}
+  .wall{flex:1 1 auto;min-height:0;overflow-y:auto;display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px;align-content:start;padding-right:2px}
+  .tile{position:relative;background:#060910;border:2px solid var(--line);border-radius:9px;
+    overflow:hidden;aspect-ratio:16/9;cursor:pointer;transition:border-color .12s,transform .05s}
+  .tile:hover{border-color:#36507f}
+  .tile:active{transform:translateY(1px)}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block;background:#060910}
+  .tile .label{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:6px;
+    padding:5px 8px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink);
+    background:linear-gradient(0deg,rgba(5,7,13,.92),rgba(5,7,13,0))}
+  .tile .label .live{width:7px;height:7px;border-radius:50%;background:var(--grn);
+    box-shadow:0 0 6px var(--grn-glow);flex:0 0 auto}
+  .tile .label .num{font-family:var(--mono);color:var(--faint);margin-left:auto;font-size:9.5px}
+  .tile .tally{position:absolute;top:7px;left:7px;font-family:var(--disp);font-size:11px;font-weight:700;
+    letter-spacing:1.5px;padding:2px 7px;border-radius:4px;opacity:0;transition:opacity .1s}
+  /* PGM = sacred red, on air */
+  .tile.pgm{border-color:var(--red)}
+  .tile.pgm .tally{opacity:1;background:var(--red);color:#fff;box-shadow:0 0 12px var(--red-glow)}
+  /* PVW = sacred green, armed next */
+  .tile.pvw{border-color:var(--grn)}
+  .tile.pvw .tally{opacity:1;background:var(--grn);color:#071b10;box-shadow:0 0 12px var(--grn-glow)}
+  /* no signal — dim it, say so */
+  .tile.nofeed{cursor:not-allowed;border-color:var(--line);opacity:.78}
+  .tile.nofeed .label .live{background:var(--faint);box-shadow:none}
+  .tile.nofeed:hover{border-color:var(--line)}
 
-  footer{color:var(--faint);font-size:.76rem;text-align:center;padding:1rem}
-  footer code{font-family:var(--mono);color:var(--muted)}
+  /* ── TAKE bar: the signature commit action ── */
+  .takebar{flex:0 0 auto;display:grid;grid-template-rows:auto auto;gap:9px;
+    background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px}
+  .takestate{display:flex;align-items:stretch;gap:9px;font-family:var(--mono);font-size:10.5px}
+  .takestate .b{flex:1;border:1px solid var(--line);border-radius:7px;padding:8px 10px;min-width:0}
+  .takestate .b .t{font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint)}
+  .takestate .b .v{font-family:var(--disp);font-size:17px;font-weight:700;letter-spacing:.5px;margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .takestate .pgmb{border-color:var(--red)} .takestate .pgmb .v{color:var(--red)}
+  .takestate .pvwb{border-color:var(--grn)} .takestate .pvwb .v{color:var(--grn)}
+  .takebtn{appearance:none;cursor:pointer;font-family:var(--disp);font-size:24px;font-weight:700;
+    letter-spacing:4px;text-transform:uppercase;color:#07140c;border:0;border-radius:9px;padding:15px;
+    background:linear-gradient(180deg,#3ee88c,var(--grn));
+    box-shadow:0 0 0 1px var(--grn),0 4px 16px var(--grn-glow);transition:transform .05s,filter .12s}
+  .takebtn:hover{filter:brightness(1.08)}
+  .takebtn:active{transform:translateY(2px)}
+  .takebtn:disabled{cursor:not-allowed;color:var(--faint);background:var(--panel2);
+    box-shadow:0 0 0 1px var(--line);filter:none}
+  .takebtn .sub{display:block;font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.5px;
+    margin-top:3px;opacity:.85}
+
+  /* ── controls ── */
+  .controls{flex:0 0 auto;display:flex;flex-direction:column;gap:9px;
+    background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px}
+  .crow{display:flex;align-items:center;gap:9px}
+  .crow .lbl{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:1px;
+    text-transform:uppercase;color:var(--faint);flex:0 0 58px}
+  .btn{appearance:none;cursor:pointer;font-family:var(--disp);font-size:14px;font-weight:600;
+    letter-spacing:.8px;text-transform:uppercase;color:var(--ink);background:#111a2b;
+    border:1px solid #26314d;border-radius:7px;padding:9px 13px;transition:border-color .12s,color .12s,background .12s}
+  .btn:hover{border-color:#36507f}
+  .btn.on{border-color:var(--amber);color:var(--amber);background:#1d1808}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  select.btn{flex:1;font-family:var(--mono);font-size:12px;font-weight:500;text-transform:none;letter-spacing:0}
+  .msg{font-family:var(--mono);font-size:10.5px;color:var(--amber);min-height:14px;letter-spacing:.3px}
+  .msg.err{color:#ff8f92}
+
+  footer{flex:0 0 auto;font-family:var(--mono);font-size:10px;color:var(--faint);
+    text-align:center;padding:7px;letter-spacing:.3px;border-top:1px solid var(--line)}
   :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-  .empty{color:var(--muted);font-size:.9rem;padding:1rem;border:1px dashed var(--line);border-radius:9px;text-align:center}
+  @media (prefers-reduced-motion:reduce){.onair{animation:none}}
+  @media (max-width:900px){
+    main{grid-template-columns:1fr;overflow-y:auto}
+    .col{min-height:auto} .wall{overflow:visible}
+  }
 </style>
 </head>
 <body>
-  <div class="rack">
-    <div class="brand">MXL <span>Switcher</span></div>
+  <header>
+    <div class="wordmark"><b>MXL</b> <span>Switcher</span></div>
     <div class="spacer"></div>
-    <div class="pill" id="connPill"><span class="dot"></span><span id="connText">connecting…</span></div>
-    <div class="pill"><span class="lbl">PGM</span>&nbsp;<b id="pgmLabel">—</b></div>
-  </div>
+    <div class="chip" id="conn"><span class="dot"></span><span id="connText">connecting…</span></div>
+    <div class="chip"><span style="color:var(--faint)">PGM</span>&nbsp;<b id="pgmChip">—</b></div>
+  </header>
 
   <main>
-    <div class="monitor">
-      <div class="pgmtag"><span class="live"></span>PROGRAM</div>
-      <iframe id="pgm" src="/program/" allow="autoplay" title="Program output"></iframe>
+    <!-- confidence feed + multiview -->
+    <div class="col">
+      <div class="pgmwrap">
+        <div class="onair"><span class="d"></span>On Air</div>
+        <div class="pgmname" id="pgmName">—</div>
+        <iframe id="pgm" src="/program/" allow="autoplay" title="Program output"></iframe>
+      </div>
+      <div class="wallhead">
+        <h2>Multiview</h2>
+        <span class="k">click a source to arm preview · 1–9 to arm · Enter / Space = Take</span>
+      </div>
+      <div class="wall" id="wall"></div>
     </div>
 
-    <div class="barhead">
-      <h2>Sources — click to cut</h2>
-      <span class="hint">keys 1–9 cut · the lit source is on air</span>
-    </div>
-    <div class="bar" id="bar"><div class="empty">Loading sources from the facility manifest…</div></div>
+    <!-- take + controls -->
+    <div class="col">
+      <div class="takebar">
+        <div class="takestate">
+          <div class="b pgmb"><div class="t">Program</div><div class="v" id="pgmV">—</div></div>
+          <div class="b pvwb"><div class="t">Preview</div><div class="v" id="pvwV">—</div></div>
+        </div>
+        <button class="takebtn" id="take" disabled>Take<span class="sub" id="takeSub">arm a source first</span></button>
+      </div>
 
-    <div class="controls">
-      <div class="grp"><span class="lbl">Key</span>
-        <button class="btn" id="keyBtn">Graphics off</button>
-      </div>
-      <div class="grp"><span class="lbl">Pattern</span>
-        <select class="btn" id="patSel"><option value="">—</option></select>
-      </div>
-      <div class="grp"><span class="lbl">Recover</span>
-        <button class="btn" id="repairBtn" title="Rebuild the downstream program path">Repair program</button>
+      <div class="controls">
+        <div class="crow"><span class="lbl">Graphics</span>
+          <button class="btn" id="keyBtn">Key off</button>
+        </div>
+        <div class="crow"><span class="lbl">Pattern</span>
+          <select class="btn" id="patSel"><option value="">—</option></select>
+        </div>
+        <div class="crow"><span class="lbl">Recover</span>
+          <button class="btn" id="repairBtn" title="Rebuild the downstream program path">Repair program</button>
+        </div>
+        <div class="msg" id="msg"></div>
       </div>
     </div>
   </main>
 
-  <footer>
-    Driving the MXL facility through <code>/api/mxl/*</code> — the open control routes. No external services.
-  </footer>
+  <footer>Driving the MXL facility through <code>/api/mxl/*</code> — the open control routes · no external services</footer>
 
 <script>
 (function(){
   "use strict";
-  var bar = document.getElementById('bar');
-  var connPill = document.getElementById('connPill');
-  var connText = document.getElementById('connText');
-  var pgmLabel = document.getElementById('pgmLabel');
-  var keyBtn = document.getElementById('keyBtn');
-  var patSel = document.getElementById('patSel');
-  var repairBtn = document.getElementById('repairBtn');
-  var slots = [];        // [{slot, role, label}]
-  var active = null;     // current on-air slot index
-  var keyOn = false;
-  var busy = false;
+  var $=function(s){return document.querySelector(s);};
+  var wall=$('#wall'), conn=$('#conn'), connText=$('#connText'), pgmChip=$('#pgmChip'),
+      pgmName=$('#pgmName'), pgmV=$('#pgmV'), pvwV=$('#pvwV'),
+      takeBtn=$('#take'), takeSub=$('#takeSub'), keyBtn=$('#keyBtn'),
+      patSel=$('#patSel'), repairBtn=$('#repairBtn'), msg=$('#msg');
 
-  function post(url, body){
-    return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+  // no-signal slate — same house style as mxl-multiview.html
+  var NOSIG='data:image/svg+xml;utf8,'+encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">'+
+    '<rect width="100%" height="100%" fill="#060910"/>'+
+    '<text x="50%" y="54%" fill="#3c4a70" font-size="15" font-family="monospace" text-anchor="middle">no signal</text></svg>');
+
+  var slots=[];        // [{slot, role, label}] from /api/mxl/slots
+  var tiles={};        // slot -> {el, img, tallyEl, liveDot}
+  var pgm=null, pvw=null, keyOn=false, busy=false, busHoldAt=0;
+  var liveMap={};      // slot -> bool
+
+  function setBusy(b,t){ busy=b;
+    [keyBtn,patSel,repairBtn].forEach(function(el){el.disabled=b;});
+    takeBtn.disabled = b || pvw===null || pvw===pgm;
+    if(t!==undefined){ msg.textContent=t; msg.classList.toggle('err', /^⚠/.test(t)); }
   }
-
-  function paintActive(){
-    var btns = bar.querySelectorAll('.src');
-    btns.forEach(function(b){
-      var on = String(b.dataset.slot) === String(active);
-      b.classList.toggle('live', on);
-    });
-    var s = slots.find(function(x){return String(x.slot)===String(active)});
-    pgmLabel.textContent = s ? s.label : '—';
+  function post(url,body){
+    return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
+      .then(function(r){return r.json();});
   }
+  function label(slot){ var s=slots.find(function(x){return x.slot===slot;}); return s?s.label:('Input '+(slot+1)); }
 
-  function cut(slot){
-    if(busy) return;
-    busy = true;
-    var input = (slot === 0) ? 'cam' : slot;  // route maps 0->cam, else numeric
-    post('/api/mxl/input', {input: slot})
-      .then(function(r){ return r.json(); })
-      .then(function(){ active = slot; paintActive(); })
-      .catch(function(){})
-      .finally(function(){ busy = false; });
+  function paintTake(){
+    pgmV.textContent = pgm!==null ? label(pgm) : '—';
+    pvwV.textContent = pvw!==null ? label(pvw) : '—';
+    pgmChip.textContent = pgm!==null ? label(pgm) : '—';
+    pgmName.textContent = pgm!==null ? label(pgm) : '—';
+    var ready = !busy && pvw!==null && pvw!==pgm;
+    takeBtn.disabled = !ready;
+    takeSub.textContent = pvw===null ? 'arm a source first'
+      : pvw===pgm ? 'already on air'
+      : 'cut '+label(pvw)+' to program';
   }
-
-  function buildBar(){
-    if(!slots.length){ bar.innerHTML = '<div class="empty">No sources in the facility manifest.</div>'; return; }
-    bar.innerHTML = '';
+  function paintBuses(){
     slots.forEach(function(s){
-      var b = document.createElement('button');
-      b.className = 'src';
-      b.dataset.slot = s.slot;
-      b.innerHTML = '<span class="tally"></span><span class="num">'+(s.slot+1)+'</span><span class="name">'+
-                    escapeHtml(s.label)+'</span>';
-      b.addEventListener('click', function(){ cut(s.slot); });
-      bar.appendChild(b);
+      var t=tiles[s.slot]; if(!t) return;
+      var nofeed = liveMap[s.slot]===false;
+      t.el.classList.toggle('pgm', pgm===s.slot);
+      t.el.classList.toggle('pvw', pvw===s.slot && pgm!==s.slot);
+      t.el.classList.toggle('nofeed', nofeed);
+      t.tallyEl.textContent = pgm===s.slot ? 'PGM' : (pvw===s.slot ? 'PVW' : '');
     });
-    paintActive();
+    paintTake();
   }
 
-  function escapeHtml(t){ return String(t).replace(/[&<>"]/g, function(c){
-    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function arm(slot){
+    if(liveMap[slot]===false) return;     // don't arm a dead source
+    pvw=slot; paintBuses();
+    post('/api/mxl/preview',{input:slot}).catch(function(){});  // preview is facility state
+  }
+  function take(){
+    if(busy || pvw===null || pvw===pgm) return;
+    setBusy(true,'taking…');
+    post('/api/mxl/take',{}).then(function(j){
+      if(j.error){ setBusy(false,'⚠ '+j.error); return; }
+      busHoldAt=Date.now(); pgm=j.input; if(j.pvw!=null) pvw=j.pvw;
+      setBusy(false,''); paintBuses(); refresh();
+    }).catch(function(){ setBusy(false,'⚠ request failed'); });
+  }
 
-  // ── status poll: connection + active slot + key state ──
+  function buildWall(){
+    wall.innerHTML=''; tiles={};
+    if(!slots.length){ wall.innerHTML='<div style="color:var(--dim);font-family:var(--mono);font-size:11px;grid-column:1/-1;padding:16px">No sources in the facility manifest.</div>'; return; }
+    slots.forEach(function(s){
+      var el=document.createElement('div'); el.className='tile'; el.setAttribute('role','button');
+      el.setAttribute('tabindex','0'); el.setAttribute('aria-label','Arm '+s.label+' on preview');
+      var img=document.createElement('img'); img.alt=''; img.src=NOSIG;
+      var tally=document.createElement('div'); tally.className='tally';
+      var lab=document.createElement('div'); lab.className='label';
+      lab.innerHTML='<span class="live"></span><span class="name"></span><span class="num">'+(s.slot+1)+'</span>';
+      lab.querySelector('.name').textContent=s.label;
+      el.appendChild(img); el.appendChild(tally); el.appendChild(lab);
+      el.addEventListener('click', function(){ arm(s.slot); });
+      el.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); arm(s.slot); } });
+      wall.appendChild(el);
+      tiles[s.slot]={el:el,img:img,tallyEl:tally};
+    });
+    paintBuses();
+  }
+
+  // ── per-source thumbnails: probe + swap on 404 (pattern from mxl-multiview) ──
+  function refreshThumbs(){
+    slots.forEach(function(s){
+      var t=tiles[s.slot]; if(!t) return;
+      if(liveMap[s.slot]===false){ t.img.src=NOSIG; return; }
+      var probe=new Image();
+      probe.onload=function(){ t.img.src=probe.src; };
+      probe.onerror=function(){ t.img.src=NOSIG; };
+      probe.src='/api/mxl/thumbs/'+encodeURIComponent(s.role)+'.jpg?t='+Date.now();
+    });
+  }
+
+  // ── status: PGM slot, armed PVW, key, per-slot live ──
+  function paint(st){
+    conn.classList.add('ok'); conn.classList.remove('bad'); connText.textContent='connected';
+    // hold bus state briefly after a local action (status is slightly stale)
+    var hold=Date.now()-busHoldAt<1200;
+    if(!hold && st.input!==undefined) pgm=st.input;
+    if(!hold && st.pvw!=null) pvw=st.pvw;
+    if(Array.isArray(st.slots)) st.slots.forEach(function(s){ liveMap[s.slot]=s.live; });
+    if(st.key!==undefined){ keyOn=!!st.key; keyBtn.textContent=keyOn?'Key on':'Key off'; keyBtn.classList.toggle('on',keyOn); }
+    if(st.available && patSel.options.length<=1){
+      st.available.forEach(function(p){ var o=document.createElement('option'); o.value=o.textContent=p; patSel.appendChild(o); });
+    }
+    if(st.patterns && st.patterns.tg1 && !busy) patSel.value=st.patterns.tg1;
+    paintBuses();
+  }
   function refresh(){
-    fetch('/api/mxl/status').then(function(r){ return r.json(); }).then(function(st){
-      if(st && !st.error){
-        connPill.classList.add('ok'); connText.textContent = 'connected';
-        if(st.input !== undefined && !busy){ active = st.input; paintActive(); }
-        if(st.key !== undefined){ keyOn = !!st.key; keyBtn.textContent = keyOn ? 'Graphics on' : 'Graphics off';
-          keyBtn.classList.toggle('on', keyOn); }
-        if(st.available && patSel.options.length <= 1){
-          st.available.forEach(function(p){ var o=document.createElement('option'); o.value=p; o.textContent=p; patSel.appendChild(o); });
-        }
-      } else {
-        connPill.classList.remove('ok'); connText.textContent = 'no backend';
-      }
-    }).catch(function(){ connPill.classList.remove('ok'); connText.textContent = 'offline'; });
+    fetch('/api/mxl/status').then(function(r){return r.json();}).then(function(st){
+      if(st && !st.error){ paint(st); }
+      else{ conn.classList.remove('ok'); conn.classList.add('bad'); connText.textContent='no backend'; }
+    }).catch(function(){ conn.classList.remove('ok'); conn.classList.add('bad'); connText.textContent='offline'; });
   }
 
-  keyBtn.addEventListener('click', function(){
-    post('/api/mxl/key', {on: !keyOn}).then(function(){ keyOn=!keyOn;
-      keyBtn.textContent = keyOn?'Graphics on':'Graphics off'; keyBtn.classList.toggle('on', keyOn); }).catch(function(){});
-  });
-  patSel.addEventListener('change', function(){ if(patSel.value) post('/api/mxl/pattern', {pattern: patSel.value}).catch(function(){}); });
+  takeBtn.addEventListener('click', take);
+  keyBtn.addEventListener('click', function(){ post('/api/mxl/key',{on:!keyOn}).then(function(){
+    keyOn=!keyOn; keyBtn.textContent=keyOn?'Key on':'Key off'; keyBtn.classList.toggle('on',keyOn); }).catch(function(){}); });
+  patSel.addEventListener('change', function(){ if(patSel.value) post('/api/mxl/pattern',{pattern:patSel.value}).catch(function(){}); });
   repairBtn.addEventListener('click', function(){
-    repairBtn.disabled = true; repairBtn.textContent = 'Repairing…';
-    post('/api/mxl/repair', {}).catch(function(){}).finally(function(){
+    repairBtn.disabled=true; repairBtn.textContent='Repairing…';
+    post('/api/mxl/repair',{}).catch(function(){}).finally(function(){
       setTimeout(function(){ repairBtn.disabled=false; repairBtn.textContent='Repair program'; }, 2500); });
   });
 
-  // number keys 1–9 cut the matching source
+  // number keys arm preview; Enter/Space (outside a tile) takes
   document.addEventListener('keydown', function(e){
-    if(e.target.tagName === 'SELECT') return;
-    var n = parseInt(e.key, 10);
-    if(n >= 1 && n <= slots.length){ cut(slots[n-1].slot); }
+    if(e.target.tagName==='SELECT' || e.target.classList.contains('tile')) return;
+    if(e.key==='Enter' || e.key===' '){ e.preventDefault(); take(); return; }
+    var n=parseInt(e.key,10);
+    if(n>=1 && n<=slots.length){ arm(slots[n-1].slot); }
   });
 
-  // boot: load slot layout from the manifest, then poll status
-  fetch('/api/mxl/slots').then(function(r){ return r.json(); }).then(function(d){
-    slots = (d && d.slots) || []; buildBar();
-  }).catch(function(){ buildBar(); });
-  refresh(); setInterval(refresh, 2000);
+  // boot: slots from the manifest, then status + thumbs polling
+  fetch('/api/mxl/slots').then(function(r){return r.json();}).then(function(d){
+    slots=(d&&d.slots)||[]; buildWall(); refreshThumbs(); setInterval(refreshThumbs,1500);
+  }).catch(function(){ buildWall(); });
+  refresh(); setInterval(refresh,1500);
 })();
 </script>
 </body>
