@@ -51,6 +51,8 @@ down. In particular:
   name only (no directory listing). `MXL_GRAPHICS_BIND=0.0.0.0` restores the old behaviour.
 - **Browser pages that load CDN scripts** (`web/mxl-clip.html`, `web/mxl-tams.html`) pin
   hls.js to 1.5.15 and qrcodejs to an exact commit, both with Subresource Integrity hashes.
+- **Site configuration** (VM IPs, backend/TAMS hosts, ...) is read from environment variables with
+  production defaults — see [docs/CONFIG.md](docs/CONFIG.md).
 - **Container images are pinned by digest** ([docs/VERSIONS.md](docs/VERSIONS.md)) for
   reproducibility; `MXL_BLEEDING_EDGE=1` opts into upstream `:latest`.
 - **No secrets belong in this repo.** The open core is deliberately decoupled from the

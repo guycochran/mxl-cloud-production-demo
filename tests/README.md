@@ -19,6 +19,8 @@ breaks the media path.
 | `test_launch_parity.py` | Golden-string pin of the full guest SRT launch pipeline — the "byte-identical after the seam refactor" guarantee, enforced forever. |
 | `test_docs_links.py` | Every repo-relative Markdown link resolves on disk. |
 | `test_js_backend.py` + `js/*.test.js` | Backend control-route auth (`MXL_CONTROL_TOKEN`) + `/repair` rate limit (Node `--test`, no npm deps; skipped without `node`). |
+| `test_no_hardcoded_hosts.py` | Tripwire: no NEW IP literals / site hostnames outside a per-file allowlist (ratchet — stale entries fail too). |
+| `test_env_config.py` | Env-var overrides (facility loaders, bring-up block) keep the historical production defaults; every var is in `docs/CONFIG.md`. |
 | `test_quickstart_hardening.py` | quickstart graphics-server bind/no-listing, optional guest SRT passphrase config, SRI-pinned CDN scripts. |
 
 If a test fails, **do not just update the test** — re-read the cited FINDINGS section
