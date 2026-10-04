@@ -26,6 +26,7 @@ Output cadence: continuous 30fps PTS locked to now+2 grains (same restamp
 pattern as cam_ingest/audio_pgm) so the layout is instantly cuttable.
 """
 import json
+import os
 import threading
 import time
 import urllib.request
@@ -33,9 +34,10 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-CMD_URL = 'https://prodbots.com/api/mxl/layout-state'
-INPUT_URL = 'https://prodbots.com/api/mxl/input'      # fade choreography cuts
-DONE_URL = 'https://prodbots.com/api/mxl/fade-done'
+BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com').rstrip('/')  # facility backend (docs/CONFIG.md)
+CMD_URL = BACKEND_URL + '/api/mxl/layout-state'
+INPUT_URL = BACKEND_URL + '/api/mxl/input'      # fade choreography cuts
+DONE_URL = BACKEND_URL + '/api/mxl/fade-done'
 SLOTS = ['cam', 'playout', 'pattern', 'cam2', 'guest1', 'guest2']
 # Layout PGM output + the per-slot source flows — from the facility manifest,
 # baked-in fallbacks so the multiview runs if the manifest can't be loaded.
@@ -343,7 +345,7 @@ def take_check(want, key, ctl):
     if not dead:
         return
     try:
-        req = urllib.request.Request('https://prodbots.com/api/mxl/status',
+        req = urllib.request.Request(BACKEND_URL + '/api/mxl/status',
                                      headers={'User-Agent': 'mxl-layout/1.0'})
         live = {sl['name']: sl['live'] for sl in
                 json.load(urllib.request.urlopen(req, timeout=5)).get('slots', [])}
@@ -460,7 +462,7 @@ def wedge_watch():
                 # recreating the layout flow and wedging the selector's
                 # slot-6 reader = "cut to Layout hangs")
                 try:
-                    req = _rq.Request('https://prodbots.com/api/mxl/status',
+                    req = _rq.Request(BACKEND_URL + '/api/mxl/status',
                                       headers={'User-Agent': 'mxl-layout/1.0'})
                     live = {sl['name']: sl['live'] for sl in
                             json.load(_rq.urlopen(req, timeout=5)).get('slots', [])}
@@ -490,7 +492,7 @@ def wedge_watch():
                       f'{now - last_buf[i]:.0f}s with a LIVE writer — exiting for fresh attach '
                       f'(attempt {cnt + 1}/3)', flush=True)
                 try:
-                    req = _rq.Request('https://prodbots.com/api/mxl/repair',
+                    req = _rq.Request(BACKEND_URL + '/api/mxl/repair',
                                       data=b'{"auto":1}',
                                       headers={'Content-Type': 'application/json',
                                                'User-Agent': 'mxl-layout/1.0'})
@@ -508,7 +510,7 @@ def wedge_watch():
         stale = [i for i, t in last_buf.items() if t > 0 and now - t > 30 and i not in onscreen]  # 15s churned during warm-up (9/13)
         if stale:
             try:
-                req = _rq.Request('https://prodbots.com/api/mxl/status',
+                req = _rq.Request(BACKEND_URL + '/api/mxl/status',
                                   headers={'User-Agent': 'mxl-layout/1.0'})
                 st = json.load(_rq.urlopen(req, timeout=5))
                 onair = st.get('input') == 6
@@ -539,7 +541,7 @@ def startup_repair():
     # then ONE full-strength escalation guarded by a marker file at most
     # every 5 min — cooldown starvation stranded slot 6 repeatedly today.
     for _try in (1, 2):
-        if _post('https://prodbots.com/api/mxl/repair', {'auto': 1}) is not None:
+        if _post(BACKEND_URL + '/api/mxl/repair', {'auto': 1}) is not None:
             print('startup repair accepted — slot 6 reattached', flush=True)
             return
         time.sleep(25)
@@ -547,7 +549,7 @@ def startup_repair():
     mark = '/tmp/.layout-escalate.ts'
     if time.time() - (_os.path.getmtime(mark) if _os.path.exists(mark) else 0) > 300:
         open(mark, 'w').close()
-        if _post('https://prodbots.com/api/mxl/repair', {}) is not None:
+        if _post(BACKEND_URL + '/api/mxl/repair', {}) is not None:
             print('startup repair ESCALATED — slot 6 reattached', flush=True)
 
 

@@ -18,7 +18,9 @@ import subprocess
 import time
 import urllib.request
 
-TAMS = os.environ.get('TAMS_URL', 'http://20.112.83.140:8000')
+# TAMS_HOST = the TAMS/MinIO box (VM3). Defaults are the current production values.
+TAMS_HOST = os.environ.get('TAMS_HOST', '20.112.83.140')
+TAMS = os.environ.get('TAMS_URL', f'http://{TAMS_HOST}:8000')
 FLOW = os.environ.get('TAMS_FLOW', '7a350001-aaaa-4bbb-8ccc-000000000001')
 SPOOL = os.environ.get('SPOOL', '/srv/tams-spool')
 SEG_SECS = 1
@@ -29,8 +31,8 @@ SEG_SECS = 1
 # could not keep realtime.
 import boto3
 _s3pw = [l.split('=', 1)[1].strip() for l in open(os.path.expanduser('~/.tams-s3.env')) if l.startswith('S3PW=')][0]
-S3 = boto3.client('s3', endpoint_url='http://20.112.83.140:9000',
-                  aws_access_key_id='tams', aws_secret_access_key=_s3pw,
+S3 = boto3.client('s3', endpoint_url=os.environ.get('TAMS_S3_ENDPOINT', f'http://{TAMS_HOST}:9000'),
+                  aws_access_key_id=os.environ.get('TAMS_S3_USER', 'tams'), aws_secret_access_key=_s3pw,
                   region_name='us-east-1')
 
 def req(method, url, data=None, ctype='application/json', timeout=15):

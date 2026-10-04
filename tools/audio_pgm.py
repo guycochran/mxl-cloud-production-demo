@@ -27,7 +27,8 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-STATE_URL = 'https://prodbots.com/api/mxl/audio-state'
+BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com').rstrip('/')  # facility backend (docs/CONFIG.md)
+STATE_URL = BACKEND_URL + '/api/mxl/audio-state'
 CAPS = 'audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2,channel-mask=(bitmask)0x3'
 MARGIN_NS = 66_000_000
 
@@ -150,7 +151,7 @@ def reattach_encoder():
     # encoder-only bounce (server-side cooldown makes join/leave loops safe)
     time.sleep(3)
     try:
-        req = urllib.request.Request('https://prodbots.com/api/mxl/audio-reattach',
+        req = urllib.request.Request(BACKEND_URL + '/api/mxl/audio-reattach',
                                      data=b'{}', headers={'Content-Type': 'application/json',
                                                           'User-Agent': 'mxl-audio/1.0'})
         with urllib.request.urlopen(req, timeout=30) as r:
