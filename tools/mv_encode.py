@@ -19,6 +19,7 @@ Self-heal: mxl readers never survive their flow being recreated, and
 mxl_multiview.py respawns on wedge (recreating the flow). If no TS packets
 leave the mux for 12s, exit — the supervisor respawns us with a fresh attach.
 """
+import os
 import time
 import threading
 import gi
@@ -26,7 +27,9 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
 SRC = 'ab900700-aaaa-4bbb-8ccc-000000000001'   # Multiview PGM
-SRT = 'srt://10.0.0.4:8890?streamid=publish:multiview&latency=200'
+# SRT target = VM1 mediamtx. MXL_MV_SRT_URL overrides wholesale; else MXL_VM1_IP (default 10.0.0.4).
+SRT = os.environ.get('MXL_MV_SRT_URL') or (
+    f"srt://{os.environ.get('MXL_VM1_IP', '10.0.0.4')}:8890?streamid=publish:multiview&latency=200")
 
 Gst.init(None)
 

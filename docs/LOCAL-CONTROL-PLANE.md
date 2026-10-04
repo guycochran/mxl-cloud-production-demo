@@ -1,8 +1,46 @@
 # Local control plane — scope
 
-**Status: SCOPE / design, not built.** Proposes a self-contained way for an
-adopter to *drive* the switcher (cut, key, pattern, repair) without the prodbots
-backend — closing the last place the quickstart tier leans on Guy's infra.
+**Status: BUILT (v1 — news-grade switcher).** A self-contained, broadcast-grade
+way for an adopter to *drive* the switcher from a browser without the prodbots
+backend — preview/program dual-bus with TAKE, a live multiview of every source,
+in the repo's house design system.
+
+Shipped:
+- `backend/mxl-routes.js` — the open control routes, now with the **dual-bus**
+  surface: `POST /api/mxl/preview {input}` arms the preview bus (pure server-side
+  state, no device call), `POST /api/mxl/take` cuts the armed PVW to PGM, and
+  `GET /api/mxl/status` returns `pvw` + a `slots[]` array with per-slot `live`
+  (selector flow-wiring freshness) so the UI can paint PGM/PVW tally and a
+  "no signal" state per source. No proprietary dependency — this is the open
+  module standing on its own. A cut **pre-warms its destination reader** first
+  (the input-selector's reader for a slot is cold until activated, and the first
+  activation of a recreated flow shows stale content — the "cut sticks on the
+  previous source" wedge). The cut activates the target, waits a beat, then cuts
+  for real — one slot, always the destination, so it never flashes other sources
+  or blips the WebRTC relay. Tune with `MXL_PREWARM_MS` (default 250ms) or disable
+  with `MXL_PREWARM=0`. `POST /api/mxl/warmup` is the heavier full-sweep fallback.
+- `backend/local-server.js` — mounts the routes, adds `/api/mxl/slots` (manifest
+  labels) and `/api/mxl/thumbs/:name` (serves the per-flow JPEGs, local dir or
+  `:8086` proxy; path-traversal guarded), proxies the WebRTC program feed, and
+  **binds `127.0.0.1` by default** (set `MXL_CONTROL_BIND=0.0.0.0` for the LAN).
+- `web/local.html` — the switcher UI: program monitor + live multiview grid,
+  click a tile to arm preview (green), a prominent **TAKE** that names what it
+  will cut, per-source live dots, key/pattern/repair. House design system with
+  **self-hosted** Barlow Condensed + IBM Plex Mono (`web/fonts/*.woff2`, OFL) so
+  the page stays no-external-host / air-gap-clean.
+- `backend/package.json` — pins express.
+
+Run: `npm install --prefix backend && node backend/local-server.js` → open
+`http://127.0.0.1:3100/`. The multiview needs thumbnails: `scripts/quickstart.sh`
+starts them automatically (`MXL_THUMBS=1`, default on) by running
+`tools/mxl_thumbs.py` in the `input-selector` container + a `:8086` static server;
+without them each tile shows its "no signal" slate but PGM/PVW/TAKE still work.
+`quickstart.sh` also launches this UI (`MXL_CONTROL_UI=1`, default on) and prints
+the URL + an SSH-tunnel line for driving it remotely.
+
+Verified: the dual-bus flow (slots/status/preview/take) end-to-end against a mock
+easy-mxl, no JS console errors, responsive to mobile, fully self-contained (no
+external hosts — `tests/test_local_ui.py`). Screenshots: `docs/images/switcher-ui*.png`.
 
 Read [`CONTRIBUTION-SEAM.md`](CONTRIBUTION-SEAM.md) first; this is the control-
 plane sibling to the contribution/data-plane docs (the A/V v0.3 scope lives on the

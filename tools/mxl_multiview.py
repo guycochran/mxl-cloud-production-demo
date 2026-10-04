@@ -25,6 +25,7 @@ clean respawn: this flow is never a selector input, so a respawn is
 invisible except ~10s of frozen wall.
 """
 import json
+import os
 import threading
 import time
 import urllib.request
@@ -32,6 +33,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
+BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com').rstrip('/')  # facility backend (docs/CONFIG.md)
 DST = 'ab900700-aaaa-4bbb-8ccc-000000000001'   # Multiview PGM
 FPS = 15    # PRODUCTION SETTING — do not bump casually. 30fps was tried 9/12:
             # wall alone hit ~2.7 cores, box load reached 14/32 and the PROGRAM
@@ -176,7 +178,7 @@ def wedge_watch():
         if not silent:
             continue
         try:
-            req = urllib.request.Request('https://prodbots.com/api/mxl/status',
+            req = urllib.request.Request(BACKEND_URL + '/api/mxl/status',
                                          headers={'User-Agent': 'mxl-multiview/1.0'})
             live = {sl['name']: sl['live'] for sl in
                     json.load(urllib.request.urlopen(req, timeout=5)).get('slots', [])}

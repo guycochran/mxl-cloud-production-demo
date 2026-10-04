@@ -12,7 +12,7 @@
 # Runs as a systemd service on VM1 (host bash). Reads nothing; pure poller.
 set -u
 API=http://127.0.0.1:9604/pipeline/status
-BACKEND=https://prodbots.com/api/mxl/repair   # UA header dodges CF bot rule
+BACKEND="${MXL_BACKEND_URL:-https://prodbots.com}"; BACKEND="${BACKEND%/}/api/mxl/repair"   # UA header dodges CF bot rule (MXL_BACKEND_URL: docs/CONFIG.md)
 UA='mxl-selector-doctor/1.0'
 FAILS=0
 FAIL_LIMIT=3          # ~3 x (timeout+interval) ≈ 20s wedged before acting
@@ -40,7 +40,7 @@ while true; do
         # wait up to 40s for the API to answer again
         for i in $(seq 1 20); do sleep 2; curl -s -m 3 -o /dev/null "$API" && break; done
         log "selector back — triggering repair cascade"
-        curl -s -m 30 -X POST -H "Content-Type: application/json" -H "User-Agent: $UA" -d '{}' "$BACKEND" >/dev/null 2>&1 || true
+        curl -s -m 30 -X POST -H "Content-Type: application/json" -H "User-Agent: $UA" ${MXL_CONTROL_TOKEN:+-H "X-MXL-Token: $MXL_CONTROL_TOKEN"} -d '{}' "$BACKEND" >/dev/null 2>&1 || true
         FAILS=0
       fi
     fi

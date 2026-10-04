@@ -44,6 +44,25 @@ def _candidates():
         yield os.path.join(os.getcwd(), name)
 
 
+# Env overrides for the manifest's network section. The manifest values remain the
+# defaults, so nothing changes unless a variable is set (see docs/CONFIG.md).
+_NETWORK_ENV = {
+    "MXL_VM_IP": "mxl_vm",
+    "MXL_VM_INTERNAL_IP": "mxl_vm_internal",
+    "MXL_DOCKER_GATEWAY": "docker_gateway",
+}
+
+
+def _apply_env_overrides(data):
+    net = data.get("network")
+    if isinstance(net, dict):
+        for env_name, key in _NETWORK_ENV.items():
+            v = os.environ.get(env_name, "").strip()
+            if v:
+                net[key] = v
+    return data
+
+
 def _load():
     tried = []
     for path in _candidates():
@@ -52,7 +71,7 @@ def _load():
             with open(path) as fh:
                 data = json.load(fh)
             data["_path"] = path
-            return data
+            return _apply_env_overrides(data)
     raise FileNotFoundError(
         "facility manifest not found. Set $MXL_FACILITY_JSON or place "
         "config/facility.json in the repo. Looked in:\n  " + "\n  ".join(tried)

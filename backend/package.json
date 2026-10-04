@@ -1,0 +1,16 @@
+{
+  "name": "mxl-local-control",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Self-contained control plane for an MXL quickstart box: mounts the portable mxl-routes and serves the web/local.html switcher UI.",
+  "main": "local-server.js",
+  "scripts": {
+    "start": "node local-server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

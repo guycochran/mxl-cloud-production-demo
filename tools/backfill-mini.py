@@ -4,7 +4,9 @@
 # filling 1 tile/min over 12h). Additive; reads sprites/, writes local minis.
 import os, time, subprocess, boto3
 _pw=[l.split('=',1)[1].strip() for l in open(os.path.expanduser('~/.tams-s3.env')) if l.startswith('S3PW=')][0]
-S3=boto3.client('s3',endpoint_url='http://20.112.83.140:9000',aws_access_key_id='tams',
+_host=os.environ.get('TAMS_HOST','20.112.83.140')  # defaults = current production values (docs/CONFIG.md)
+S3=boto3.client('s3',endpoint_url=os.environ.get('TAMS_S3_ENDPOINT',f'http://{_host}:9000'),
+                aws_access_key_id=os.environ.get('TAMS_S3_USER','tams'),
                 aws_secret_access_key=_pw,region_name='us-east-1')
 MINI=os.path.expanduser('~/tams-mini'); os.makedirs(MINI,exist_ok=True)
 TW,TH=96,54
