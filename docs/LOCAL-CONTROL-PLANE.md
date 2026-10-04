@@ -1,8 +1,14 @@
 # Local control plane — scope
 
-**Status: SCOPE / design, not built.** Proposes a self-contained way for an
-adopter to *drive* the switcher (cut, key, pattern, repair) without the prodbots
-backend — closing the last place the quickstart tier leans on Guy's infra.
+**Status: BUILT (v0.3).** A self-contained way for an adopter to *drive* the
+switcher (cut, key, pattern, repair) from a browser without the prodbots backend.
+Shipped: `backend/local-server.js` (mounts the portable routes + a `/api/mxl/slots`
+manifest helper + a WebRTC program proxy), `web/local.html` (a hardware-style
+vision-switcher UI — program monitor + manifest-driven source buttons with on-air
+tally + key/pattern/repair), `backend/package.json` (pins express). Run:
+`npm install --prefix backend && node backend/local-server.js` → open
+`http://<box>:3100/`. Verified: endpoints serve the manifest's sources, the page
+is fully self-contained (no external hosts — `tests/test_local_ui.py`).
 
 Read [`CONTRIBUTION-SEAM.md`](CONTRIBUTION-SEAM.md) first; this is the control-
 plane sibling to the contribution/data-plane docs (the A/V v0.3 scope lives on the
