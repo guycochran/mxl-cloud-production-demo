@@ -26,7 +26,7 @@ down. In particular:
   then require `Authorization: Bearer <token>` or `X-MXL-Token: <token>` (`GET /status`
   stays open). The kiosk page takes the token once via `/mxl.html#token=<secret>` (kept in
   that browser's localStorage). Set `MXL_CONTROL_REQUIRE_TOKEN=1` to fail closed (503) if
-  the token is ever missing. `/repair` is also rate limited (default 6 per 60 s per client;
+  the token is ever missing. `/repair` is also rate limited (default 10 per 60 s per client;
   tune with `MXL_REPAIR_RATE_MAX` / `MXL_REPAIR_RATE_WINDOW_S`, `0` disables). A shared
   token is a speed bump, not a substitute for network controls — still keep the VM
   control ports behind a firewall/NSG. Always serve the backend over HTTPS when a token is in use.

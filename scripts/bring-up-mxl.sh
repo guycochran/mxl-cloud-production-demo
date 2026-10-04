@@ -302,9 +302,9 @@ echo "  ✓ feed tunnel: $FEED_URL (stable — mxl.html needs no rewriting)"
 # freshly respawned writers a moment to create their flows first.
 step "Repair cascade + program to Cam 1"
 sleep 8
-curl -s -m 30 -X POST -H 'Content-Type: application/json' -d '{}' $BACKEND_URL/api/mxl/repair >/dev/null 2>&1 || true
+curl -s -m 30 -X POST -H 'Content-Type: application/json' ${MXL_CONTROL_TOKEN:+-H "X-MXL-Token: $MXL_CONTROL_TOKEN"} -d '{}' $BACKEND_URL/api/mxl/repair >/dev/null 2>&1 || true
 sleep 3
-curl -s -m 15 -X POST -H 'Content-Type: application/json' -d '{"input":0}' $BACKEND_URL/api/mxl/input >/dev/null 2>&1 || true
+curl -s -m 15 -X POST -H 'Content-Type: application/json' ${MXL_CONTROL_TOKEN:+-H "X-MXL-Token: $MXL_CONTROL_TOKEN"} -d '{"input":0}' $BACKEND_URL/api/mxl/input >/dev/null 2>&1 || true
 echo "  ✓ repaired + on Cam 1"
 
 # ── 6. Verify ────────────────────────────────────────────────────────────────

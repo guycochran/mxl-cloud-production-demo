@@ -53,6 +53,13 @@ class MXLSwitcherInstance extends InstanceBase {
 				default: 'https://prodbots.com',
 			},
 			{
+				type: 'textinput',
+				id: 'token',
+				label: 'Control token (only if the backend sets MXL_CONTROL_TOKEN)',
+				width: 8,
+				default: '',
+			},
+			{
 				type: 'number',
 				id: 'pollms',
 				label: 'Tally poll interval (ms)',
@@ -68,7 +75,9 @@ class MXLSwitcherInstance extends InstanceBase {
 		const url = `${(this.config.baseurl || '').replace(/\/$/, '')}${path}`
 		return fetch(url, {
 			method: body !== undefined ? 'POST' : 'GET',
-			headers: { 'Content-Type': 'application/json' },
+			headers: this.config.token
+				? { 'Content-Type': 'application/json', 'X-MXL-Token': this.config.token }
+				: { 'Content-Type': 'application/json' },
 			body: body !== undefined ? JSON.stringify(body) : undefined,
 			signal: AbortSignal.timeout(8000),
 		}).then((r) => r.json())

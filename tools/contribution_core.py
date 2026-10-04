@@ -23,6 +23,7 @@ onto the local clock cadence or it is not cuttable against local flows.
 See docs/CONTRIBUTION-SEAM.md for the full spec and the ZoomISO-Cloud roadmap.
 """
 import json
+import os
 import sys
 import threading
 import urllib.error
@@ -46,6 +47,15 @@ CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
 CANON_AUDIO_CAPS = ('audio/x-raw,format=F32LE,layout=interleaved,rate=48000,'
                     'channels=2,channel-mask=(bitmask)0x3')
 DEFAULT_DOMAIN = '/mxl-domain'
+
+
+def _ctl_headers(h):
+    """Add X-MXL-Token when MXL_CONTROL_TOKEN is set (backend control-route auth, SECURITY.md).
+    No env var => headers unchanged."""
+    tok = os.environ.get('MXL_CONTROL_TOKEN', '').strip()
+    if tok:
+        h = dict(h, **{'X-MXL-Token': tok})
+    return h
 
 
 class SourceAdapter(ABC):
@@ -177,8 +187,8 @@ class ContributionCore:
             attempt += 1
             try:
                 r = urllib.request.Request(self.repair_url, data=json.dumps({'auto': 1}).encode(),
-                                           headers={'Content-Type': 'application/json',
-                                                    'User-Agent': 'contribution-core/1.0'})
+                                           headers=_ctl_headers({'Content-Type': 'application/json',
+                                                                     'User-Agent': 'contribution-core/1.0'}))
                 with urllib.request.urlopen(r, timeout=60) as resp:
                     print(f'announce -> {resp.status} {resp.read()[:120]}', flush=True)
                     return
@@ -193,8 +203,8 @@ class ContributionCore:
                         open(mark, 'w').close()
                         try:
                             r2 = urllib.request.Request(self.repair_url, data=b'{}',
-                                                        headers={'Content-Type': 'application/json',
-                                                                 'User-Agent': 'contribution-core/1.0'})
+                                                        headers=_ctl_headers({'Content-Type': 'application/json',
+                                                                              'User-Agent': 'contribution-core/1.0'}))
                             with urllib.request.urlopen(r2, timeout=60) as resp:
                                 print(f'announce ESCALATED -> {resp.status} {resp.read()[:120]}', flush=True)
                                 return

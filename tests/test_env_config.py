@@ -111,3 +111,14 @@ def test_every_new_env_var_is_documented():
     doc = (ROOT / "docs" / "CONFIG.md").read_text()
     missing = [v for v in NEW_VARS if f"`{v}`" not in doc]
     assert not missing, f"undocumented in docs/CONFIG.md: {missing}"
+
+
+# ── client side of MXL_CONTROL_TOKEN ────────────────────────────────────────
+def test_contribution_core_sends_token_only_when_configured(monkeypatch):
+    import contribution_core as cc
+    base = {"Content-Type": "application/json"}
+    monkeypatch.delenv("MXL_CONTROL_TOKEN", raising=False)
+    assert cc._ctl_headers(base) == base
+    monkeypatch.setenv("MXL_CONTROL_TOKEN", "abc")
+    assert cc._ctl_headers(base) == {**base, "X-MXL-Token": "abc"}
+    assert "X-MXL-Token" not in base  # input not mutated

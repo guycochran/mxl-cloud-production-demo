@@ -254,11 +254,17 @@ def apply_geometry(style):
     cur_style['v'] = style
 
 
+def _ctl_headers(h):
+    # optional backend control-route token (MXL_CONTROL_TOKEN); unset => unchanged
+    tok = os.environ.get('MXL_CONTROL_TOKEN', '').strip()
+    return dict(h, **{'X-MXL-Token': tok}) if tok else h
+
+
 def _post(url, obj):
     try:
         req = urllib.request.Request(url, data=json.dumps(obj).encode(),
-                                     headers={'Content-Type': 'application/json',
-                                              'User-Agent': 'mxl-layout/1.0'})
+                                     headers=_ctl_headers({'Content-Type': 'application/json',
+                                                           'User-Agent': 'mxl-layout/1.0'}))
         with urllib.request.urlopen(req, timeout=8) as r:
             return json.load(r)
     except Exception as e:
@@ -494,8 +500,8 @@ def wedge_watch():
                 try:
                     req = _rq.Request(BACKEND_URL + '/api/mxl/repair',
                                       data=b'{"auto":1}',
-                                      headers={'Content-Type': 'application/json',
-                                               'User-Agent': 'mxl-layout/1.0'})
+                                      headers=_ctl_headers({'Content-Type': 'application/json',
+                                                            'User-Agent': 'mxl-layout/1.0'}))
                     _rq.urlopen(req, timeout=8)
                 except Exception:
                     pass

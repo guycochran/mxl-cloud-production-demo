@@ -9,7 +9,7 @@
 //   MXL_CONTROL_TOKEN=<secret>        enable: mutating routes need the token
 //   MXL_CONTROL_REQUIRE_TOKEN=1       fail closed: if no token is configured,
 //                                     mutating routes answer 503 instead of open
-//   MXL_REPAIR_RATE_MAX=6             /repair calls allowed per window per client
+//   MXL_REPAIR_RATE_MAX=10            /repair calls allowed per window per client
 //                                     (0 disables the limit)
 //   MXL_REPAIR_RATE_WINDOW_S=60       window length, seconds
 //
@@ -67,7 +67,7 @@ function createAuth(env = process.env, log = console) {
 }
 
 // Fixed-window per-client limiter. max<=0 disables it.
-function createRateLimiter({ max = 6, windowMs = 60000, now = Date.now } = {}) {
+function createRateLimiter({ max = 10, windowMs = 60000, now = Date.now } = {}) {
   const hits = new Map(); // key -> { start, count }
   return function rateLimit(req, res, next) {
     if (!(max > 0)) return next();
@@ -89,9 +89,9 @@ function createRateLimiter({ max = 6, windowMs = 60000, now = Date.now } = {}) {
 }
 
 function rateLimiterFromEnv(env = process.env) {
-  const max = env.MXL_REPAIR_RATE_MAX !== undefined && env.MXL_REPAIR_RATE_MAX !== '' ? Number(env.MXL_REPAIR_RATE_MAX) : 6;
+  const max = env.MXL_REPAIR_RATE_MAX !== undefined && env.MXL_REPAIR_RATE_MAX !== '' ? Number(env.MXL_REPAIR_RATE_MAX) : 10;
   const win = env.MXL_REPAIR_RATE_WINDOW_S ? Number(env.MXL_REPAIR_RATE_WINDOW_S) : 60;
-  return createRateLimiter({ max: Number.isFinite(max) ? max : 6, windowMs: (Number.isFinite(win) && win > 0 ? win : 60) * 1000 });
+  return createRateLimiter({ max: Number.isFinite(max) ? max : 10, windowMs: (Number.isFinite(win) && win > 0 ? win : 60) * 1000 });
 }
 
 module.exports = { createAuth, createRateLimiter, rateLimiterFromEnv, tokenFromRequest, tokensEqual };

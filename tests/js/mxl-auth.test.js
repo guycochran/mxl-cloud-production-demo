@@ -89,9 +89,9 @@ test('rate limiter: max=0 disables; env parsing falls back to defaults', () => {
   const off = rateLimiterFromEnv({ MXL_REPAIR_RATE_MAX: '0' });
   for (let i = 0; i < 50; i++) assert.ok(run(off, { ip: 'a', headers: {} }).nexted);
   const dflt = rateLimiterFromEnv({});
-  let ok = 0; for (let i = 0; i < 10; i++) if (run(dflt, { ip: 'b', headers: {} }).nexted) ok++;
-  assert.strictEqual(ok, 6);
+  let ok = 0; for (let i = 0; i < 14; i++) if (run(dflt, { ip: 'b', headers: {} }).nexted) ok++;
+  assert.strictEqual(ok, 10);
   const junk = rateLimiterFromEnv({ MXL_REPAIR_RATE_MAX: 'abc', MXL_REPAIR_RATE_WINDOW_S: '-5' });
-  ok = 0; for (let i = 0; i < 10; i++) if (run(junk, { ip: 'c', headers: {} }).nexted) ok++;
-  assert.strictEqual(ok, 6);
+  ok = 0; for (let i = 0; i < 14; i++) if (run(junk, { ip: 'c', headers: {} }).nexted) ok++;
+  assert.strictEqual(ok, 10);
 });

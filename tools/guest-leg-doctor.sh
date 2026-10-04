@@ -82,7 +82,7 @@ for f in json.load(sys.stdin):
     # until a cascade repair reattaches it (found live 9/11: guest1
     # "not smooth 30p" with every hop measuring a clean 30fps)
     sleep 6
-    curl -s -m 20 -X POST -H "Content-Type: application/json" -d '{"auto":1}' $BACKEND_URL/api/mxl/repair >/dev/null \
+    curl -s -m 20 -X POST -H "Content-Type: application/json" ${MXL_CONTROL_TOKEN:+-H "X-MXL-Token: $MXL_CONTROL_TOKEN"} -d '{"auto":1}' $BACKEND_URL/api/mxl/repair >/dev/null \
       && logger -t guest-leg-doctor "$leg heal: cascade repair announced"
   done
 done

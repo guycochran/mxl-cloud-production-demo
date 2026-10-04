@@ -57,7 +57,7 @@ test('token configured: all four POST routes are guarded, GET /status is not', a
   assert.strictEqual(app.routes['GET /api/mxl/status'].length, 1);
 });
 
-test('/repair is rate limited (default 6/min per client), configurable', async () => {
+test('/repair is rate limited (default 10/min per client), configurable', async () => {
   const app = mkApp(); registerMxlRoutes(app, { env: { MXL_REPAIR_RATE_MAX: '2' }, log: silent });
   // make the repair cascade fast: stub setTimeout delays
   const realST = global.setTimeout; global.setTimeout = (f) => realST(f, 0);

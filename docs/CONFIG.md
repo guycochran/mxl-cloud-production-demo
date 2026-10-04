@@ -58,9 +58,25 @@ Already env-driven before this change (unchanged): `MXL_GUEST_HOST`, `MXL_GUEST_
 |---|---|---|
 | `MXL_CONTROL_TOKEN` | `backend/mxl-routes.js` — require this shared token on `POST /api/mxl/input\|key\|pattern\|repair` | unset = open (startup warning) |
 | `MXL_CONTROL_REQUIRE_TOKEN` | same — `1` = answer 503 if no token configured (fail closed) | unset |
-| `MXL_REPAIR_RATE_MAX`, `MXL_REPAIR_RATE_WINDOW_S` | same — `/repair` calls per window per client (`0` = no limit) | `6`, `60` |
+| `MXL_REPAIR_RATE_MAX`, `MXL_REPAIR_RATE_WINDOW_S` | same — `/repair` calls per window per client (`0` = no limit) | `10`, `60` |
 | `MXL_GUEST1_SRT_PASSPHRASE`, `MXL_GUEST2_SRT_PASSPHRASE`, `MXL_GUEST_SRT_PASSPHRASE` | `scripts/quickstart.sh` — require an SRT passphrase to publish on a guest slot | unset = open |
 | `MXL_GRAPHICS_BIND` | `scripts/quickstart.sh` — bind address of the `:8085` graphics server | docker bridge gateway (e.g. `172.17.0.1`); `0.0.0.0` = old behaviour |
+
+### Rolling out `MXL_CONTROL_TOKEN` safely
+
+Several of our own components call the guarded routes (`/api/mxl/input`, `/api/mxl/repair`)
+and therefore must present the token once the backend enforces it. Each of them sends
+`X-MXL-Token: $MXL_CONTROL_TOKEN` **only if that variable is set in its own environment**
+(no variable = same request as before): `contribution_core.py` (cam/guest ingest "announce"),
+`layout_pgm.py`, `selector-doctor.sh`, `guest-leg-doctor.sh`, `bring-up-mxl.sh`, the kiosk page
+(`/mxl.html#token=…`) and the Companion module (new *Control token* config field). Order:
+
+1. Pick a token. Put `MXL_CONTROL_TOKEN` into the environment of every client above
+   (systemd `Environment=`/`EnvironmentFile=`, the `run-cam*.sh` supervisors, the Companion
+   config). Clients ignore it harmlessly while the backend is still open.
+2. Verify, then set `MXL_CONTROL_TOKEN` on the **backend** and restart it. Watch its log for
+   `rejected POST … (missing/invalid token)` lines — each one is a client you missed.
+3. Rollback = unset the variable on the backend and restart (back to open behaviour).
 
 ## Not (yet) configurable
 
