@@ -90,11 +90,20 @@ def test_routes_define_preview_and_take():
 
 
 def test_routes_have_warmup():
-    """The cold-reader wedge fix: a warmup sweep must exist so a cut can't stick
-    on the previous source after a flow is recreated (seen on HW Oct 4)."""
+    """The cold-reader wedge fix: a warmup sweep must exist as a fallback so a cut
+    can't stick on the previous source after a flow is recreated (seen on HW Oct 4)."""
     src = ROUTES.read_text()
     assert "/api/mxl/warmup" in src, "mxl-routes missing POST /api/mxl/warmup"
     assert "active-input" in src and "400" in src, "warmup doesn't sweep readers"
+
+
+def test_cut_prewarms_target():
+    """The primary wedge fix: a cut must pre-warm the destination reader before the
+    real cut (gentle — only the target slot, so it can't blip the WebRTC relay like
+    the full sweep does). Tunable/opt-out via MXL_PREWARM."""
+    src = ROUTES.read_text()
+    assert "MXL_PREWARM" in src, "cut has no pre-warm (cold-reader wedge fix missing)"
+    assert "prewarm" in src.lower(), "pre-warm logic not in mxlSetInput"
 
 
 def test_package_pins_express():

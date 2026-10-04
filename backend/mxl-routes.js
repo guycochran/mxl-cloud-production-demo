@@ -8,11 +8,15 @@
 // Endpoints:
 //   GET  /api/mxl/status            aggregated program/preview/key/pattern state
 //                                   + slots[] with per-slot live signal
-//   POST /api/mxl/input  {input}    cut program (hot-cut): "cam"|0|1|2 (~30ms)
+//   POST /api/mxl/input  {input}    cut program (hot-cut); pre-warms the target
+//                                   reader first so a cut can't stick on the old
+//                                   source (MXL_PREWARM=0 / MXL_PREWARM_MS to tune)
 //   POST /api/mxl/preview{input}    arm the preview bus (PVW) — no device call
-//   POST /api/mxl/take   {}         take: cut the armed PVW to PGM (~30ms)
-//   POST /api/mxl/warmup {input?}   prime every reader (clears the cold-reader
-//                                   "switch sticks on the old source" wedge)
+//   POST /api/mxl/take   {}         take: cut the armed PVW to PGM
+//   POST /api/mxl/warmup {input?}   FALLBACK: prime EVERY reader (full sweep).
+//                                   Per-cut pre-warm handles the normal case; use
+//                                   this only if a cut still looks stuck (it briefly
+//                                   flashes sources and can blip the WebRTC relay)
 //   POST /api/mxl/key    {on}       toggle the keyer
 //   POST /api/mxl/pattern{pattern}  set generator pattern (whitelisted)
 //   POST /api/mxl/repair {slot,key} full downstream cascade rebuild
@@ -165,11 +169,26 @@ module.exports = function registerMxlRoutes(app) {
         // Flow isn't wired into the selector right now — can't cut to it.
         throw Object.assign(new Error(`source "${layoutEntry.role}" is not attached to the selector`), { status: 409 });
       }
+      // Pre-warm ONLY the destination reader, then cut. The input-selector keeps
+      // one reader per input; a reader not activated since its flow was (re)created
+      // is COLD, and the first activation shows stale/late content until it catches
+      // up — the "cut sticks on the previous source" wedge (HW Oct 4). We fix it by
+      // activating the TARGET slot, waiting a beat for its reader to lock, then
+      // activating it AGAIN so the cut the operator sees lands on a warm reader.
+      // Both activations target the SAME destination slot, so the program only ever
+      // moves toward where we're cutting — unlike a full warmup sweep, it never
+      // flashes other sources through program or drops the downstream WebRTC relay.
+      // Skip the pre-warm when we're already on this slot, or via MXL_PREWARM=0.
+      const prewarm = process.env.MXL_PREWARM !== '0';
+      const prewarmMs = parseInt(process.env.MXL_PREWARM_MS || '250', 10);
+      if (prewarm && sel.active_input !== selIndex) {
+        await mxlApi(9604, '/pipeline/active-input', { slot: selIndex }).catch(() => {});
+        await new Promise(r => setTimeout(r, prewarmMs));
+      }
       await mxlApi(9604, '/pipeline/active-input', { slot: selIndex });
       // Force an IDR right after the cut. With a fixed GOP, a mid-GOP source
       // change smears (P-frames predict from the old scene) until the next
-      // keyframe — on a cut to a COLD reader this reads as "program stuck on the
-      // old source." Best-effort: /pipeline/keyframe only exists on a patched
+      // keyframe. Best-effort: /pipeline/keyframe only exists on a patched
       // encoder (stock mxl2webrtc ignores it), so never block the cut on it.
       mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
       // self-heal: if the keyer is wired cam-direct (pre-relay topology), move it

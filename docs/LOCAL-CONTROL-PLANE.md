@@ -12,7 +12,13 @@ Shipped:
   `GET /api/mxl/status` returns `pvw` + a `slots[]` array with per-slot `live`
   (selector flow-wiring freshness) so the UI can paint PGM/PVW tally and a
   "no signal" state per source. No proprietary dependency — this is the open
-  module standing on its own.
+  module standing on its own. A cut **pre-warms its destination reader** first
+  (the input-selector's reader for a slot is cold until activated, and the first
+  activation of a recreated flow shows stale content — the "cut sticks on the
+  previous source" wedge). The cut activates the target, waits a beat, then cuts
+  for real — one slot, always the destination, so it never flashes other sources
+  or blips the WebRTC relay. Tune with `MXL_PREWARM_MS` (default 250ms) or disable
+  with `MXL_PREWARM=0`. `POST /api/mxl/warmup` is the heavier full-sweep fallback.
 - `backend/local-server.js` — mounts the routes, adds `/api/mxl/slots` (manifest
   labels) and `/api/mxl/thumbs/:name` (serves the per-flow JPEGs, local dir or
   `:8086` proxy; path-traversal guarded), proxies the WebRTC program feed, and
