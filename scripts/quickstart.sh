@@ -285,21 +285,31 @@ fi
 
 # ── 3c. multiview thumbnails (opt-in, default on) ─────────────────────────────
 # One low-rate JPEG per source (no decode, tiny CPU) into <domain>/thumbs, served
-# on 127.0.0.1:8086 for the control UI's multiview grid. Runs mxl_thumbs.py inside
-# input-selector (it has mxlsrc + the domain mount). Self-healing restart loop,
-# mirrors scripts/bring-up-mxl.sh. Skips cleanly if the tool is absent.
+# on 127.0.0.1:8086 for the control UI's multiview grid. mxl_thumbs.py needs
+# python3 + mxlsrc + the domain mount; that's the writer/ingest container (hls2mxl),
+# NOT necessarily the selector — so pick whichever container actually has python3.
+# Self-healing restart loop, mirrors scripts/bring-up-mxl.sh. Skips if no fit.
 CONTROL_UI_URL=""
+THUMBS_ORIGIN=""
 if [ "${MXL_THUMBS:-1}" = 1 ] && [ -f "$REPO/tools/mxl_thumbs.py" ]; then
   step "Multiview thumbnails"
-  docker cp "$REPO/tools/mxl_thumbs.py" input-selector:/tmp/mxl_thumbs.py 2>/dev/null && {
-    docker exec input-selector sh -c 'pkill -9 -f run-thumbs.sh; pkill -9 -f mxl_thumbs.py; true' 2>/dev/null || true
-    docker exec input-selector sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 15 python3 /tmp/mxl_thumbs.py >> /tmp/mxl-thumbs.log 2>&1; echo RESTART >> /tmp/mxl-thumbs.log; sleep 3; done\n" > /tmp/run-thumbs.sh && chmod +x /tmp/run-thumbs.sh'
-    docker exec -d input-selector /tmp/run-thumbs.sh
+  # find a running container with python3 (hls2mxl first — it's the ingest box)
+  THUMB_CTR=""
+  for c in hls2mxl input-selector $CONTAINERS; do
+    if docker exec "$c" sh -c 'command -v python3' >/dev/null 2>&1; then THUMB_CTR="$c"; break; fi
+  done
+  if [ -n "$THUMB_CTR" ] && docker cp "$REPO/tools/mxl_thumbs.py" "$THUMB_CTR":/tmp/mxl_thumbs.py 2>/dev/null; then
+    docker exec "$THUMB_CTR" sh -c 'pkill -9 -f run-thumbs.sh; pkill -9 -f mxl_thumbs.py; true' 2>/dev/null || true
+    docker exec "$THUMB_CTR" sh -c 'printf "#!/bin/sh\nwhile :; do nice -n 15 python3 /tmp/mxl_thumbs.py >> /tmp/mxl-thumbs.log 2>&1; echo RESTART >> /tmp/mxl-thumbs.log; sleep 3; done\n" > /tmp/run-thumbs.sh && chmod +x /tmp/run-thumbs.sh'
+    docker exec -d "$THUMB_CTR" /tmp/run-thumbs.sh
     mkdir -p /srv/thumbs-www && ln -sfn "$DOMAIN_HOST/thumbs" /srv/thumbs-www/thumbs
     pgrep -f "http.server 8086" >/dev/null || \
-      nohup python3 -m http.server 8086 --directory /srv/thumbs-www/thumbs --bind 127.0.0.1 >/tmp/thumbs-8086.log 2>&1 &
-    echo "  ✓ thumbnails live → 127.0.0.1:8086 (one JPEG/source, self-healing)"
-  } || echo "  ⚠ could not copy mxl_thumbs.py into input-selector — skipping thumbnails"
+      nohup python3 -m http.server 8086 --directory /srv/thumbs-www --bind 127.0.0.1 >/tmp/thumbs-8086.log 2>&1 &
+    THUMBS_ORIGIN="http://127.0.0.1:8086/thumbs"   # jpgs served under /thumbs/<name>.jpg
+    echo "  ✓ thumbnails live → 127.0.0.1:8086/thumbs ($THUMB_CTR, self-healing)"
+  else
+    echo "  ⚠ no container with python3 for mxl_thumbs.py — skipping thumbnails (tiles show 'no signal')"
+  fi
 fi
 
 # ── 3d. browser control UI (opt-in, default on if node is present) ────────────
@@ -315,7 +325,7 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
   fi
   pkill -f "backend/local-server.js" 2>/dev/null || true
   CTRL_PORT="${MXL_CONTROL_PORT:-3100}"
-  MXL_VM_URL="http://127.0.0.1" MXL_THUMBS_ORIGIN="http://127.0.0.1:8086" \
+  MXL_VM_URL="http://127.0.0.1" MXL_THUMBS_ORIGIN="${THUMBS_ORIGIN:-http://127.0.0.1:8086/thumbs}" \
     MXL_PROGRAM_ORIGIN="http://127.0.0.1:8889" MXL_CONTROL_PORT="$CTRL_PORT" \
     nohup node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
   sleep 1
