@@ -100,6 +100,22 @@ VERIFY (independent, off this box AND off the operator's network):
 
 ---
 
+## Facility-side fragility observed during review (NOT switcher-code bugs, but real)
+- **WebRTC relay waits for a missing audio flow.** The mxl2webrtc relay defaults to
+  `mode: video+audio` and will sit on "waiting for flow to be created" forever if the
+  audio_pgm flow (`a0d10000`) isn't running — the program monitor then shows "stream not
+  found" even though video is being produced. Fix: start the relay video-only
+  (`audio_flow_uuid: null, mode: video`). A production deploy should either always run
+  audio_pgm or pin the relay to video-only.
+- **Selector pipeline can stop on a facility hiccup**, leaving `running:false, inputs:[]` —
+  cuts then 409 ("source not attached"). Needs a restart + re-wire of the cam inputs. The
+  live mxlswitcher.com facility has watchdog services for this class (selector-doctor);
+  this ad-hoc VM bring-up does not.
+- **Fresh-selector settling window:** right after the selector pipeline is RECREATED, the
+  first cut's program output can lag a few seconds before catching up (the output reader is
+  cold). The per-cut pre-warm handles a stable selector; a just-recreated one is a harder
+  case. Worth the reviewer's attention — is a selector-recreate warmup needed?
+
 ## Known limitations / open items the reviewer should weigh
 - **WebRTC program monitor is flaky**: autoplay-blocks in headless browsers, and the
   mxl2webrtc relay occasionally needs a manual re-lock after heavy cutting or a warmup sweep.
