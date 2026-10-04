@@ -42,7 +42,15 @@ const _fac = facility.load();
 const _vf = (name, fallback) => { try { return facility.videoFlow(name); } catch { return fallback; } };
 const _af = (name, fallback) => { try { return facility.audioFlow(name); } catch { return fallback; } };
 
-const MXL_VM = process.env.MXL_VM_URL || (_fac && _fac.network && `http://${_fac.network.mxl_vm}`) || 'http://YOUR_VM_IP';
+// Where the easy-mxl control ports live. Default 127.0.0.1 — the single-box
+// quickstart case, and the safe default so a stranger running `node local-server.js`
+// never aims their UI at someone else's facility IP. (Review R6d: previously fell
+// back to the manifest's network.mxl_vm, which is a live public IP.) To target a
+// remote facility, set MXL_VM_URL explicitly (the live deploy does); or set
+// MXL_VM_FROM_MANIFEST=1 to opt into the manifest's network.mxl_vm.
+const MXL_VM = process.env.MXL_VM_URL
+  || (process.env.MXL_VM_FROM_MANIFEST === '1' && _fac && _fac.network && `http://${_fac.network.mxl_vm}`)
+  || 'http://127.0.0.1';
 const MXL_CAM_FLOW = (_fac && _fac.program && _fac.program.legacy_cam_flow) || '991e65d8-4fc4-58de-b22a-2d02f5952252'; // gateway cam flow (legacy)
 const MXL_SEL_FLOW = _vf('selector', '9437652d-20d9-565e-be6e-b98c36067930');  // Selector PGM
 const MXL_KEYER_OUT = _vf('keyer', '5c73394e-85df-50a3-8988-5edde5b5522a');    // Keyer PGM
@@ -79,11 +87,27 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
   const env = opts.env || process.env;
   const auth = createAuth(env, opts.log || console).middleware;
   const repairLimit = rateLimiterFromEnv(env);
+  // Every call to the MXL VM carries a hard timeout. (Review R5: with bare fetch
+  // and no timeout, a hung / half-up VM kept mxlBusy=true until Node's default
+  // socket timeout, so every later cut 409'd "switch in progress" forever.)
+  // AbortSignal.timeout aborts the fetch; the busy lock's `finally` then releases.
+  const MXL_API_TIMEOUT_MS = parseInt(process.env.MXL_API_TIMEOUT_MS || '5000', 10);
   async function mxlApi(port, apiPath, body) {
-    const opts = body !== undefined
-      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-      : {};
-    const r = await fetch(`${MXL_VM}:${port}${apiPath}`, opts);
+    const opts = {
+      signal: AbortSignal.timeout(MXL_API_TIMEOUT_MS),
+      ...(body !== undefined
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : {}),
+    };
+    let r;
+    try {
+      r = await fetch(`${MXL_VM}:${port}${apiPath}`, opts);
+    } catch (e) {
+      if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+        throw Object.assign(new Error(`MXL :${port}${apiPath} timed out after ${MXL_API_TIMEOUT_MS}ms`), { status: 504 });
+      }
+      throw e;
+    }
     if (!r.ok) throw new Error(`MXL :${port}${apiPath} -> ${r.status}`);
     const text = await r.text();
     try { return JSON.parse(text); } catch { return text; }
@@ -91,6 +115,14 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
 
   let mxlBusy = false;
   let pvw = null;   // armed preview slot (0..3) — server-side, no device call
+
+  // Optional IDR nudge after a cut. (Review R6c: the encoder on :9601 doesn't
+  // expose /pipeline/keyframe on stock mxl2webrtc — the WebRTC relay is a separate
+  // container's internal port — so this is a no-op there and off by default. Set
+  // MXL_KEYFRAME_NUDGE=1 only if your encoder actually serves /pipeline/keyframe.)
+  const keyframeNudge = () => {
+    if (process.env.MXL_KEYFRAME_NUDGE === '1') mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
+  };
 
   // Slot roles for the status slots[] array — the configured selector inputs, in
   // order (slot 0..N). A slot whose UUID is a real flow is "wired"; the selector's
@@ -151,12 +183,20 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
   // Resolve a UI slot number (role name, cam/cam2 alias, or layout index) to the
   // stable LAYOUT slot index — the canonical space the UI and status[] share.
   function toLayoutSlot(input) {
+    // Strict: a role name, the "cam"/"cam2" aliases, or a non-negative integer
+    // slot index. Everything else (null, "", [], true, floats, NaN) -> -1 so the
+    // caller 400s. (Review R4: Number(null)===0 made {"input":null} cut to slot 0.)
     if (typeof input === 'string') {
+      if (input === 'cam') return 0;
+      if (input === 'cam2') return 3;
       const byRole = _layout.findIndex((s) => s.role === input);
       if (byRole >= 0) return byRole;
+      // a numeric string like "2" is still a valid slot index
+      if (/^\d+$/.test(input)) return Number(input);
+      return -1;
     }
-    const n = input === 'cam' ? 0 : input === 'cam2' ? 3 : Number(input);
-    return Number.isInteger(n) ? n : -1;
+    if (typeof input === 'number' && Number.isInteger(input) && input >= 0) return input;
+    return -1;
   }
 
   // Cut the selector. The UI sends a stable LAYOUT slot; the selector's own
@@ -197,11 +237,7 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
         await new Promise(r => setTimeout(r, prewarmMs));
       }
       await mxlApi(9604, '/pipeline/active-input', { slot: selIndex });
-      // Force an IDR right after the cut. With a fixed GOP, a mid-GOP source
-      // change smears (P-frames predict from the old scene) until the next
-      // keyframe. Best-effort: /pipeline/keyframe only exists on a patched
-      // encoder (stock mxl2webrtc ignores it), so never block the cut on it.
-      mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
+      keyframeNudge();   // optional IDR (off by default — see keyframeNudge)
       // self-heal: if the keyer is wired cam-direct (pre-relay topology), move it
       const keyer = await mxlApi(9605, '/pipeline/status');
       if (keyer.input_flow_uuid !== MXL_SEL_FLOW) {
@@ -237,7 +273,7 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
     const entry = restoreLayoutSlot != null ? _layout[restoreLayoutSlot] : null;
     const restoreIdx = entry && entry.uuid ? flows.indexOf(entry.uuid) : 0;
     if (restoreIdx >= 0) await mxlApi(9604, '/pipeline/active-input', { slot: restoreIdx }).catch(() => {});
-    mxlApi(9601, '/pipeline/keyframe', {}).catch(() => {});
+    keyframeNudge();
   }
 
   app.get('/api/mxl/status', async (req, res) => {
@@ -313,8 +349,13 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
     try {
       const st = await mxlStatus();
       await mxlApi(9600, '/video/test-pattern', { pattern });
+      // Cut to the PATTERN role, not a hardcoded slot index. (Review R3: `2` was a
+      // magic index that only happens to be `pattern` in this manifest; on another
+      // layout it could be a different source.) If the facility has no pattern slot
+      // wired, just set the generator and don't cut.
+      const patSlot = toLayoutSlot('pattern');
       let cut = false;
-      if (st.input !== 2) { await mxlSetInput(2); cut = true; }
+      if (patSlot >= 0 && st.input !== patSlot) { await mxlSetInput(patSlot); cut = true; }
       res.json({ ok: true, pattern, cut });
     } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
