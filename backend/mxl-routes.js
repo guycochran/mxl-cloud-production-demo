@@ -10,7 +10,11 @@
 //   POST /api/mxl/input  {input}    cut program: "cam"|0|1|2 (~30ms)
 //   POST /api/mxl/key    {on}       toggle the keyer
 //   POST /api/mxl/pattern{pattern}  set generator pattern (whitelisted)
-//   POST /api/mxl/repair {slot,key} full downstream cascade rebuild
+//   POST /api/mxl/repair {slot,key} full downstream cascade rebuild (rate limited)
+//
+// Auth (optional, default off): set MXL_CONTROL_TOKEN to require
+// `Authorization: Bearer <token>` or `X-MXL-Token: <token>` on the four POST routes
+// (GET /status stays open). See backend/mxl-auth.js and SECURITY.md.
 //
 // Flow UUIDs come from the facility manifest (config/facility.json) — the single
 // source of truth shared with the Python tools (grain_probe, audio_pgm, ...).
@@ -19,6 +23,7 @@
 // manifest and both the backend and the tools follow; capture yours from the
 // easy-mxl flows API once the writers are up.
 const facility = require('./facility');
+const { createAuth, rateLimiterFromEnv } = require('./mxl-auth');
 const _fac = facility.load();
 const _vf = (name, fallback) => { try { return facility.videoFlow(name); } catch { return fallback; } };
 const _af = (name, fallback) => { try { return facility.audioFlow(name); } catch { return fallback; } };
@@ -53,7 +58,13 @@ const mxlSelectorBody = { domain_path: '/mxl-domain',
   input_flow_uuids: _selInputs,
   grouphint: 'Input-Selector', description: 'program out', label: 'Selector PGM' };
 
-module.exports = function registerMxlRoutes(app) {
+module.exports = function registerMxlRoutes(app, opts = {}) {
+  // Optional shared-token auth (MXL_CONTROL_TOKEN) on the mutating routes, plus a
+  // rate limit on /repair. Unset token => unchanged open behaviour + startup warning.
+  // `opts.env` / `opts.log` exist for tests; production passes nothing.
+  const env = opts.env || process.env;
+  const auth = createAuth(env, opts.log || console).middleware;
+  const repairLimit = rateLimiterFromEnv(env);
   async function mxlApi(port, apiPath, body) {
     const opts = body !== undefined
       ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -106,19 +117,19 @@ module.exports = function registerMxlRoutes(app) {
     catch (e) { res.status(502).json({ error: e.message }); }
   });
 
-  app.post('/api/mxl/input', async (req, res) => {
+  app.post('/api/mxl/input', auth, async (req, res) => {
     try { res.json(await mxlSetInput(req.body.input)); }
     catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
 
-  app.post('/api/mxl/key', async (req, res) => {
+  app.post('/api/mxl/key', auth, async (req, res) => {
     try {
       await mxlApi(9605, '/pipeline/key', { on: !!req.body.on });
       res.json({ ok: true, key: !!req.body.on });
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
 
-  app.post('/api/mxl/pattern', async (req, res) => {
+  app.post('/api/mxl/pattern', auth, async (req, res) => {
     const pattern = req.body.pattern;
     if (!MXL_PATTERNS.includes(pattern)) return res.status(400).json({ error: 'unknown pattern' });
     try {
@@ -132,7 +143,7 @@ module.exports = function registerMxlRoutes(app) {
 
   // Full downstream cascade rebuild — needed whenever a source flow is
   // recreated (readers wedge on recreated flows; see docs/FINDINGS.md).
-  app.post('/api/mxl/repair', async (req, res) => {
+  app.post('/api/mxl/repair', auth, repairLimit, async (req, res) => {
     if (mxlBusy) return res.status(409).json({ error: 'busy' });
     mxlBusy = true;
     try {
