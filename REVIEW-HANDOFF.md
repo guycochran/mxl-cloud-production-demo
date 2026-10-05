@@ -93,16 +93,10 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
 `server-enhanced.js`). Goal was an adopter-grade switcher a news org could run.
 
 ## Where everything is
-<<<<<<< Updated upstream
-- **Repo:** `~/Projects/mxl-cloud-production-demo`, branch `master`, pushed to
-  `github.com:guycochran/mxl-switcher`. Everything is committed (verify:
-  `git status` clean, `git log --oneline origin/master..HEAD` empty).
-=======
 - **Repo:** `github.com/guycochran/mxl-switcher` (local working copy still at
   `~/Projects/mxl-cloud-production-demo` — the dir wasn't renamed because live systemd units
   reference that path; the GitHub repo IS renamed and the old URL redirects). Everything is
   committed (verify: `git status` clean, `git log --oneline origin/master..HEAD` empty).
->>>>>>> Stashed changes
 - **Deployed service:** `mxl-switcher-ui.service` (systemd **user** unit on the prodbots
   home box, `~/.config/systemd/user/`). Runs `node backend/local-server.js` on
   `127.0.0.1:3100`. Verify: `systemctl --user status mxl-switcher-ui`.
