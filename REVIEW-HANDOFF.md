@@ -1,12 +1,88 @@
-# MXL v1 Switcher — Review Handoff
+# MXL Switcher — Review Handoff
 
 **For an independent reviewer.** This documents what was built, deployed, and claimed,
 with a way to **independently verify every claim** — don't take the assertions on faith,
-run the checks. Written Oct 4 2026. Repo head at handoff: `7b5d701`, branch `master`.
+run the checks.
 
-The author (Claude) got the DNS debugging wrong late in the session and wasted the
+**Originally written Oct 4 2026** (repo head `7b5d701`, repo then named
+`mxl-cloud-production-demo`). **Refreshed Oct 5 2026** — repo renamed to **`mxl-switcher`**
+(`github.com/guycochran/mxl-switcher`; the old URL redirects), master head now `9db22c7`.
+The sections below the original line are the Oct-4 snapshot (still accurate for the v1
+switcher); **the up-to-date state is in "## Session 2 (Oct 5)" immediately after this
+header** — read that first.
+
+The author (Claude) got the DNS debugging wrong late in the Oct-4 session and wasted the
 operator's time blaming their network before proving external reachability. Treat all
 "it works" claims here with appropriate skepticism and verify.
+
+---
+
+## Session 2 (Oct 5) — review fixes, the v1 contract, and a live OHG-skin test
+
+Everything here is on **branches / draft PRs**, nothing on `master`, no live-system changes
+from a review branch (per `CLAUDE.md`). The per-PR comments are the live thread; this is the
+index.
+
+### A. The independent review (R1–R7) — all addressed, all CI-green
+A prior reviewer round found 7 issues. Fixes landed as 5 draft PRs, each CI-green, each with
+HW verification where it mattered:
+- **#17** — R3 (pattern→role, no longer a magic slot), R4 (strict input validation, null no
+  longer cuts to slot 0), R5 (mxlApi AbortSignal timeout → no stuck "busy"), R6c/R6d.
+- **#19** — **R2 (the critical adoptability bug):** the UI drove the manifest's FIXED flow
+  UUIDs, but a fresh quickstart DISCOVERS different ones → every cut "source not attached" on
+  a stranger's box. Fix: `tools/facility_from_discovery.py` generates the manifest from
+  discovered flows. **Proven on a genuinely fresh VM** (clone → quickstart → every source
+  cuts, program follows).
+- **#20** — R7 portable self-healer (selector + relay drift). HW-verified (broke the selector,
+  healer restarted it; also caught the relay-waits-for-audio wedge).
+- **#22** — **R1 (the cold-reader wedge), now a real fix, not just the pre-warm interim:**
+  `MXL_INGEST_PERSISTENT=1` mode in `tools/contribution_core.py` keeps the mxlsink flow alive
+  across a source reconnect and rebuilds only the source leg (create-once + swap-reader).
+  **HW-verified:** flow kept the SAME inode/ctime across 10 reconnects, cadence continuous,
+  zero wedge, program followed. Default path unchanged (no lip-sync regression). A monotonic
+  re-lock solves the "grain too early" the naive stabilizer hit. One residual documented
+  (a freshly-restamped flow sits ~2 grains ahead of the read head → transient "too early";
+  **the stock ingest shows the same**, so it's orthogonal and pre-existing).
+- **#23** — R6a (rate-limit keys on the real client via CF-Connecting-IP/XFF, not the shared
+  tunnel IP), R6b (per-client failed-auth throttle), R6e (scrubbed live specifics to
+  placeholders).
+
+VERIFY: `gh pr list`; `gh pr checks <n>`; for the HW claims, bring a VM up and re-run the
+frame-grab (see Oct-4 §4). All five consolidate cleanly (trial-merged, 0 conflicts).
+
+### B. The `/api/mxl/v1` contract — sketched, then IMPLEMENTED + HW-validated (#24, #25)
+- **#24** (reviewer's branch) proposes a **core-and-skins** architecture: the open repo is the
+  neutral "bones" (sources/slots/cut/take/control API); org-specific UIs are replaceable
+  "skins" over a versioned API. My review reply: concept approved; scope `core-v1.0.0` to a
+  minimal contract + 2 reference skins; defer candidates/audio/layouts/SSE to additive v1.1+.
+- **#25** — the `/v1` contract. Started as schemas (`contracts/v1/*`, `docs/V1-CONTRACT.md`),
+  now also **implemented**: `backend/mxl-routes-v1.js` — thin wrappers over the existing
+  handlers, with **stable opaque source ids** (`src_<8hex of flow UUID>`; the UUID is the join
+  key, fixing the R2 per-box problem), a `health` object, a structured error model, and
+  `/v1/meta` capability discovery. Legacy `/api/mxl/*` stay as aliases. 6 new node tests
+  (18 total, CI-green).
+  VERIFY (code): `backend/mxl-routes-v1.js`, `tests/js/mxl-routes-v1.test.js`.
+  VERIFY (HW, done once then VM deallocated): a browser UI client drove the live `/v1` on a
+  real switcher — `/v1/cut` moved the real MXL selector (active_input followed), program video
+  followed the cut (grabbed the real selector-output frame), bogus id → `{error:{code:
+  "unknown_source"}}`. ⚠️ **Gating dependency:** this branch lacks #19, so on a fresh box the
+  shim loads baked-in UUIDs that don't exist → merge #19 first (or together) before tagging.
+
+### C. Repo rename + the OHG skin (private, out of scope for this repo)
+- Repo renamed `mxl-cloud-production-demo → mxl-switcher` (discoverability; matches
+  `mxlswitcher.com`). In-repo clone/URL refs updated; local working dir intentionally
+  unchanged (live systemd units reference it).
+- A first real **skin** (an Office-Hours "hand-raise director") was built and validated live
+  against the `/v1` contract — but it lives in a **private downstream repo**, NOT here, because
+  it's organization-specific (exactly what the core-and-skins boundary keeps out of the open
+  core). Reviewer does not need it; mentioned only so the "a skin drove `/v1` live" claim in
+  (B) has context. #21 is a reviewer design mockup that imports OHG/hand-raise specifics into
+  the open repo — flagged (comment on #21) as belonging in the private skin instead.
+
+### Current PR map
+#16 reviewer channel · #17/#19/#20/#22/#23 my fixes (all CI-green, draft) · #18/#21 reviewer
+design mockups · #24 core-and-skins architecture · #25 the `/v1` contract+shim. VMs all
+deallocated (nothing billing).
 
 ---
 
@@ -17,9 +93,16 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
 `server-enhanced.js`). Goal was an adopter-grade switcher a news org could run.
 
 ## Where everything is
+<<<<<<< Updated upstream
 - **Repo:** `~/Projects/mxl-cloud-production-demo`, branch `master`, pushed to
   `github.com:guycochran/mxl-switcher`. Everything is committed (verify:
   `git status` clean, `git log --oneline origin/master..HEAD` empty).
+=======
+- **Repo:** `github.com/guycochran/mxl-switcher` (local working copy still at
+  `~/Projects/mxl-cloud-production-demo` — the dir wasn't renamed because live systemd units
+  reference that path; the GitHub repo IS renamed and the old URL redirects). Everything is
+  committed (verify: `git status` clean, `git log --oneline origin/master..HEAD` empty).
+>>>>>>> Stashed changes
 - **Deployed service:** `mxl-switcher-ui.service` (systemd **user** unit on the prodbots
   home box, `~/.config/systemd/user/`). Runs `node backend/local-server.js` on
   `127.0.0.1:3100`. Verify: `systemctl --user status mxl-switcher-ui`.
@@ -32,8 +115,12 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
 
 ## CLAIMS + how to verify each independently
 
+> _Oct-4 snapshot below — preserved as-is. Counts/claims were true at `7b5d701`; Session 2
+> added tests (now 18 node incl. the `/v1` + R1 suites, more python). The "where everything
+> is" block above is still current. Run the VERIFY commands for live numbers._
+
 ### 1. Tests pass
-CLAIM: 102 Python + 12 Node tests pass.
+CLAIM: 102 Python + 12 Node tests pass (at Oct-4 head; more now — run the command).
 VERIFY: `cd ~/Projects/mxl-cloud-production-demo && python3 -m pytest -q && node --test tests/js/*.test.js`
 
 ### 2. The switcher is self-contained (no external hosts — the air-gap promise)
