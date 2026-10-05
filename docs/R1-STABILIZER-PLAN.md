@@ -95,3 +95,59 @@ restamp → blank program, plus the spawn-storm risk. The correct fix (persisten
 flow inside the ingest) is the right next step but is real work on the lip-sync-
 critical ingest path — do it in a dedicated session with the A/V regression in
 mind, THEN remove the pre-warm. Tracked as the R1 follow-up.
+
+## UPDATE (Oct 5 2026) — the persistent-flow fix is BUILT + HW-VERIFIED
+
+Implemented in `tools/contribution_core.py` as an **opt-in** mode
+(`MXL_INGEST_PERSISTENT=1`, or `adapter.persistent_flow=True`; env wins). Default
+stays the supervisor-restart path, so the HW-proven A/V lip-sync behaviour is
+untouched until a deployment opts in.
+
+**How it works.** The pipeline is split at a named `jbuf` queue:
+
+    [ source leg ]  →  jbuf  →  [ conform ]  →  mxlsink   (the TAIL is persistent)
+
+The mxlsink (and its flow UUID) is created ONCE. On a source EOS/error the bus
+callback rebuilds ONLY the source leg: unlink it from `jbuf` (by jbuf's own sink-pad
+peer — removing the element does not reliably free the peer pad), set NULL, remove,
+re-parse the adapter fragment, relink (element-level `link`, which resolves the
+ghost pad — a manual ghost→ghost `pad.link` returns `wrong-hierarchy`), and
+`sync_state_with_parent`. A fatal error from the TAIL (sink/conform) still exits for
+a supervisor restart; only source-leg faults are recovered in place (`_from_tail`
+routes them).
+
+**Monotonic re-lock (the piece §4 flagged).** A reconnected source restarts its PTS
+near 0 (new RTP/SRT/encoder session). With the offset still locked from the first
+leg, the new frames would map BACKWARD and the flow's grain index would rewind —
+which is exactly the selector's `read source grain … too early`. So the rebuild
+clears the lock and the probe re-locks on the new leg's first frame, CLAMPED to
+`last_mapped + 1 grain` so the flow only ever moves forward. Same clamp for audio
+(`next_pts`). This reuses the ingest's already-correct restamp — no separate
+stabilizer, no second process, no spawn-storm risk.
+
+**HW proof (VM1, Oct 5).** A `videotestsrc` adapter that EOSes every N frames drove
+the exact wedge trigger. In persistent mode across **10 reconnects over 5 legs**:
+the flow dir kept the SAME `inode` and `ctime` throughout (`inode=92`, created once,
+never recreated); `cadence offset locked` fired ONCE and the frame counter ran
+continuously `n=60…540` with small `err` (−10..−58 ms); zero wedge. A selector wired
+to `[stable-TG, persistent-test-flow]` cut to the test flow and the **program video
+followed the cut** (selector-output grab = the test pattern), and kept following
+after reconnects. The default (non-persistent) path was re-run as a regression:
+`persistent=False`, clean `offset locked: 125ms`, byte-identical restamp, EOS→exit —
+unchanged.
+
+**Residual, documented, orthogonal to R1.** A freshly-restamped ingest flow sits
+~2 grains (MARGIN) ahead of the domain read head, so a selector that catches the
+write head logs a TRANSIENT `too early` until it settles — the program still renders
+the source. This is NOT introduced by the persistence change: the **stock
+non-persistent ingest shows the same** `too early`/`Unknown error: 11` on the first
+selector cut. It's a MARGIN-vs-selector-consumer tuning question, tracked separately.
+
+**Follow-up (not done here, deliberately):** once a deployment runs persistent mode
+in the live facility, the per-cut pre-warm in `mxl-routes.js` becomes dead weight and
+can be removed (keep `MXL_PREWARM` as the no-persistence escape hatch). Left in place
+for now so this change is purely additive.
+
+Tests: `tests/test_contribution_core.py` (8 new — opt-in resolution, tail==one-shot
+conform/sink, init builds tail-then-leg, monotonic-relock-never-rewinds), stubbed-gi
+so they run in CI. All 25 contribution tests + full python suite + node suite green.

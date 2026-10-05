@@ -36,6 +36,7 @@ from gi.repository import Gst, GLib
 
 # --- canonical cadence constants (FINDINGS §1/§6 — load-bearing, do not tune blindly) ---
 MARGIN_NS = 66_000_000      # 2 grains @30fps. Bigger => reader starvation ("too late" wedges).
+FRAME_NS = 33_333_333       # 1 grain @30fps — the monotonic step used on a persistent re-lock.
 RESYNC_NS = 150_000_000     # out-of-band threshold before we consider re-locking the offset
 RESYNC_COUNT = 45           # consecutive out-of-band frames required to actually re-sync
 
@@ -84,6 +85,15 @@ class SourceAdapter(ABC):
 
     # --- front-end physics ---
     latency_ms: int = 200               #: SRT/RTSP jitterbuffer hint (ms); per-path physics
+
+    #: keep the mxlsink FLOW alive across a source reconnect instead of exiting the
+    #: process (which recreates the flow and wedges the selector's cold reader — review
+    #: R1). When True, ContributionCore.run() rebuilds ONLY the source leg on EOS/error
+    #: and relinks it into the persistent sink; the flow UUID is created once and never
+    #: recreated, and the restamp offset stays locked so the local-clock cadence is
+    #: continuous (no "grain too early"). Opt-in, env MXL_INGEST_PERSISTENT=1. Default
+    #: False preserves the HW-proven supervisor-restart behaviour until verified.
+    persistent_flow: bool = False
 
     #: which media essence this adapter contributes. Selects the conform caps/
     #: elements and the restamp probe. 'video' (default) or 'audio'. A participant
@@ -145,10 +155,27 @@ class ContributionCore:
         self.repair_url = None if repair_url.strip().lower() in ('', 'none') else repair_url
         self.diag_every = diag_every
         self.state = {'offset': None, 'drift_n': 0, 'n': 0, 't0': None}
+        # Persistent-flow mode: adapter property OR env override (env wins when set),
+        # so an adopter can turn it on for an existing adapter without editing it.
+        env_persist = _os.environ.get('MXL_INGEST_PERSISTENT', '').strip().lower()
+        if env_persist in ('1', 'true', 'yes'):
+            self.persistent = True
+        elif env_persist in ('0', 'false', 'no'):
+            self.persistent = False
+        else:
+            self.persistent = bool(getattr(adapter, 'persistent_flow', False))
+        self._reconnects = 0
         Gst.init(None)
-        self.pipe = Gst.parse_launch(self._build_launch())
-        self.sink = self.pipe.get_by_name('sink')
         self.loop = GLib.MainLoop()
+        if self.persistent:
+            # Build the persistent TAIL (queue -> [conform] -> mxlsink) once; the source
+            # leg is added + linked separately so it can be rebuilt in place on reconnect.
+            self.pipe = Gst.Pipeline.new('ingest')
+            self._build_persistent_tail()
+            self._build_source_leg()   # first attach
+        else:
+            self.pipe = Gst.parse_launch(self._build_launch())
+            self.sink = self.pipe.get_by_name('sink')
 
     def _build_launch(self) -> str:
         a = self.a
@@ -173,6 +200,123 @@ class ContributionCore:
         return (f'{a.source_fragment()}'
                 f'! videorate ! videoscale add-borders=true ! videoconvert n-threads=2 '
                 f'! {CANON_CAPS} ! {sink}')
+
+    # ---------------------------------------------------------------------------
+    # Persistent-flow mode (review R1): the mxlsink flow is created ONCE and kept
+    # alive across source reconnects. The pipeline is split at a named `jbuf` queue:
+    #   [ source leg ]  →  jbuf  →  [ conform ]  →  mxlsink   (tail = persistent)
+    # On source EOS/error we set only the source-leg elements to NULL, drop them,
+    # rebuild them from the SAME adapter fragment, and relink into jbuf. The sink,
+    # the flow, the clock and the restamp offset all survive — so the selector's
+    # reader never sees a flow recreation and can never wedge, and the local-clock
+    # cadence is continuous (no "grain too early"). Same restamp probe as the
+    # one-shot path, so lip-sync timing is byte-identical.
+    # ---------------------------------------------------------------------------
+    def _tail_fragment(self) -> str:
+        """The persistent tail: a jitter queue the source leg links into, then the
+        essence-appropriate conform, then the mxlsink. Identical conform/sink to
+        _build_launch so timing + grain spec don't diverge between modes."""
+        a = self.a
+        sink = (f'mxlsink name=sink domain={self.domain} flow-id={a.flow_id} '
+                f'label="{a.label}" description="{a.description}" '
+                f'group-hint="{a.group_hint}" sync=false')
+        # leaky=downstream: during the reconnect gap no buffers arrive; when the new
+        # leg floods to catch up we drop the oldest rather than block the sink thread.
+        jbuf = 'queue name=jbuf leaky=downstream max-size-buffers=8'
+        if not a.needs_conform:
+            return f'{jbuf} ! {sink}'
+        if a.essence == 'audio':
+            return (f'{jbuf} ! audioconvert ! audioresample ! {CANON_AUDIO_CAPS} '
+                    f'! queue max-size-buffers=32 ! {sink}')
+        return (f'{jbuf} ! videorate ! videoscale add-borders=true ! videoconvert n-threads=2 '
+                f'! {CANON_CAPS} ! {sink}')
+
+    def _build_persistent_tail(self):
+        """Parse the tail fragment into a bin, add it to the pipeline, cache handles."""
+        tail = Gst.parse_bin_from_description(self._tail_fragment(), False)
+        self.pipe.add(tail)
+        self._tail = tail
+        self.sink = tail.get_by_name('sink')
+        self.jbuf = tail.get_by_name('jbuf')
+
+    def _build_source_leg(self):
+        """(Re)build the source leg from the adapter fragment and link it into jbuf.
+        The leg is everything the one-shot path puts BEFORE the conform — i.e. the
+        adapter's own fragment, which already ends at a raw pad (conform adapters) or
+        at v210 grains (native adapters). We link the leg's ghosted src pad to jbuf's
+        STATIC sink pad explicitly, so a rebuild can't accidentally grab a different
+        pad or fail because the element-level link picks the wrong one."""
+        frag = self.a.source_fragment().strip()
+        if frag.endswith('!'):
+            frag = frag[:-1].strip()
+        leg = Gst.parse_bin_from_description(frag, True)  # ghost the trailing src pad
+        leg.set_name('srcleg')
+        self.pipe.add(leg)
+        self._leg = leg
+        # Element-level link: it resolves the leg's ghost src pad to jbuf's sink pad
+        # internally. (A manual ghost-pad-to-ghost-pad pad.link() returns wrong-hierarchy
+        # for bins at the same level; Element.link does the right thing.) The jbuf sink
+        # must be free — the rebuild path unlinks the old leg before calling us.
+        jbuf_sink = self.jbuf.get_static_pad('sink')
+        if jbuf_sink is not None and jbuf_sink.is_linked():
+            raise RuntimeError('persistent-flow: jbuf sink still linked (old leg not released)')
+        if not leg.link(self.jbuf):
+            raise RuntimeError('persistent-flow: could not link source leg -> jbuf')
+        leg.sync_state_with_parent()
+
+    def _rebuild_source_leg(self):
+        """On source EOS/error: tear down ONLY the source leg, rebuild + relink it.
+        Runs on the GLib main thread (scheduled via idle_add from the bus callback)."""
+        self._reconnects += 1
+        print(f'persistent-flow: source dropped — rebuilding leg (reconnect #{self._reconnects}), '
+              f'flow {self.a.flow_id[:8]} stays live', flush=True)
+        # Re-anchor the restamp: the new source leg restarts its PTS near 0 (a new
+        # RTP/SRT/encoder session on reconnect — same for a real camera), so the OLD
+        # offset would map the new frames BACKWARD and the flow's grain index would jump
+        # back → a selector reading the flow sees "grain … too early". Clear the lock so
+        # the probe re-locks on the new leg's first frame, and remember the last grain we
+        # wrote so the re-lock can be clamped to keep the flow MONOTONIC (never rewind).
+        self.state['offset'] = None
+        self.state['next_pts'] = None   # audio anchor, re-anchored the same way
+        self.state['relock'] = True
+        try:
+            old = getattr(self, '_leg', None)
+            if old is not None:
+                # Free jbuf's sink pad before relinking. Unlink by jbuf's OWN sink-pad
+                # peer (not the leg's ghost pad, which after EOS may report linked but
+                # resolve to nothing through element-level unlink). set NULL + remove the
+                # leg too so its elements and ghost target are fully torn down.
+                jsink = self.jbuf.get_static_pad('sink')
+                peer = jsink.get_peer() if jsink is not None else None
+                if peer is not None:
+                    peer.unlink(jsink)
+                old.set_state(Gst.State.NULL)
+                self.pipe.remove(old)
+                self._leg = None
+                if jsink is not None and jsink.is_linked():
+                    raise RuntimeError('persistent-flow: jbuf sink still linked after unlink+remove')
+            self._build_source_leg()
+        except Exception as e:
+            # Can't recover the leg in-place — fall back to a full process restart so the
+            # supervisor loop takes over (worst case = old behaviour, never silent death).
+            print(f'persistent-flow: leg rebuild failed ({e}); exiting for supervisor restart', flush=True)
+            self.loop.quit()
+            return False
+        return False  # one-shot idle
+
+    def _from_tail(self, msg_src) -> bool:
+        """True if a bus message originated inside the persistent tail bin (sink/conform)
+        rather than the source leg. Tail errors are fatal (can't relink away a broken
+        sink); source-leg errors are recoverable by rebuilding the leg."""
+        tail = getattr(self, '_tail', None)
+        if msg_src is None or tail is None:
+            return True  # unknown origin — treat as fatal (safe default)
+        node = msg_src
+        while node is not None:
+            if node is tail:
+                return True
+            node = node.get_parent()
+        return False
 
     # --- the announce loop (verbatim from guest_ingest, incl. the 429-escalation) ---
     def _announce(self):
@@ -229,11 +373,21 @@ class ContributionCore:
         s = self.state
         if s['offset'] is None:
             s['offset'] = now - buf.pts + MARGIN_NS
-            print(f'cadence offset locked: {s["offset"]/1e6:.0f}ms', flush=True)
-            if self.a.announce_on_lock and self.repair_url:
-                threading.Thread(target=self._announce, daemon=True).start()
-            elif self.a.announce_on_lock:
-                print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
+            # On a RE-LOCK (persistent-flow leg rebuild) the flow already has grains up to
+            # last_mapped; clamp the offset so the first new-leg grain lands STRICTLY after
+            # that (never rewind the flow — a rewind is exactly the "grain too early" read).
+            if s.get('relock') and s.get('last_mapped') is not None:
+                min_pts = s['last_mapped'] + FRAME_NS
+                if buf.pts + s['offset'] < min_pts:
+                    s['offset'] = min_pts - buf.pts
+                print(f'cadence offset RE-LOCKED (monotonic): {s["offset"]/1e6:.0f}ms', flush=True)
+                s['relock'] = False
+            else:
+                print(f'cadence offset locked: {s["offset"]/1e6:.0f}ms', flush=True)
+                if self.a.announce_on_lock and self.repair_url:
+                    threading.Thread(target=self._announce, daemon=True).start()
+                elif self.a.announce_on_lock:
+                    print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
         mapped = buf.pts + s['offset']
         err = now + MARGIN_NS - mapped
         if abs(err) > RESYNC_NS:
@@ -246,6 +400,7 @@ class ContributionCore:
         else:
             s['drift_n'] = 0
         buf.pts = mapped
+        s['last_mapped'] = mapped   # for a monotonic re-lock on the next leg rebuild
         s['n'] += 1
         if s['t0'] is None:
             s['t0'] = now
@@ -275,6 +430,12 @@ class ContributionCore:
         s = self.state
         if s.get('next_pts') is None or abs(now + MARGIN_NS - s['next_pts']) > 500_000_000:
             s['next_pts'] = now + MARGIN_NS
+            # Monotonic re-anchor on a persistent-flow leg rebuild: never place the new
+            # leg's audio before the last sample we already wrote (same rule as video).
+            if s.get('relock') and s.get('last_mapped') is not None:
+                s['next_pts'] = max(s['next_pts'], s['last_mapped'] + FRAME_NS)
+                print(f'audio cadence RE-ANCHORED (monotonic): {s["next_pts"]/1e6:.0f}ms', flush=True)
+                s['relock'] = False
             if s['offset'] is None:   # first lock -> announce if asked (parity w/ video)
                 s['offset'] = s['next_pts']
                 print(f'audio cadence anchored: {s["next_pts"]/1e6:.0f}ms', flush=True)
@@ -283,6 +444,7 @@ class ContributionCore:
                 elif self.a.announce_on_lock:
                     print('announce skipped (no repair_url) — mixer tolerates absent flows', flush=True)
         buf.pts = s['next_pts']
+        s['last_mapped'] = s['next_pts']   # for a monotonic re-anchor on the next rebuild
         if buf.duration != Gst.CLOCK_TIME_NONE:
             s['next_pts'] += buf.duration
         return Gst.PadProbeReturn.OK
@@ -311,10 +473,28 @@ class ContributionCore:
                 threading.Thread(target=self._announce, daemon=True).start()
         bus = self.pipe.get_bus()
         bus.add_signal_watch()
-        bus.connect('message::error',
-                    lambda b, m: (sys.stderr.write(f'ERR {m.parse_error()}\n'), self.loop.quit()))
-        bus.connect('message::eos',
-                    lambda b, m: (sys.stderr.write('EOS\n'), self.loop.quit()))
+        if self.persistent:
+            # Keep the flow alive: on a SOURCE-LEG eos/error, rebuild just that leg.
+            # (A fatal error from the sink/tail still exits for a supervisor restart —
+            # that can't be recovered by relinking.)
+            def _on_err(b, m):
+                err, _dbg = m.parse_error()
+                src = m.src.get_name() if m.src else '?'
+                sys.stderr.write(f'ERR [{src}] {err}\n')
+                if self._from_tail(m.src):
+                    self.loop.quit()            # fatal in the persistent tail — restart
+                else:
+                    GLib.idle_add(self._rebuild_source_leg)
+            def _on_eos(b, m):
+                sys.stderr.write('EOS (source) — persistent flow, rebuilding leg\n')
+                GLib.idle_add(self._rebuild_source_leg)
+            bus.connect('message::error', _on_err)
+            bus.connect('message::eos', _on_eos)
+        else:
+            bus.connect('message::error',
+                        lambda b, m: (sys.stderr.write(f'ERR {m.parse_error()}\n'), self.loop.quit()))
+            bus.connect('message::eos',
+                        lambda b, m: (sys.stderr.write('EOS\n'), self.loop.quit()))
         self.pipe.set_state(Gst.State.PLAYING)
         print(f'contribution_core running: {self.a.label} -> {self.a.flow_id}', flush=True)
         try:
