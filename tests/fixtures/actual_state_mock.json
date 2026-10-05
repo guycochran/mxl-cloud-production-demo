@@ -1,0 +1,65 @@
+{
+  "_comment": "Mock actual-state for desired_state_report v0.1 — process/media/dependency planes. Not a live probe. keyer unique_fps=0 is the classic alive-process/dead-media drift.",
+  "facility": "MXL Lab",
+  "functions": {
+    "test_generator": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 30,
+      "upstream": "pattern",
+      "downstream": "selector"
+    },
+    "encoder": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 30,
+      "upstream": "keyer,pgm_audio",
+      "downstream": "egress"
+    },
+    "file_player": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 30,
+      "upstream": "clip",
+      "downstream": "selector"
+    },
+    "cam_ingest": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 30,
+      "upstream": "camera",
+      "downstream": "selector"
+    },
+    "selector": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 30,
+      "upstream": "cam,playout",
+      "downstream": "keyer"
+    },
+    "keyer": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 0,
+      "upstream": "selector",
+      "downstream": "encoder",
+      "_note": "DRIFT: alive process / dead media (unique_fps=0)"
+    },
+    "pgm_audio": {
+      "process": "running",
+      "flow": "present",
+      "cadence": 30,
+      "unique_fps": 0,
+      "upstream": "guests,voice",
+      "downstream": "encoder",
+      "bypass": "active",
+      "_note": "policy-honoring audio bypass while mix unique_fps is 0 → ok"
+    }
+  }
+}
