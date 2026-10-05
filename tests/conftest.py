@@ -44,12 +44,42 @@ def _install_gi_stub():
 
     # --- a recording stub pipeline so tests can read back the launch string ---
     class _StubElement:
+        def __init__(self, name=None):
+            self._name = name
+
+        def get_by_name(self, name):
+            return _StubElement(name)
+
         def get_static_pad(self, _name):
             return _StubPad()
+
+        def set_name(self, name):
+            self._name = name
+
+        def link(self, _other):
+            return True
+
+        def unlink(self, _other):
+            return None
+
+        def set_state(self, _s):
+            return None
+
+        def sync_state_with_parent(self):
+            return None
 
     class _StubPad:
         def add_probe(self, *_a, **_k):
             return 1
+
+        def is_linked(self):
+            return False
+
+        def get_peer(self):
+            return None
+
+        def unlink(self, _other):
+            return None
 
     class _StubPipeline:
         last_launch = None  # class attr: the most recent parse_launch string
@@ -59,7 +89,13 @@ def _install_gi_stub():
             self._launch = launch
 
         def get_by_name(self, _name):
-            return _StubElement()
+            return _StubElement(_name)
+
+        def add(self, _el):
+            return None
+
+        def remove(self, _el):
+            return None
 
         def get_clock(self):
             return None
@@ -89,6 +125,17 @@ def _install_gi_stub():
         State = _Enum()
         PadProbeType = _Enum()
         PadProbeReturn = _Enum()
+        IteratorResult = _Enum()
+        PadLinkReturn = _Enum()
+
+        # persistent-flow mode records the tail + leg bin descriptions here so tests
+        # can assert the split pipeline matches the one-shot launch's conform/sink.
+        last_bins = []
+
+        class Pipeline:
+            @staticmethod
+            def new(_name):
+                return _StubPipeline("<persistent:%s>" % _name)
 
         @staticmethod
         def init(_a):
@@ -97,6 +144,11 @@ def _install_gi_stub():
         @staticmethod
         def parse_launch(launch):
             return _StubPipeline(launch)
+
+        @staticmethod
+        def parse_bin_from_description(desc, _ghost):
+            Gst.last_bins.append(desc)
+            return _StubElement()
 
     class GLib:
         class MainLoop:

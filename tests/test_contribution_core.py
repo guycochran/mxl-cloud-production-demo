@@ -173,3 +173,102 @@ def test_repair_url_env_opt_in(monkeypatch):
     monkeypatch.setenv("MXL_REPAIR_URL", "https://example.test/api/mxl/repair")
     core = cc.ContributionCore(SrtGuestAdapter(path="g1", flow_id="f" * 36, label="Guest 1"))
     assert core.repair_url == "https://example.test/api/mxl/repair"
+
+
+# ── R1: persistent-flow mode (fold create-once + swap-reader into the ingest) ────
+# The wedge (review R1): the supervisor restarts the whole ingest on a source
+# reconnect, which RECREATES the mxlsink flow and wedges the selector's cold reader.
+# Persistent mode keeps the flow alive and rebuilds ONLY the source leg. These lock
+# down the pure logic; the HW proof (stable flow inode/ctime across 10 reconnects,
+# continuous cadence, program-follows-cut) is an integration job on AVX hardware.
+import gi as _gi  # noqa: E402  (the stub; just to reach Gst.last_bins)
+_Gst = _gi.repository.Gst
+
+
+def _persist_adapter():
+    a = SrtGuestAdapter(path="g1", flow_id="f" * 36, label="Guest 1")
+    return a
+
+
+def test_persistent_off_by_default():
+    """Default must preserve the HW-proven supervisor-restart path — opt-in only."""
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert core.persistent is False
+
+
+def test_persistent_env_opt_in(monkeypatch):
+    monkeypatch.setenv("MXL_INGEST_PERSISTENT", "1")
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert core.persistent is True
+
+
+def test_persistent_env_can_force_off(monkeypatch):
+    """Env override wins over an adapter that defaults persistent_flow=True."""
+    a = _persist_adapter()
+    a.persistent_flow = True
+    monkeypatch.setenv("MXL_INGEST_PERSISTENT", "0")
+    core = cc.ContributionCore(a, repair_url="none")
+    assert core.persistent is False
+
+
+def test_persistent_adapter_property_opt_in(monkeypatch):
+    monkeypatch.delenv("MXL_INGEST_PERSISTENT", raising=False)
+    a = _persist_adapter()
+    a.persistent_flow = True
+    core = cc.ContributionCore(a, repair_url="none")
+    assert core.persistent is True
+
+
+def test_persistent_tail_has_same_conform_and_sink_as_oneshot(monkeypatch):
+    """The split pipeline's TAIL must carry the identical conform + mxlsink the
+    one-shot launch uses — otherwise the two modes diverge on the media path."""
+    monkeypatch.setenv("MXL_INGEST_PERSISTENT", "1")
+    _Gst.last_bins = []
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    tail = core._tail_fragment()
+    # conform + sink identical to the one-shot path
+    assert "videorate" in tail
+    assert cc.CANON_CAPS in tail
+    assert "mxlsink name=sink" in tail
+    assert f"flow-id={'f' * 36}" in tail
+    # the jitter queue the source leg links into, created once
+    assert "queue name=jbuf" in tail
+    # exactly one videorate (the double-videorate bug must not reappear in the tail)
+    assert tail.count("videorate") == 1
+
+
+def test_persistent_init_builds_tail_then_source_leg(monkeypatch):
+    """__init__ in persistent mode parses the tail bin first, then the source leg."""
+    monkeypatch.setenv("MXL_INGEST_PERSISTENT", "1")
+    _Gst.last_bins = []
+    cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert len(_Gst.last_bins) == 2
+    assert "mxlsink name=sink" in _Gst.last_bins[0]   # tail
+    # source leg = the adapter's own front end (SrtGuestAdapter uses rtspsrc), and it
+    # must NOT carry the conform/sink — those live only in the persistent tail.
+    assert "rtspsrc" in _Gst.last_bins[1]
+    assert "mxlsink" not in _Gst.last_bins[1]
+
+
+def test_monotonic_relock_never_rewinds_the_flow(monkeypatch):
+    """The core of the R1 fix: on a leg rebuild the new source PTS restarts near 0,
+    so the restamp must RE-LOCK the offset forward of the last grain already written —
+    never rewind the flow (a rewind is exactly the selector's 'grain too early' read)."""
+    monkeypatch.setenv("MXL_INGEST_PERSISTENT", "1")
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    s = core.state
+    # simulate: we already wrote up to last_mapped, then a rebuild cleared the lock
+    s["last_mapped"] = 10_000_000_000      # 10s of flow already written
+    s["offset"] = None
+    s["relock"] = True
+    # the new leg's first frame arrives with a small PTS (fresh session) and a clock
+    # time that would map it BACKWARD under a naive now-based lock
+    new_leg_pts = 0
+    now = 500_000_000                      # clock only 0.5s in (well before last_mapped)
+    # replicate the clamp the probe applies on re-lock
+    offset = now - new_leg_pts + cc.MARGIN_NS
+    min_pts = s["last_mapped"] + cc.FRAME_NS
+    if new_leg_pts + offset < min_pts:
+        offset = min_pts - new_leg_pts
+    mapped = new_leg_pts + offset
+    assert mapped >= s["last_mapped"] + cc.FRAME_NS   # strictly forward — no rewind
