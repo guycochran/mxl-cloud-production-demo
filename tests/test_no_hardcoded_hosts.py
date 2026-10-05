@@ -28,8 +28,8 @@ UNIVERSAL_OK = {"127.0.0.1", "0.0.0.0", "172.17.0.1"}
 
 # file -> literals permitted there (default values behind env vars, docs-in-comments, ...)
 ALLOW = {
-    "config/facility.json": {"20.64.205.144", "10.0.0.5"},  # manifest defaults; MXL_VM_IP etc. override
-    "scripts/bring-up-mxl.sh": {"20.64.205.144", "50.106.4.50", "192.168.8.177", "prodbots.com", "cochran.cloud"},  # env defaults (MXL_*)
+    "config/facility.json": {"10.0.0.5"},  # manifest defaults; MXL_VM_IP etc. override
+    "scripts/bring-up-mxl.sh": {"203.0.113.50", "192.168.8.177", "prodbots.com", "cochran.cloud"},  # env defaults (MXL_*); site IP is an RFC 5737 placeholder
     "scripts/mxl-doctor": {"10.0.0.4", "prodbots.com"},          # comment only
     "tools/adapters.py": {"10.0.0.5"},                            # default rtsp_host arg (pinned by launch-parity test)
     "tools/audio_pgm.py": {"prodbots.com"},                       # MXL_BACKEND_URL default
@@ -42,8 +42,8 @@ ALLOW = {
     "tools/selector-doctor.sh": {"prodbots.com"},                 # MXL_BACKEND_URL default
     "scripts/quickstart.sh": {"mxlswitcher.com"},                 # comment only
     "tools/start-jonas-leg.sh": {"10.0.0.4"},                     # MXL_VM1_IP default
-    "tools/tams_shipper.py": {"20.112.83.140"},                   # TAMS_HOST default
-    "tools/backfill-mini.py": {"20.112.83.140"},                  # TAMS_HOST default
+    "tools/tams_shipper.py": {"203.0.113.140"},                   # TAMS_HOST default (RFC 5737 placeholder)
+    "tools/backfill-mini.py": {"203.0.113.140"},                  # TAMS_HOST default (RFC 5737 placeholder)
     "companion-module-mxl-switcher/main.js": {"prodbots.com"},    # user-editable config field default
 }
 
@@ -92,7 +92,7 @@ def test_allowlist_has_no_stale_entries():
 def test_scanner_catches_a_new_literal(tmp_path):
     """Self-test so the tripwire can't silently go blind."""
     assert IPV4.search("host = '8.8.8.8'")
-    assert IPV4.search("http://20.112.83.140:9000")
+    assert IPV4.search("http://203.0.113.140:9000")
     assert not IPV4.search("version 1.5.15")
     assert not IPV4.search("v1.2.3.4.5")
     assert HOSTS.search("https://prodbots.com/api")

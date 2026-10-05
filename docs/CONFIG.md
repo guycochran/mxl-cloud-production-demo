@@ -1,9 +1,10 @@
 # Configuration reference (environment variables)
 
 Site-specific endpoints used to be hard-coded across `scripts/`, `tools/` and `config/`.
-They are now read from environment variables, **and every default is the current production
-value** — so with nothing set, behaviour is identical to before. Set a variable only when
-you are standing up a different site (or rotating an address).
+They are now read from environment variables. Most defaults are the current production
+value; the four site-identifying values used by `scripts/bring-up-mxl.sh` (VM address, SSH
+key, Azure resource group, VM name) have **no default and are required**. Set a variable
+when you are standing up a different site (or rotating an address).
 
 A test (`tests/test_no_hardcoded_hosts.py`) fails if a *new* IP literal or site hostname is
 added outside the allowlist, so new code should read config from the environment.
@@ -15,7 +16,7 @@ and Node loaders both honour them):
 
 | Variable | Overrides | Default (production) |
 |---|---|---|
-| `MXL_VM_IP` | `network.mxl_vm` — public/static IP the backend uses to reach the VM's easy-mxl APIs | `20.64.205.144` |
+| `MXL_VM_IP` | `network.mxl_vm` — public/static IP the backend uses to reach the VM's easy-mxl APIs | `<VM_PUBLIC_IP>` (placeholder; set `MXL_VM_IP`) |
 | `MXL_VM_INTERNAL_IP` | `network.mxl_vm_internal` — VNet address used VM-to-VM | `10.0.0.5` |
 | `MXL_DOCKER_GATEWAY` | `network.docker_gateway` | `172.17.0.1` |
 | `MXL_FACILITY_JSON` | path of the manifest file itself (pre-existing) | repo `config/facility.json` |
@@ -23,16 +24,19 @@ and Node loaders both honour them):
 
 ## `scripts/bring-up-mxl.sh` (run from the backend box)
 
+**Required (no default; the script exits with code 2 and lists any that are missing):**
+`MXL_VM_IP`, `MXL_SSH_KEY`, `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME`.
+
 | Variable | Meaning | Default |
 |---|---|---|
-| `MXL_VM_IP` | VM public IP to SSH to | `20.64.205.144` |
+| `MXL_VM_IP` | VM public IP to SSH to | **required** |
 | `MXL_VM_SSH_USER` | SSH user on the VM | `guy` |
-| `MXL_SSH_KEY` | SSH private key | `$HOME/.ssh/mxl-lab` |
-| `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `50.106.4.50` |
+| `MXL_SSH_KEY` | SSH private key | **required** |
+| `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `203.0.113.50` (placeholder; set `MXL_SITE_IP`) |
 | `MXL_MAKITO_IP` | CAM 2 Makito X4 encoder (informational) | `192.168.8.177` |
 | `MXL_BACKEND_URL` | facility backend base URL (kiosk page + `/api/mxl/*`); also exported to the VM-side `run-cam*.sh` as `MXL_REPAIR_URL=$MXL_BACKEND_URL/api/mxl/repair` | `https://prodbots.com` |
 | `MXL_FEED_URL` | public WebRTC feed tunnel | `https://mxl-feed.cochran.cloud` |
-| `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | `ohg-mxl-lab`, `mxl-lab` |
+| `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | **required** (both) |
 | `MXL_HTML` | path of the deployed kiosk page | `$HOME/prodbots-backend/public/mxl.html` |
 
 ## Python / shell tools
@@ -40,7 +44,7 @@ and Node loaders both honour them):
 | Variable | Used by | Default |
 |---|---|---|
 | `MXL_BACKEND_URL` | `audio_pgm.py`, `layout_pgm.py`, `mxl_multiview.py`, `nmos_node.py` (`--facility`), `selector-doctor.sh`, `guest-leg-doctor.sh` | `https://prodbots.com` |
-| `TAMS_HOST` | `tams_shipper.py`, `backfill-mini.py` — the TAMS/MinIO box | `20.112.83.140` |
+| `TAMS_HOST` | `tams_shipper.py`, `backfill-mini.py` — the TAMS/MinIO box | `203.0.113.140` (placeholder; set `TAMS_HOST`) |
 | `TAMS_URL` | `tams_shipper.py` TAMS API (pre-existing) | `http://$TAMS_HOST:8000` |
 | `TAMS_S3_ENDPOINT` | `tams_shipper.py`, `backfill-mini.py` MinIO endpoint | `http://$TAMS_HOST:9000` |
 | `TAMS_S3_USER` | MinIO access key id (the secret still comes from `~/.tams-s3.env`) | `tams` |

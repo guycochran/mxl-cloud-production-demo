@@ -18,8 +18,9 @@ import subprocess
 import time
 import urllib.request
 
-# TAMS_HOST = the TAMS/MinIO box (VM3). Defaults are the current production values.
-TAMS_HOST = os.environ.get('TAMS_HOST', '20.112.83.140')
+# TAMS_HOST = the TAMS/MinIO box (VM3). Placeholder default (RFC 5737 doc range);
+# set TAMS_HOST to your real address. See docs/CONFIG.md.
+TAMS_HOST = os.environ.get('TAMS_HOST', '203.0.113.140')
 TAMS = os.environ.get('TAMS_URL', f'http://{TAMS_HOST}:8000')
 FLOW = os.environ.get('TAMS_FLOW', '7a350001-aaaa-4bbb-8ccc-000000000001')
 SPOOL = os.environ.get('SPOOL', '/srv/tams-spool')

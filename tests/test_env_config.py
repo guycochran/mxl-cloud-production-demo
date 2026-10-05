@@ -1,5 +1,5 @@
-"""Env-var configuration: defaults == the historical production values (so nothing changes
-in production), overrides work, and every variable is documented in docs/CONFIG.md."""
+"""Env-var configuration: defaults == the historical production values (except the four
+required bring-up-mxl.sh site vars, which have no default), overrides work, and every variable is documented in docs/CONFIG.md."""
 import json
 import os
 import re
@@ -50,29 +50,65 @@ def test_facility_js_matches_python_and_overrides():
 
 
 # ── bring-up-mxl.sh site-config block ────────────────────────────────────────
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-def test_bring_up_defaults_and_overrides():
+BRING_UP_REQUIRED = {"MXL_VM_IP": "203.0.113.9", "MXL_SSH_KEY": "/h/.ssh/test-key",
+                     "MXL_AZ_RESOURCE_GROUP": "rg-test", "MXL_AZ_VM_NAME": "vm-test"}
+
+
+def _bring_up_probe():
     src = (ROOT / "scripts" / "bring-up-mxl.sh").read_text()
-    m = re.search(r"(VM_IP=\$\{MXL_VM_IP.*?\nMXL_HTML=[^\n]*\n)", src, re.S)
+    m = re.search(r"(_required=\(MXL_VM_IP.*?\nMXL_HTML=[^\n]*\n)", src, re.S)
     assert m, "site-config block not found"
-    probe = m.group(1) + 'printf "%s|%s|%s|%s|%s|%s|%s|%s|%s\\n" ' \
+    return m.group(1) + 'printf "%s|%s|%s|%s|%s|%s|%s|%s|%s\\n" ' \
         '"$VM_IP" "$VM_USER" "$SITE_IP" "$MAKITO_IP" "$BACKEND_URL" "$FEED_URL" "$AZ_RG" "$AZ_VM" "$SSH"'
-    run = lambda **env: subprocess.run(["bash", "-c", probe], capture_output=True, text=True,
-                                       env=_clean_env(HOME="/h", **env), check=True).stdout.strip().split("|")
-    d = run()
-    assert d[:8] == ["20.64.205.144", "guy", "50.106.4.50", "192.168.8.177", "https://prodbots.com",
-                     "https://mxl-feed.cochran.cloud", "ohg-mxl-lab", "mxl-lab"]
-    assert d[8] == "ssh -i /h/.ssh/mxl-lab -o BatchMode=yes -o ConnectTimeout=8 guy@20.64.205.144"  # byte-identical ssh
-    o = run(MXL_VM_IP="198.51.100.7", MXL_VM_SSH_USER="ops", MXL_BACKEND_URL="https://example.test/")
-    assert o[0] == "198.51.100.7" and o[1] == "ops" and o[4] == "https://example.test"  # trailing / stripped
-    assert o[8].endswith("ops@198.51.100.7")
+
+
+def _run_bring_up(**env):
+    return subprocess.run(["bash", "-c", _bring_up_probe()], capture_output=True, text=True,
+                          env=_clean_env(HOME="/h", **env))
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_bring_up_required_vars_and_overrides():
+    # with the four required vars set, every other default is unchanged and the ssh line is byte-identical in shape
+    r = _run_bring_up(**BRING_UP_REQUIRED)
+    assert r.returncode == 0, r.stderr
+    d = r.stdout.strip().split("|")
+    assert d[:8] == ["203.0.113.9", "guy", "203.0.113.50", "192.168.8.177", "https://prodbots.com",
+                     "https://mxl-feed.cochran.cloud", "rg-test", "vm-test"]
+    assert d[8] == "ssh -i /h/.ssh/test-key -o BatchMode=yes -o ConnectTimeout=8 guy@203.0.113.9"
+    o = _run_bring_up(**{**BRING_UP_REQUIRED, "MXL_VM_IP": "198.51.100.7", "MXL_VM_SSH_USER": "ops",
+                         "MXL_BACKEND_URL": "https://example.test/"})
+    d = o.stdout.strip().split("|")
+    assert d[0] == "198.51.100.7" and d[1] == "ops" and d[4] == "https://example.test"  # trailing / stripped
+    assert d[8].endswith("ops@198.51.100.7")
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_bring_up_fails_clearly_without_required_vars():
+    r = _run_bring_up()
+    assert r.returncode == 2 and r.stdout == ""
+    for v in BRING_UP_REQUIRED:
+        assert v in r.stderr, f"{v} not listed in the error"
+    # only the missing ones are flagged in the "not set" list; blank counts as missing
+    partial = {k: v for k, v in BRING_UP_REQUIRED.items() if k != "MXL_AZ_VM_NAME"}
+    partial["MXL_SSH_KEY"] = ""  # set-but-empty counts as missing
+    r = _run_bring_up(**partial)
+    assert r.returncode == 2
+    not_set = r.stderr.split("not set:")[1].split("Set all of these")[0]
+    assert "MXL_AZ_VM_NAME" in not_set and "MXL_SSH_KEY" in not_set and "MXL_VM_IP" not in not_set
+
+
+def test_bring_up_required_vars_have_no_defaults():
+    src = (ROOT / "scripts" / "bring-up-mxl.sh").read_text()
+    for v in BRING_UP_REQUIRED:
+        assert not re.search(r"\$\{" + v + r":?[-=]", src), f"{v} must not have a default in bring-up-mxl.sh"
 
 
 # ── python tools: defaults pinned (modules need GStreamer/boto3, so check source) ──
 @pytest.mark.parametrize("rel,needles", [
-    ("tools/tams_shipper.py", ["os.environ.get('TAMS_HOST', '20.112.83.140')", "f'http://{TAMS_HOST}:8000'",
+    ("tools/tams_shipper.py", ["os.environ.get('TAMS_HOST', '203.0.113.140')", "f'http://{TAMS_HOST}:8000'",
                                "f'http://{TAMS_HOST}:9000'", "os.environ.get('TAMS_S3_USER', 'tams')"]),
-    ("tools/backfill-mini.py", ["os.environ.get('TAMS_HOST','20.112.83.140')", "f'http://{_host}:9000'",
+    ("tools/backfill-mini.py", ["os.environ.get('TAMS_HOST','203.0.113.140')", "f'http://{_host}:9000'",
                                 "os.environ.get('TAMS_S3_USER','tams')"]),
     ("tools/audio_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
     ("tools/layout_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
