@@ -47,6 +47,24 @@ routes. See [the control-plane doc](docs/LOCAL-CONTROL-PLANE.md).
 
 ---
 
+## Who this is for
+
+**Adopt the core, build a skin.** This repo is the open MXL switcher **core** —
+a generic DMF lab you clone onto a commodity VM, bring up with quickstart, and
+validate with `mxl-doctor`. Organisation-specific workflows, branding, and
+control surfaces live in **skins** that talk only to `/api/mxl/v1`.
+
+Intended early adopters to point at this repo to get up and running, then build
+skins: **EBU** and **CBC Radio** (and anyone else in the MXL community). Pin a
+core release tag (recommend `core-v1.0.1` once tagged; `core-v1.0.0` exists
+today). Desired-state reporting is **report-only**; the self-healer is
+**opt-in** (`MXL_SELFHEAL=1`).
+
+Full pitch: **[docs/ADOPTERS.md](docs/ADOPTERS.md)** · boundary design:
+[docs/ARCHITECTURE-CORE-AND-SKINS.md](docs/ARCHITECTURE-CORE-AND-SKINS.md).
+
+---
+
 ## The full facility
 
 Built by [Office Hours Global](https://officehours.global) ahead of IBC 2026 to show that

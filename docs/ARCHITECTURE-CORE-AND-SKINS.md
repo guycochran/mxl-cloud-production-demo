@@ -3,6 +3,10 @@
 **Status:** DRAFT proposal for discussion — nothing here is implemented yet. Written against `master` @ `ab44ddc` plus the open drafts it refers to (#17, #19, #20, #23, and the two UI mockups in #18 / #21).
 **Audience:** the maintainer, the other coder, and anyone building on the switcher.
 
+**Looking for the adopter pitch?** Start with [ADOPTERS.md](ADOPTERS.md) (clone →
+doctor → skin; pinning; EBU / CBC Radio on-ramp). This file is the boundary
+design those steps assume.
+
 ## 1. Why
 
 The repo now has one real switcher UI (`web/local.html`), two design mockups of very different shapes (a broadcast-panel layout in #18 and a director "cockpit" in #21), and at least one downstream user who needs organisation-specific behaviour. Without a boundary, every new need either forks the UI or leaks specifics into the open code. The proposal is to treat the open repo as stable **bones** (sources, slots, layouts, preview/take, control API) and everything visible or organisation-specific as replaceable **skins** and **private downstream code**.
