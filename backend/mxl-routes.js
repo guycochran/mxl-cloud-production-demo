@@ -38,6 +38,7 @@
 // easy-mxl flows API once the writers are up.
 const facility = require('./facility');
 const { createAuth, rateLimiterFromEnv } = require('./mxl-auth');
+const { registerV1Routes } = require('./mxl-routes-v1');
 const _fac = facility.load();
 const _vf = (name, fallback) => { try { return facility.videoFlow(name); } catch { return fallback; } };
 const _af = (name, fallback) => { try { return facility.audioFlow(name); } catch { return fallback; } };
@@ -339,5 +340,25 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
       res.json({ ok: true, slot });
     } catch (e) { res.status(502).json({ error: e.message }); }
     finally { mxlBusy = false; }
+  });
+
+  // ── /api/mxl/v1/* — the versioned contract (contracts/v1/*), thin wrappers over
+  // the handlers above. Registered here so it can reach these closures; the legacy
+  // /api/mxl/* routes stay as aliases for the overlap window. ──────────────────────
+  registerV1Routes({
+    app, auth,
+    capabilities: ['state.read', 'sources.read', 'thumbs.read',
+      'control.cut', 'control.preview', 'control.take', 'control.key'],
+    layout: _layout,
+    status: mxlStatus,
+    setInput: mxlSetInput,
+    setKey: (on) => mxlApi(9605, '/pipeline/key', { on: !!on }),
+    getPvw: () => pvw,
+    setPvw: (s) => { pvw = s; },
+    programUrl: env.MXL_PROGRAM_URL || null,
+    authInfo: {
+      required: !!(env.MXL_CONTROL_TOKEN || '').trim(),
+      scopes: ['read', 'control', 'ops'],
+    },
   });
 };
