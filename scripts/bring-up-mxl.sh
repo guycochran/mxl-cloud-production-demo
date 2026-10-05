@@ -6,19 +6,36 @@
 # Run from the prodbots box:  ~/Projects/bring-up-mxl.sh
 set -uo pipefail
 
-# ── Site config: every value below can be overridden from the environment; the
-# defaults are the CURRENT PRODUCTION values, so running with no env set is
-# identical to before. See docs/CONFIG.md.
-VM_IP=${MXL_VM_IP:-20.64.205.144}                 # Standard SKU public IP = static
+# ── Site config: every value below can be overridden from the environment. The
+# four site-identifying values (VM address, SSH key, Azure resource group, VM name)
+# have NO defaults and MUST be set. See docs/CONFIG.md.
+_required=(MXL_VM_IP MXL_SSH_KEY MXL_AZ_RESOURCE_GROUP MXL_AZ_VM_NAME)
+_missing=()
+for _v in "${_required[@]}"; do
+  [ -n "${!_v:-}" ] || _missing+=("$_v")
+done
+if [ "${#_missing[@]}" -gt 0 ]; then
+  {
+    echo "✗ bring-up-mxl.sh: required environment variables are not set:"
+    printf '    %s\n' "${_missing[@]}"
+    echo "  Set all of these before running (see docs/CONFIG.md):"
+    echo "    MXL_VM_IP                VM public/static IP to SSH to"
+    echo "    MXL_SSH_KEY              path to the SSH private key for the VM"
+    echo "    MXL_AZ_RESOURCE_GROUP    Azure resource group containing the VM"
+    echo "    MXL_AZ_VM_NAME           Azure VM name (az vm start/deallocate)"
+  } >&2
+  exit 2
+fi
+VM_IP=$MXL_VM_IP                                  # Standard SKU public IP = static
 VM_USER=${MXL_VM_SSH_USER:-guy}                   # SSH user on the VM
-SSH_KEY=${MXL_SSH_KEY:-$HOME/.ssh/mxl-lab}
+SSH_KEY=$MXL_SSH_KEY
 SITE_IP=${MXL_SITE_IP:-50.106.4.50}               # the only IP the VM's NSG allows (used in messages)
 MAKITO_IP=${MXL_MAKITO_IP:-192.168.8.177}         # CAM 2 Makito X4 encoder (informational)
 BACKEND_URL=${MXL_BACKEND_URL:-https://prodbots.com}   # facility backend (kiosk + /api/mxl/*)
 BACKEND_URL=${BACKEND_URL%/}
 FEED_URL=${MXL_FEED_URL:-https://mxl-feed.cochran.cloud}  # public WebRTC feed tunnel
-AZ_RG=${MXL_AZ_RESOURCE_GROUP:-ohg-mxl-lab}
-AZ_VM=${MXL_AZ_VM_NAME:-mxl-lab}
+AZ_RG=$MXL_AZ_RESOURCE_GROUP
+AZ_VM=$MXL_AZ_VM_NAME
 SSH="ssh -i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=8 $VM_USER@$VM_IP"
 MXL_HTML=${MXL_HTML:-$HOME/prodbots-backend/public/mxl.html}
 
@@ -55,7 +72,7 @@ step "Checking VM $VM_IP"
 if ! $SSH true 2>/dev/null; then
   echo "  VM unreachable — trying az vm start (ok if az not logged in)…"
   az vm start -g "$AZ_RG" -n "$AZ_VM" 2>/dev/null \
-    || die "VM down and az start failed. Login first: az login --service-principal (SP mxl-lab-cli), then re-run."
+    || die "VM down and az start failed. Login first: az login --service-principal, then re-run."
   for i in $(seq 1 30); do $SSH true 2>/dev/null && break; sleep 10; done
   $SSH true 2>/dev/null || die "VM started but SSH still unreachable (NSG allows only site IP $SITE_IP/32 — did the site IP change?)"
 fi

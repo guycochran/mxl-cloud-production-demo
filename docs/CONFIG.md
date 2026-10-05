@@ -1,9 +1,10 @@
 # Configuration reference (environment variables)
 
 Site-specific endpoints used to be hard-coded across `scripts/`, `tools/` and `config/`.
-They are now read from environment variables, **and every default is the current production
-value** — so with nothing set, behaviour is identical to before. Set a variable only when
-you are standing up a different site (or rotating an address).
+They are now read from environment variables. Most defaults are the current production
+value; the four site-identifying values used by `scripts/bring-up-mxl.sh` (VM address, SSH
+key, Azure resource group, VM name) have **no default and are required**. Set a variable
+when you are standing up a different site (or rotating an address).
 
 A test (`tests/test_no_hardcoded_hosts.py`) fails if a *new* IP literal or site hostname is
 added outside the allowlist, so new code should read config from the environment.
@@ -23,16 +24,19 @@ and Node loaders both honour them):
 
 ## `scripts/bring-up-mxl.sh` (run from the backend box)
 
+**Required (no default; the script exits with code 2 and lists any that are missing):**
+`MXL_VM_IP`, `MXL_SSH_KEY`, `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME`.
+
 | Variable | Meaning | Default |
 |---|---|---|
-| `MXL_VM_IP` | VM public IP to SSH to | `<VM_PUBLIC_IP>` (site-specific default in the script; redacted here) |
+| `MXL_VM_IP` | VM public IP to SSH to | **required** |
 | `MXL_VM_SSH_USER` | SSH user on the VM | `guy` |
-| `MXL_SSH_KEY` | SSH private key | `$HOME/.ssh/<VM_NAME>` (site-specific default; redacted here) |
+| `MXL_SSH_KEY` | SSH private key | **required** |
 | `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `50.106.4.50` |
 | `MXL_MAKITO_IP` | CAM 2 Makito X4 encoder (informational) | `192.168.8.177` |
 | `MXL_BACKEND_URL` | facility backend base URL (kiosk page + `/api/mxl/*`); also exported to the VM-side `run-cam*.sh` as `MXL_REPAIR_URL=$MXL_BACKEND_URL/api/mxl/repair` | `https://prodbots.com` |
 | `MXL_FEED_URL` | public WebRTC feed tunnel | `https://mxl-feed.cochran.cloud` |
-| `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | `<RESOURCE_GROUP>`, `<VM_NAME>` (site-specific defaults; redacted here) |
+| `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | **required** (both) |
 | `MXL_HTML` | path of the deployed kiosk page | `$HOME/prodbots-backend/public/mxl.html` |
 
 ## Python / shell tools
