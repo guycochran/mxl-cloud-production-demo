@@ -409,10 +409,15 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
     echo "  ⚠ could not generate manifest from discovery (see /tmp/mxl-facility-gen.log) — UI falls back to repo manifest"
     GEN_FACILITY=""
   fi
-  MXL_VM_URL="http://127.0.0.1" MXL_THUMBS_ORIGIN="${THUMBS_ORIGIN:-http://127.0.0.1:8086/thumbs}" \
+  # Use `env` so a CONDITIONAL assignment works: a bare shell assignment-prefix word
+  # that comes from a ${VAR:+...} expansion is NOT treated as an assignment (bash sees
+  # it as the command to run → "MXL_FACILITY_JSON=…: No such file or directory" and the
+  # UI never starts). `env` consumes every leading NAME=VALUE arg regardless of origin.
+  nohup env MXL_VM_URL="http://127.0.0.1" \
+    MXL_THUMBS_ORIGIN="${THUMBS_ORIGIN:-http://127.0.0.1:8086/thumbs}" \
     MXL_PROGRAM_ORIGIN="http://127.0.0.1:8889" MXL_CONTROL_PORT="$CTRL_PORT" \
     ${GEN_FACILITY:+MXL_FACILITY_JSON="$GEN_FACILITY"} \
-    nohup node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
+    node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
   sleep 1
   CONTROL_UI_URL="http://127.0.0.1:$CTRL_PORT/"
   echo "  ✓ control UI → $CONTROL_UI_URL (localhost-only; tunnel it to drive remotely)"
