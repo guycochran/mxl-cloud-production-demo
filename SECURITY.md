@@ -6,7 +6,7 @@ be stood up on a throwaway VM, driven, and torn down. Please treat it accordingl
 ## Reporting a vulnerability
 
 If you find a security issue, please **do not open a public issue**. Report it
-privately via GitHub's [private vulnerability reporting](https://github.com/guycochran/mxl-cloud-production-demo/security/advisories/new)
+privately via GitHub's [private vulnerability reporting](https://github.com/guycochran/mxl-switcher/security/advisories/new)
 (Security tab → "Report a vulnerability"). We'll acknowledge and respond as fast as we
 reasonably can.
 

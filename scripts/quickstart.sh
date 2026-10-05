@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # quickstart.sh — fresh Ubuntu VM → cuttable MXL switcher in one command.
 #
-#   git clone https://github.com/guycochran/mxl-cloud-production-demo
-#   cd mxl-cloud-production-demo
+#   git clone https://github.com/guycochran/mxl-switcher
+#   cd mxl-switcher
 #   sudo scripts/quickstart.sh
 #
 # Clone, don't curl|bash: the guest-contribution feature needs files from the

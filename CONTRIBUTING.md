@@ -47,5 +47,5 @@ writers, multiview, and TAMS clipper are all here and buildable.
 
 ## Questions
 
-Open a [Discussion](https://github.com/guycochran/mxl-cloud-production-demo/discussions)
+Open a [Discussion](https://github.com/guycochran/mxl-switcher/discussions)
 for "how would I…" / "does MXL do…", and an Issue for a concrete bug or gap.

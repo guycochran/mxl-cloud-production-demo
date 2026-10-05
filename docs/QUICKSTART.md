@@ -33,8 +33,8 @@ upstream with `MXL_BLEEDING_EDGE=1`).
 ## Run it
 
 ```bash
-git clone https://github.com/guycochran/mxl-cloud-production-demo
-cd mxl-cloud-production-demo
+git clone https://github.com/guycochran/mxl-switcher
+cd mxl-switcher
 sudo scripts/quickstart.sh
 ```
 

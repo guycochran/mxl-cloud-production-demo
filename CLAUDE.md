@@ -1,4 +1,4 @@
-# CLAUDE.md — mxl-cloud-production-demo
+# CLAUDE.md — mxl-switcher
 
 Guidance for Claude Code working in this repo.
 

@@ -13,8 +13,8 @@ audio, a native multiview), controllable by anyone with a browser.
 On a fresh Ubuntu x86-64 VM with AVX ([any Azure D-v5, AWS m5/m6i, GCP n2](docs/QUICKSTART.md#prerequisites)):
 
 ```bash
-git clone https://github.com/guycochran/mxl-cloud-production-demo
-cd mxl-cloud-production-demo
+git clone https://github.com/guycochran/mxl-switcher
+cd mxl-switcher
 sudo scripts/quickstart.sh
 ```
 

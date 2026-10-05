@@ -18,7 +18,7 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
 
 ## Where everything is
 - **Repo:** `~/Projects/mxl-cloud-production-demo`, branch `master`, pushed to
-  `github.com:guycochran/mxl-cloud-production-demo`. Everything is committed (verify:
+  `github.com:guycochran/mxl-switcher`. Everything is committed (verify:
   `git status` clean, `git log --oneline origin/master..HEAD` empty).
 - **Deployed service:** `mxl-switcher-ui.service` (systemd **user** unit on the prodbots
   home box, `~/.config/systemd/user/`). Runs `node backend/local-server.js` on

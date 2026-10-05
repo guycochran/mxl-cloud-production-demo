@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/guycochran/mxl-cloud-production-demo/config/facility.schema.json",
+  "$id": "https://github.com/guycochran/mxl-switcher/config/facility.schema.json",
   "title": "MXL facility manifest",
   "description": "Single source of truth for the facility: domain, network, control ports, and flow UUIDs. Validated in CI (tests/test_facility_manifest.py).",
   "type": "object",
