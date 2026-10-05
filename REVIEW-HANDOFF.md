@@ -25,8 +25,8 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
   `127.0.0.1:3100`. Verify: `systemctl --user status mxl-switcher-ui`.
 - **Public URL:** `https://mxl-switcher.cochran.cloud` → system cloudflared
   (`/etc/cloudflared/config.yml`, tunnel UUID `d27cb70b...`) → localhost:3100.
-- **Facility:** Azure VM `mxl-lab` (`20.64.205.144`, RG `OHG-MXL-LAB`). ⚠️ **BILLING WHILE UP** —
-  deallocate when review is done: `az vm deallocate -g OHG-MXL-LAB -n mxl-lab`.
+- **Facility:** Azure VM `<VM_NAME>` (`<VM_PUBLIC_IP>`, RG `<RESOURCE_GROUP>`). ⚠️ **BILLING WHILE UP** —
+  deallocate when review is done: `az vm deallocate -g <RESOURCE_GROUP> -n <VM_NAME>`.
 
 ---
 
@@ -138,4 +138,4 @@ VERIFY (independent, off this box AND off the operator's network):
    that matters most and is the easiest to over-trust.
 4. Hit the public URL from a clean network; confirm 200 + 401-without-token + token works.
 5. Sanity-check the auth model is actually what you'd want for a public control plane.
-6. When done: `az vm deallocate -g OHG-MXL-LAB -n mxl-lab` (stop billing).
+6. When done: `az vm deallocate -g <RESOURCE_GROUP> -n <VM_NAME>` (stop billing).

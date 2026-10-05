@@ -25,11 +25,11 @@
   },
 
   "network": {
-    "mxl_vm": "20.64.205.144",
+    "mxl_vm": "<VM_PUBLIC_IP>",
     "mxl_vm_internal": "10.0.0.5",
     "docker_gateway": "172.17.0.1",
     "host_from_container": "host.docker.internal",
-    "_note": "mxl_vm is the address the control-plane (backend) uses to reach the VM's easy-mxl APIs — the public/static IP. mxl_vm_internal is the VNet address used VM-to-VM (e.g. guest_audio RTSP). docker_gateway is how containers reach the host-side mediamtx RTSP."
+    "_note": "mxl_vm is a PLACEHOLDER in the public repo: set MXL_VM_IP (or edit this file locally) to the real address. mxl_vm is the address the control-plane (backend) uses to reach the VM's easy-mxl APIs — the public/static IP. mxl_vm_internal is the VNet address used VM-to-VM (e.g. guest_audio RTSP). docker_gateway is how containers reach the host-side mediamtx RTSP."
   },
 
   "control_api": {

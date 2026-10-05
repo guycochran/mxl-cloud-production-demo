@@ -15,7 +15,7 @@ and Node loaders both honour them):
 
 | Variable | Overrides | Default (production) |
 |---|---|---|
-| `MXL_VM_IP` | `network.mxl_vm` — public/static IP the backend uses to reach the VM's easy-mxl APIs | `20.64.205.144` |
+| `MXL_VM_IP` | `network.mxl_vm` — public/static IP the backend uses to reach the VM's easy-mxl APIs | `<VM_PUBLIC_IP>` (placeholder; set `MXL_VM_IP`) |
 | `MXL_VM_INTERNAL_IP` | `network.mxl_vm_internal` — VNet address used VM-to-VM | `10.0.0.5` |
 | `MXL_DOCKER_GATEWAY` | `network.docker_gateway` | `172.17.0.1` |
 | `MXL_FACILITY_JSON` | path of the manifest file itself (pre-existing) | repo `config/facility.json` |
@@ -25,14 +25,14 @@ and Node loaders both honour them):
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `MXL_VM_IP` | VM public IP to SSH to | `20.64.205.144` |
+| `MXL_VM_IP` | VM public IP to SSH to | `<VM_PUBLIC_IP>` (site-specific default in the script; redacted here) |
 | `MXL_VM_SSH_USER` | SSH user on the VM | `guy` |
-| `MXL_SSH_KEY` | SSH private key | `$HOME/.ssh/mxl-lab` |
+| `MXL_SSH_KEY` | SSH private key | `$HOME/.ssh/<VM_NAME>` (site-specific default; redacted here) |
 | `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `50.106.4.50` |
 | `MXL_MAKITO_IP` | CAM 2 Makito X4 encoder (informational) | `192.168.8.177` |
 | `MXL_BACKEND_URL` | facility backend base URL (kiosk page + `/api/mxl/*`); also exported to the VM-side `run-cam*.sh` as `MXL_REPAIR_URL=$MXL_BACKEND_URL/api/mxl/repair` | `https://prodbots.com` |
 | `MXL_FEED_URL` | public WebRTC feed tunnel | `https://mxl-feed.cochran.cloud` |
-| `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | `ohg-mxl-lab`, `mxl-lab` |
+| `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | `<RESOURCE_GROUP>`, `<VM_NAME>` (site-specific defaults; redacted here) |
 | `MXL_HTML` | path of the deployed kiosk page | `$HOME/prodbots-backend/public/mxl.html` |
 
 ## Python / shell tools

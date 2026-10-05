@@ -42,6 +42,6 @@ cut returns "source not attached." Fix = generate the slot map from discovered I
 - **Deployed:** `mxl-switcher.cochran.cloud` via `mxl-switcher-ui.service` (user systemd
   on the prodbots box) — see memory `mxl-switcher-deploy-2026-10`. DO NOT redeploy or
   touch the tunnel from a review branch.
-- **Facility:** Azure VM `mxl-lab` (20.64.205.144, RG `OHG-MXL-LAB`) — ⚠️ bills while up,
+- **Facility:** Azure VM `<VM_NAME>` (<VM_PUBLIC_IP>, RG `<RESOURCE_GROUP>`) — ⚠️ bills while up,
   deallocate when HW testing is done. HW truth-check for program-follows-cut: grab the
   keyer-PGM flow frame (`gst-launch mxlsrc video-flow-id=5c73394e-… ! jpegenc`) in hls2mxl.

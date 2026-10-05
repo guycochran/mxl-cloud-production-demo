@@ -28,7 +28,7 @@ UNIVERSAL_OK = {"127.0.0.1", "0.0.0.0", "172.17.0.1"}
 
 # file -> literals permitted there (default values behind env vars, docs-in-comments, ...)
 ALLOW = {
-    "config/facility.json": {"20.64.205.144", "10.0.0.5"},  # manifest defaults; MXL_VM_IP etc. override
+    "config/facility.json": {"10.0.0.5"},  # manifest defaults; MXL_VM_IP etc. override
     "scripts/bring-up-mxl.sh": {"20.64.205.144", "50.106.4.50", "192.168.8.177", "prodbots.com", "cochran.cloud"},  # env defaults (MXL_*)
     "scripts/mxl-doctor": {"10.0.0.4", "prodbots.com"},          # comment only
     "tools/adapters.py": {"10.0.0.5"},                            # default rtsp_host arg (pinned by launch-parity test)

@@ -139,7 +139,7 @@ def test_layout_inputs_shape():
     for role in man["program"]["layout_inputs"]:
         assert role in vf and "uuid" in vf[role], f"layout input '{role}' not a video flow"
     # mxl_vm must be the public control-plane IP the backend fetches, not the VNet IP
-    assert man["network"]["mxl_vm"] == "20.64.205.144", "manifest mxl_vm must be the control-plane IP"
+    assert man["network"]["mxl_vm"] == "<VM_PUBLIC_IP>", "manifest mxl_vm must be the (placeholder) control-plane IP, not the VNet IP"
 
 
 def test_server_enhanced_fallbacks_match_manifest():
