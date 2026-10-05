@@ -424,13 +424,14 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
   echo "  ✓ control UI → $CONTROL_UI_URL (localhost-only; tunnel it to drive remotely)"
 fi
 
-# ── 3e. self-healer (opt-in, default on) ──────────────────────────────────────
-# The facility drifts: the selector pipeline can stop (every cut 409s) and the
+# ── 3e. self-healer (opt-in, default OFF) ─────────────────────────────────────
+# The facility can drift: the selector pipeline may stop (every cut 409s) and the
 # WebRTC relay can get stuck waiting for an audio flow a bare quickstart never
 # starts (program shows "stream not found"). This backend-free watcher polls the
-# local control ports and recovers both, so the switcher stays up unattended —
-# the adopter equivalent of the live facility's watchdogs. MXL_SELFHEAL=0 to skip.
-if [ "${MXL_SELFHEAL:-1}" = 1 ] && [ -f "$REPO/tools/mxl-selfheal.sh" ]; then
+# local control ports and recovers both. It is OFF unless explicitly enabled —
+# set MXL_SELFHEAL=1 to start it. (Desired-state reporting stays report-only;
+# this watcher is a separate, opt-in operational aid.)
+if [ "${MXL_SELFHEAL:-}" = 1 ] && [ -f "$REPO/tools/mxl-selfheal.sh" ]; then
   step "Self-healer"
   pkill -f "mxl-selfheal.sh" 2>/dev/null || true
   MXL_FACILITY_JSON="${GEN_FACILITY:-$REPO/config/facility.json}" \

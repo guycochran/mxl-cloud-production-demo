@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # mxl-selfheal.sh — a portable self-healer for the quickstart MXL switcher.
 #
-# The adopter stack has no watchdog (the live production facility does, but
-# those healers are wired to prodbots/VM1 — see mxl-doctor). Yet the facility drifts:
-# across a long session we repeatedly hit two failures, both of which black out the
-# program with no automatic recovery:
+# Opt-in. quickstart.sh does NOT start this by default. Set MXL_SELFHEAL=1 when
+# launching quickstart (or run this script yourself) to enable the watcher.
+#
+# The bare adopter stack has no watchdog. Across a long session two failures can
+# black out the program with no automatic recovery:
 #
 #   1. SELECTOR DOWN — the input-selector pipeline stops (running:false, inputs:[]),
 #      so every cut returns 409 "not attached" and the program freezes.
@@ -12,12 +13,13 @@
 #      forever for an audio_pgm flow that a bare quickstart never starts, so the
 #      WebRTC program monitor shows "stream not found" even though video exists.
 #
-# This watcher polls the LOCAL control ports (no backend, no prodbots) and fixes
+# This watcher polls the LOCAL control ports (no external backend) and fixes
 # exactly those two, idempotently. Safe to run as a plain loop, a systemd unit, or
 # a cron. It only ever acts when something is actually broken.
 #
 #   tools/mxl-selfheal.sh            # one check+heal pass, then exit
 #   tools/mxl-selfheal.sh --watch    # loop every MXL_SELFHEAL_INTERVAL (default 15s)
+#   sudo MXL_SELFHEAL=1 scripts/quickstart.sh   # start watcher with the lab
 #
 # Config (env):
 #   MXL_FACILITY_JSON   manifest with the selector inputs to restore (the one

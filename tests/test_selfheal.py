@@ -155,3 +155,22 @@ exit 0
     body = starts[0]
     assert "aa11bb22" in body, "the present pattern flow must be wired"
     assert "ffffffff" not in body and "eeeeeeee" not in body, "phantom flows must NOT be wired"
+
+
+def test_quickstart_selfheal_default_off():
+    """MXL_SELFHEAL must default OFF / unset — watcher only when explicitly =1."""
+    qs = (REPO / "scripts" / "quickstart.sh").read_text()
+    # gate must require explicit =1 with empty/unset default (not :-1)
+    assert 'MXL_SELFHEAL:-1' not in qs, "default-on :-1 slipped back in"
+    assert '${MXL_SELFHEAL:-}' in qs or '${MXL_SELFHEAL:-0}' in qs
+    assert '[ "${MXL_SELFHEAL:-}' in qs or '[ "${MXL_SELFHEAL:-0}"' in qs
+    # comment / banner must say default off / opt-in
+    assert "default OFF" in qs or "default off" in qs.lower()
+    # enabling path still present
+    assert "mxl-selfheal.sh" in qs and "MXL_SELFHEAL" in qs
+
+
+def test_config_documents_mxl_selfheal():
+    doc = (REPO / "docs" / "CONFIG.md").read_text()
+    assert "`MXL_SELFHEAL`" in doc
+    assert "`MXL_SELFHEAL_INTERVAL`" in doc
