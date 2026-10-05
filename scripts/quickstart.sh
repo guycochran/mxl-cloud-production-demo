@@ -430,7 +430,12 @@ ${CONTROL_UI_URL:+
          URL:  srt://$PUBLIC_IP:8890
          Mode: Caller   ·   Stream ID:  publish:guest1   (or publish:guest2)
 $GUEST_PASS_NOTE
-      Tap to go live → it appears as Guest 1, cuttable like any source:
+      Tap to go live → it appears as Guest 1, cuttable like any source. Its slot
+      number is whatever the guest watcher appended it as (it joins AFTER the base
+      sources, so on a bare quickstart that's slot 2) — the browser UI shows the
+      live tiles and lets you cut without counting slots:
+         # list the selector's current inputs (the index is the slot to cut to):
+         curl -s http://127.0.0.1:9604/pipeline/status | python3 -c 'import sys,json;print(json.load(sys.stdin)["input_flow_uuids"])'
          curl -X POST -H 'Content-Type: application/json' -d '{"slot":2}' http://127.0.0.1:9604/pipeline/active-input
       (OBS/vMix/ffmpeg work too — same URL. Open 8890/udp in your cloud firewall.)
 
