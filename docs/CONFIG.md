@@ -56,6 +56,16 @@ and Node loaders both honour them):
 Already env-driven before this change (unchanged): `MXL_GUEST_HOST`, `MXL_GUEST_TRANSPORT`,
 `MXL_REPAIR_URL`, `MXL_DOMAIN`, `MXL_BLEEDING_EDGE`, `MXL_GUEST_AUDIO`, `MXL_AUDIO_RTSP_HOST`.
 
+## Operational switches (quickstart)
+
+| Variable | Used by | Default |
+|---|---|---|
+| `MXL_SELFHEAL` | `scripts/quickstart.sh` — start `tools/mxl-selfheal.sh --watch` (selector + relay drift recovery) | **unset / off**. Set `MXL_SELFHEAL=1` to enable. |
+| `MXL_SELFHEAL_INTERVAL` | `tools/mxl-selfheal.sh` — seconds between `--watch` passes | `15` |
+
+Self-heal is **opt-in**. Desired-state reporting (`docs/DESIRED-STATE-v0.md`) stays
+report-only and is separate from this watcher.
+
 ## Security-related switches (see [SECURITY.md](../SECURITY.md))
 
 | Variable | Used by | Default |

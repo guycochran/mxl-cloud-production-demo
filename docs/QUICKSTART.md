@@ -68,6 +68,20 @@ because the liveness probe attaches a reader per flow and pushes CPU.)
 The default still works as `sudo scripts/doctor.sh`; `mxl-doctor` wraps it plus
 the live-facility auto-healers (`mxl-doctor heal selector|program|guest`).
 
+### Optional self-healer (default off)
+
+Quickstart does **not** start a background healer. To recover selector-down and
+relay-waiting-for-audio drift automatically while the lab runs unattended:
+
+```bash
+sudo MXL_SELFHEAL=1 scripts/quickstart.sh
+# or, on an already-running lab:
+sudo MXL_FACILITY_JSON=/path/to/facility.json tools/mxl-selfheal.sh --watch
+```
+
+Unset / any value other than `1` leaves the watcher off. See
+[`tools/mxl-selfheal.sh`](../tools/mxl-selfheal.sh) and [CONFIG.md](CONFIG.md).
+
 ## Drive it
 
 ```bash
