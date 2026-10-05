@@ -1,0 +1,10 @@
+Pattern:	mxl:///mxl-domain?id=aa11bb22-0000-4000-8000-000000000001
+	Video : aa11bb22-0000-4000-8000-000000000001 - Pattern Video
+	Audio : aa11bb22-0000-4000-8000-000000000002 - Pattern Audio
+Playout:	mxl:///mxl-domain?id=bb22cc33-0000-4000-8000-000000000001
+	Video : bb22cc33-0000-4000-8000-000000000001 - Clip Video
+	Audio : bb22cc33-0000-4000-8000-000000000002 - Clip Audio
+Input-Selector:	mxl:///mxl-domain?id=cc33dd44-0000-4000-8000-000000000001
+	Video : cc33dd44-0000-4000-8000-000000000001 - Selector PGM
+HTML5-Keyer:	mxl:///mxl-domain?id=dd44ee55-0000-4000-8000-000000000001
+	Video : dd44ee55-0000-4000-8000-000000000001 - Keyer PGM
