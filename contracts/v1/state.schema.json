@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mxlswitcher.com/contracts/v1/state.schema.json",
+  "title": "GET /api/mxl/v1/state",
+  "description": "Live switcher state: what's on program (PGM), what's armed on preview (PVW), the keyer, and the busy lock. Also the response body of /v1/cut, /preview, /take, /key (every mutating route returns the new state). Sources are referenced by stable id (see sources.schema.json).",
+  "type": "object",
+  "required": ["pgm", "pvw", "key", "busy"],
+  "additionalProperties": false,
+  "properties": {
+    "pgm": {
+      "type": ["string", "null"],
+      "pattern": "^src_[0-9a-f]{8,}$",
+      "description": "Source id currently on air, or null if the on-air flow isn't a known source. Replaces the old integer 'input' (a layout index)."
+    },
+    "pvw": {
+      "type": ["string", "null"],
+      "pattern": "^src_[0-9a-f]{8,}$",
+      "description": "Source id armed on the preview bus, or null if nothing armed. Pure server-side state until a take."
+    },
+    "key": {
+      "type": "boolean",
+      "description": "Graphics keyer on/off."
+    },
+    "busy": {
+      "type": "boolean",
+      "description": "A switch is in progress; a cut/take right now returns error.code=busy (retryable)."
+    },
+    "test_source": {
+      "type": "object",
+      "description": "Present only when the 'test-source' capability is offered. The generator pattern state (was status.patterns.tg1, with the internal 'tg1' process name dropped).",
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "type": ["string", "null"] },
+        "available": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
