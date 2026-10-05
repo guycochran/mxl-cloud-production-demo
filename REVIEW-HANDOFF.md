@@ -24,7 +24,7 @@ a live multiview grid, driven entirely through the open `/api/mxl/*` routes (no 
   home box, `~/.config/systemd/user/`). Runs `node backend/local-server.js` on
   `127.0.0.1:3100`. Verify: `systemctl --user status mxl-switcher-ui`.
 - **Public URL:** `https://mxl-switcher.cochran.cloud` → system cloudflared
-  (`/etc/cloudflared/config.yml`, tunnel UUID `d27cb70b...`) → localhost:3100.
+  (`/etc/cloudflared/config.yml`, a cloudflared named-tunnel UUID) → localhost:3100.
 - **Facility:** Azure VM `<VM_NAME>` (`<VM_PUBLIC_IP>`, RG `<RESOURCE_GROUP>`). ⚠️ **BILLING WHILE UP** —
   deallocate when review is done: `az vm deallocate -g <RESOURCE_GROUP> -n <VM_NAME>`.
 

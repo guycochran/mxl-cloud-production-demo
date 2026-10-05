@@ -32,7 +32,7 @@ and Node loaders both honour them):
 | `MXL_VM_IP` | VM public IP to SSH to | **required** |
 | `MXL_VM_SSH_USER` | SSH user on the VM | `guy` |
 | `MXL_SSH_KEY` | SSH private key | **required** |
-| `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `50.106.4.50` |
+| `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `203.0.113.50` (placeholder; set `MXL_SITE_IP`) |
 | `MXL_MAKITO_IP` | CAM 2 Makito X4 encoder (informational) | `192.168.8.177` |
 | `MXL_BACKEND_URL` | facility backend base URL (kiosk page + `/api/mxl/*`); also exported to the VM-side `run-cam*.sh` as `MXL_REPAIR_URL=$MXL_BACKEND_URL/api/mxl/repair` | `https://prodbots.com` |
 | `MXL_FEED_URL` | public WebRTC feed tunnel | `https://mxl-feed.cochran.cloud` |
@@ -44,7 +44,7 @@ and Node loaders both honour them):
 | Variable | Used by | Default |
 |---|---|---|
 | `MXL_BACKEND_URL` | `audio_pgm.py`, `layout_pgm.py`, `mxl_multiview.py`, `nmos_node.py` (`--facility`), `selector-doctor.sh`, `guest-leg-doctor.sh` | `https://prodbots.com` |
-| `TAMS_HOST` | `tams_shipper.py`, `backfill-mini.py` — the TAMS/MinIO box | `20.112.83.140` |
+| `TAMS_HOST` | `tams_shipper.py`, `backfill-mini.py` — the TAMS/MinIO box | `203.0.113.140` (placeholder; set `TAMS_HOST`) |
 | `TAMS_URL` | `tams_shipper.py` TAMS API (pre-existing) | `http://$TAMS_HOST:8000` |
 | `TAMS_S3_ENDPOINT` | `tams_shipper.py`, `backfill-mini.py` MinIO endpoint | `http://$TAMS_HOST:9000` |
 | `TAMS_S3_USER` | MinIO access key id (the secret still comes from `~/.tams-s3.env`) | `tams` |

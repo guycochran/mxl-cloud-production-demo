@@ -29,7 +29,7 @@ fi
 VM_IP=$MXL_VM_IP                                  # Standard SKU public IP = static
 VM_USER=${MXL_VM_SSH_USER:-guy}                   # SSH user on the VM
 SSH_KEY=$MXL_SSH_KEY
-SITE_IP=${MXL_SITE_IP:-50.106.4.50}               # the only IP the VM's NSG allows (used in messages)
+SITE_IP=${MXL_SITE_IP:-203.0.113.50}              # placeholder (RFC 5737); your NSG-allowed source IP — set MXL_SITE_IP
 MAKITO_IP=${MXL_MAKITO_IP:-192.168.8.177}         # CAM 2 Makito X4 encoder (informational)
 BACKEND_URL=${MXL_BACKEND_URL:-https://prodbots.com}   # facility backend (kiosk + /api/mxl/*)
 BACKEND_URL=${BACKEND_URL%/}

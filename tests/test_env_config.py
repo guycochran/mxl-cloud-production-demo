@@ -73,7 +73,7 @@ def test_bring_up_required_vars_and_overrides():
     r = _run_bring_up(**BRING_UP_REQUIRED)
     assert r.returncode == 0, r.stderr
     d = r.stdout.strip().split("|")
-    assert d[:8] == ["203.0.113.9", "guy", "50.106.4.50", "192.168.8.177", "https://prodbots.com",
+    assert d[:8] == ["203.0.113.9", "guy", "203.0.113.50", "192.168.8.177", "https://prodbots.com",
                      "https://mxl-feed.cochran.cloud", "rg-test", "vm-test"]
     assert d[8] == "ssh -i /h/.ssh/test-key -o BatchMode=yes -o ConnectTimeout=8 guy@203.0.113.9"
     o = _run_bring_up(**{**BRING_UP_REQUIRED, "MXL_VM_IP": "198.51.100.7", "MXL_VM_SSH_USER": "ops",
@@ -106,9 +106,9 @@ def test_bring_up_required_vars_have_no_defaults():
 
 # ── python tools: defaults pinned (modules need GStreamer/boto3, so check source) ──
 @pytest.mark.parametrize("rel,needles", [
-    ("tools/tams_shipper.py", ["os.environ.get('TAMS_HOST', '20.112.83.140')", "f'http://{TAMS_HOST}:8000'",
+    ("tools/tams_shipper.py", ["os.environ.get('TAMS_HOST', '203.0.113.140')", "f'http://{TAMS_HOST}:8000'",
                                "f'http://{TAMS_HOST}:9000'", "os.environ.get('TAMS_S3_USER', 'tams')"]),
-    ("tools/backfill-mini.py", ["os.environ.get('TAMS_HOST','20.112.83.140')", "f'http://{_host}:9000'",
+    ("tools/backfill-mini.py", ["os.environ.get('TAMS_HOST','203.0.113.140')", "f'http://{_host}:9000'",
                                 "os.environ.get('TAMS_S3_USER','tams')"]),
     ("tools/audio_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
     ("tools/layout_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
