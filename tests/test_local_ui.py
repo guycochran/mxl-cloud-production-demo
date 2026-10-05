@@ -49,7 +49,7 @@ def test_ui_uses_only_open_routes():
     html = HTML.read_text()
     called = set(re.findall(r"/api/mxl/([a-z]+)", html))
     allowed = {"status", "input", "preview", "take", "warmup", "key", "pattern",
-               "repair", "slots", "thumbs"}
+               "repair", "slots", "thumbs", "ingest"}
     extra = called - allowed
     assert not extra, f"local.html calls non-portable routes: {extra}"
 

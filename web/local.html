@@ -184,6 +184,9 @@
         <div class="crow"><span class="lbl">Pattern</span>
           <select class="btn" id="patSel"><option value="">—</option></select>
         </div>
+        <div class="crow"><span class="lbl">Sources</span>
+          <button class="btn" id="addCamBtn" title="Show the SRT details + QR to put your own phone or camera on air">Add your camera</button>
+        </div>
         <div class="crow"><span class="lbl">Recover</span>
           <button class="btn" id="primeBtn" title="Prime every source's reader (fallback — cuts already pre-warm their target; use this only if a cut still looks stuck)">Prime sources</button>
           <button class="btn" id="repairBtn" title="Rebuild the downstream program path (heavier)">Repair program</button>
@@ -194,6 +197,52 @@
   </main>
 
   <footer>Driving the MXL facility through <code>/api/mxl/*</code> — the open control routes · no external services</footer>
+
+  <!-- "Add your camera" — SRT ingest details built for THIS box's public IP -->
+  <div class="modal" id="camModal" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="camTitle">
+      <div class="sheethdr">
+        <div id="camTitle">Add your camera</div>
+        <button class="x" id="camClose" aria-label="Close">✕</button>
+      </div>
+      <p class="camlede">Put a phone or any SRT encoder on air. Scan the QR with the
+        free <b>Larix Broadcaster</b> app, or paste the URL into OBS / ffmpeg.</p>
+      <div id="camBody"><!-- guests injected here --></div>
+      <p class="camnote" id="camNote"></p>
+    </div>
+  </div>
+
+  <style>
+    .modal{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+      background:rgba(3,5,10,.72);backdrop-filter:blur(2px)}
+    .modal[hidden]{display:none}
+    .sheet{width:min(560px,92vw);max-height:88vh;overflow:auto;background:var(--panel);
+      border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+    .sheethdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+    .sheethdr>div{font-size:19px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+    .sheethdr .x{background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px}
+    .sheethdr .x:hover{color:var(--ink);background:var(--panel2)}
+    .camlede{font-size:12.5px;color:var(--dim);line-height:1.5;margin-bottom:14px}
+    .guest{border:1px solid var(--line);border-radius:9px;padding:13px;margin-bottom:11px;
+      display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+    .guest .qr{width:128px;height:128px;border-radius:7px;background:var(--panel2);
+      display:flex;align-items:center;justify-content:center;flex:0 0 auto;image-rendering:pixelated;overflow:hidden}
+    .guest .qr img{width:100%;height:100%;display:block}
+    .guest .qr.noqr{font-family:var(--mono);font-size:9.5px;color:var(--faint);text-align:center;padding:8px}
+    .guest .gname{font-size:14px;font-weight:700;color:var(--grn);text-transform:uppercase;letter-spacing:.5px}
+    .guest.g2 .gname{color:var(--cyan)}
+    .guest .fieldrow{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:7px;line-height:1.6}
+    .guest .fieldrow b{color:var(--ink);font-weight:600}
+    .guest .urlbox{display:flex;gap:6px;margin-top:9px;align-items:stretch}
+    .guest .urlbox input{flex:1;min-width:0;font-family:var(--mono);font-size:10.5px;color:var(--ink);
+      background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+    .guest .urlbox button{font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.5px;
+      text-transform:uppercase;color:var(--ink);background:var(--panel2);border:1px solid var(--line);
+      border-radius:6px;padding:0 12px;cursor:pointer}
+    .guest .urlbox button:hover{border-color:var(--acc)}
+    .guest .urlbox button.ok{color:var(--grn);border-color:var(--grn)}
+    .camnote{font-family:var(--mono);font-size:10.5px;color:var(--amber);min-height:14px;margin-top:4px}
+  </style>
 
 <script>
 // Optional control token (only needed when the backend sets MXL_CONTROL_TOKEN).
@@ -364,6 +413,49 @@
     var n=parseInt(e.key,10);
     if(n>=1 && n<=slots.length){ arm(slots[n-1].slot); }
   });
+
+  // ── "Add your camera": SRT ingest details for THIS box, fetched from the
+  //    backend (which knows the public IP — the browser can't, behind a tunnel). ──
+  var camModal=$('#camModal'), camBody=$('#camBody'), camNote=$('#camNote'),
+      addCamBtn=$('#addCamBtn'), camClose=$('#camClose'), camLoaded=false;
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function loadIngest(){
+    camBody.innerHTML='<p class="camlede">Loading…</p>'; camNote.textContent='';
+    fetch('/api/mxl/ingest').then(function(r){return r.json();}).then(function(d){
+      if(!d || !d.public_ip){
+        camBody.innerHTML='';
+        camNote.textContent='This box doesn’t know its public IP. Launch it with scripts/quickstart.sh (which sets it), or set MXL_PUBLIC_IP.';
+        return;
+      }
+      camBody.innerHTML=(d.guests||[]).map(function(g,i){
+        var qr = g.qr
+          ? '<div class="qr"><img src="'+esc(g.qr)+'" alt="Larix QR '+esc(g.label)+'" loading="lazy" onerror="this.parentNode.classList.add(\'noqr\');this.parentNode.textContent=\'QR unavailable — use the URL\'"></div>'
+          : '<div class="qr noqr">QR unavailable — use the URL</div>';
+        return '<div class="guest'+(i===1?' g2':'')+'">'+qr+
+          '<div><div class="gname">'+esc(g.label)+'</div>'+
+          '<div class="fieldrow">Larix / manual: host <b>'+esc(d.public_ip)+'</b> · port <b>'+esc(d.srt_port)+
+            '</b> · mode <b>Caller</b> · stream id <b>'+esc(g.streamid)+'</b> · H.264 only</div>'+
+          '<div class="urlbox"><input readonly value="'+esc(g.srt_url)+'">'+
+            '<button data-url="'+esc(g.srt_url)+'">Copy</button></div></div></div>';
+      }).join('');
+      camNote.textContent='Scan with Larix (free) — the phone is on air in seconds. Needs UDP port '+d.srt_port+' open in your firewall.';
+      // wire copy buttons
+      Array.prototype.forEach.call(camBody.querySelectorAll('.urlbox button'), function(b){
+        b.addEventListener('click', function(){
+          var u=b.getAttribute('data-url');
+          (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(function(){
+            b.textContent='Copied'; b.classList.add('ok'); setTimeout(function(){ b.textContent='Copy'; b.classList.remove('ok'); },1400);
+          }).catch(function(){ b.previousElementSibling.select(); });
+        });
+      });
+    }).catch(function(){ camBody.innerHTML=''; camNote.textContent='Couldn’t reach the backend.'; });
+  }
+  function openCam(){ camModal.hidden=false; if(!camLoaded){ loadIngest(); camLoaded=true; } }
+  function closeCam(){ camModal.hidden=true; }
+  addCamBtn.addEventListener('click', openCam);
+  camClose.addEventListener('click', closeCam);
+  camModal.addEventListener('click', function(e){ if(e.target===camModal) closeCam(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !camModal.hidden) closeCam(); });
 
   // boot: slots from the manifest, then status + thumbs polling
   fetch('/api/mxl/slots').then(function(r){return r.json();}).then(function(d){

@@ -58,19 +58,23 @@ lab until you ask for more.
 - **Or drive it in a browser:** the control UI is on `http://127.0.0.1:3100/`
   (localhost-only; tunnel it with `ssh -L 3100:127.0.0.1:3100 <user>@<vm-ip>`).
 
-## 5. Put *your own* video on air (optional)  ⚠️ the #3 gotcha
+## 5. Put *your own* video on air (the fun part)
 
-The quickstart gives you a pattern + clip. To add your own feed, use the two
-**SRT guest slots** — a phone with the free **Larix Broadcaster** app is the
-easy path:
+The quickstart gives you a pattern + clip. To add your own feed:
 
-- Scan the committed QR: [`web/qr-larix-guest1.png`](../web/qr-larix-guest1.png).
-  **Use that QR** — don't hand-build one. Free Larix needs the `srtstreamid`
-  parameter spelled exactly that way; the committed QR already encodes it.
-  (Hand-rolled QRs with `streamid` or an in-URL id silently fail to publish.)
-- Point the SRT host at your VM's public IP, open `8890/udp`, and the phone
-  appears as **Guest 1**, cuttable like any other source.
-- Any SRT or ffmpeg source works too — see [QUICKSTART.md](QUICKSTART.md) §guest.
+1. Open the control UI: `http://127.0.0.1:3100/` (tunnel it —
+   `ssh -L 3100:127.0.0.1:3100 <user>@<vm-ip>`).
+2. Click **Add your camera**. The box shows you — built for *your* public IP —
+   two things per guest slot:
+   - a **QR code**: scan it with the free **Larix Broadcaster** phone app and
+     you're on air in seconds (it pre-configures the SRT connection for you),
+   - the **SRT URL + fields** (host / port / stream id) to paste into OBS,
+     ffmpeg, or any SRT encoder.
+3. Open **`8890/udp`** in your firewall. Your feed appears as **Guest 1 / 2**,
+   cuttable like any other source.
+
+No hand-built QR, no stale IP — the running box generates everything for the
+machine it's actually on.
 
 ## 6. Tear down
 
@@ -96,5 +100,5 @@ the adopter-grade path and the one that's verified for a fresh install.
 |---|---|
 | Crashes immediately on start | No AVX (step 1) — use a cloud x86 VM or set QEMU `-cpu host` |
 | Program page won't load in browser | Firewall ports not open (step 2) |
-| Phone won't go on air | Wrong Larix QR — use the committed one (step 5) |
+| Phone won't go on air | `8890/udp` not open, or you scanned an old QR — use the one in **Add your camera** (step 5), generated for this box |
 | A cut returns "source not attached" | Shouldn't happen on current `master` (fixed). Re-run `quickstart.sh` — the domain may have been reset by a reboot. |

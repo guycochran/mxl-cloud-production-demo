@@ -397,6 +397,12 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
     (cd "$REPO/backend" && npm install --no-audit --no-fund >/tmp/mxl-control-npm.log 2>&1) \
       || echo "  ⚠ npm install failed (see /tmp/mxl-control-npm.log) — UI may not start"
   fi
+  # segno (pure-python QR) powers the "Add your camera" QR codes. Optional: if it
+  # can't install, the UI still shows the copy-URL + typed fields (no QR, no wall).
+  python3 -c "import segno" 2>/dev/null \
+    || pip3 install -q segno 2>/dev/null \
+    || python3 -m pip install -q --break-system-packages segno 2>/dev/null \
+    || echo "  ⚠ segno not installed — 'Add your camera' shows the URL/fields without a QR"
   pkill -f "backend/local-server.js" 2>/dev/null || true
   CTRL_PORT="${MXL_CONTROL_PORT:-3100}"
   # Generate a facility manifest from the flows THIS box actually discovered, so the
@@ -417,6 +423,7 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
   nohup env MXL_VM_URL="http://127.0.0.1" \
     MXL_THUMBS_ORIGIN="${THUMBS_ORIGIN:-http://127.0.0.1:8086/thumbs}" \
     MXL_PROGRAM_ORIGIN="http://127.0.0.1:8889" MXL_CONTROL_PORT="$CTRL_PORT" \
+    MXL_PUBLIC_IP="$PUBLIC_IP" MXL_GUEST_SRT_PORT="8890" \
     ${GEN_FACILITY:+MXL_FACILITY_JSON="$GEN_FACILITY"} \
     node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
   sleep 1
