@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mxlswitcher.com/contracts/v1/error.schema.json",
+  "title": "v1 error body",
+  "description": "The ONE error shape every v1 route returns on failure. Clients branch on the stable `code`; `message` is human-readable and may change. Replaces today's ad-hoc {error:\"<string>\"} with inconsistent status codes.",
+  "type": "object",
+  "required": ["error"],
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "unknown_source",
+            "source_not_attached",
+            "busy",
+            "selector_down",
+            "timeout",
+            "rate_limited",
+            "unauthorized",
+            "not_configured"
+          ],
+          "description": "Stable machine code. See the HTTP-status mapping in docs/V1-CONTRACT.md."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable detail. May change between releases; do not parse."
+        },
+        "retry_after_s": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Present only for code=rate_limited: seconds to wait before retrying."
+        }
+      }
+    }
+  }
+}

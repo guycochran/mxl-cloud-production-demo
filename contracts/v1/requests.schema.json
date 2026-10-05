@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mxlswitcher.com/contracts/v1/requests.schema.json",
+  "title": "v1 mutating request bodies",
+  "description": "Request bodies for the control routes. All address a source by its STABLE id (never an index or role name — that strictness is the v1 tightening of the #17 validation). Each route returns the new state (state.schema.json) on success, or the error body (error.schema.json) on failure.",
+  "$defs": {
+    "cut": {
+      "title": "POST /api/mxl/v1/cut",
+      "description": "Hot-cut the given source to program.",
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^src_[0-9a-f]{8,}$",
+          "description": "Source id to cut to program. Unknown id -> error.code=unknown_source; valid but not wired -> source_not_attached."
+        }
+      }
+    },
+    "preview": {
+      "title": "POST /api/mxl/v1/preview",
+      "description": "Arm the given source on the preview bus (pure server-side state; no device call). A later /take cuts it to program.",
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^src_[0-9a-f]{8,}$",
+          "description": "Source id to arm on PVW."
+        }
+      }
+    },
+    "take": {
+      "title": "POST /api/mxl/v1/take",
+      "description": "Cut the armed PVW source to PGM. No body. No-op (not an error) if nothing is armed or PVW == PGM.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "key": {
+      "title": "POST /api/mxl/v1/key",
+      "description": "Toggle the graphics keyer.",
+      "type": "object",
+      "required": ["on"],
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "type": "boolean",
+          "description": "true = key up (graphics visible), false = key down."
+        }
+      }
+    }
+  }
+}

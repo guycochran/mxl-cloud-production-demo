@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mxlswitcher.com/contracts/v1/meta.schema.json",
+  "title": "GET /api/mxl/v1/meta",
+  "description": "Version + capability discovery. A skin reads this first to decide whether it can run against this core instance.",
+  "type": "object",
+  "required": ["api_version", "core_version", "capabilities", "auth"],
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "The contract major.minor this core serves, e.g. \"1.0\". Major changes only on breaking changes.",
+      "examples": ["1.0"]
+    },
+    "core_version": {
+      "type": "string",
+      "description": "The core release (semver or core-vX.Y.Z tag) running this instance.",
+      "examples": ["0.3.0"]
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "What this instance actually offers. A skin loads only if its required capabilities are a subset of this list.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "state.read", "sources.read", "thumbs.read",
+          "control.cut", "control.preview", "control.take", "control.key",
+          "test-source", "audio.read", "candidates.read", "layouts.control",
+          "events.read", "ops.warmup", "ops.repair"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "program_url": {
+      "type": "string",
+      "description": "Opaque embeddable program-video view (WebRTC/WHEP). Media plane, NOT part of the JSON contract — a skin embeds it but assumes nothing beyond 'a program view at this URL'. Absent if no program view is exposed.",
+      "examples": ["/program"]
+    },
+    "auth": {
+      "type": "object",
+      "required": ["required", "scopes"],
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "Whether a token is required for mutating (control) routes on this instance."
+        },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["read", "control", "ops"] },
+          "uniqueItems": true,
+          "description": "Scopes this instance understands. One shared token satisfies all; per-scope tokens are future work."
+        },
+        "read_required": {
+          "type": "boolean",
+          "description": "Whether read routes also require a token (MXL_REQUIRE_READ_AUTH). Defaults false."
+        }
+      }
+    }
+  }
+}

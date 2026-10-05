@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mxlswitcher.com/contracts/v1/sources.schema.json",
+  "title": "GET /api/mxl/v1/sources",
+  "description": "The switchable sources, each with a STABLE opaque id (addressable by /v1/cut and /v1/preview), a human label, a kind, display order, and health. Replaces the fragile slot-index + role-name model; derived per box from discovered flows (review R2), so a skin written once works on any box.",
+  "type": "object",
+  "required": ["sources"],
+  "additionalProperties": false,
+  "properties": {
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["id", "label", "kind", "order", "health"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^src_[0-9a-f]{8,}$",
+          "description": "Opaque stable id, derived deterministically from the flow UUID (stable for the flow's life, identical in /state and /sources). A skin stores it and never parses it.",
+          "examples": ["src_9998da48"]
+        },
+        "label": {
+          "type": "string",
+          "description": "Human label from the facility manifest.",
+          "examples": ["Playout", "Guest 1"]
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["camera", "guest", "playout", "generator", "layout", "other"],
+          "description": "What the source is, for grouping/iconography in a skin."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display order only (the old layout slot index). NEVER an address — cut by id."
+        },
+        "health": {
+          "type": "object",
+          "required": ["state"],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": ["ok", "no_signal", "stale", "wedged", "unknown"],
+              "description": "ok=fresh frames; no_signal=wired but nothing arriving; stale=frames aging; wedged=reader stuck (the cold-reader wedge, R1); unknown=can't tell yet. Replaces the overloaded 'live' (which only meant 'wired')."
+            },
+            "last_frame_age_ms": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Age of the most recent frame, if known (from mxl_thumbs.py health). null when not measurable in v1.0."
+            }
+          }
+        }
+      }
+    }
+  }
+}
