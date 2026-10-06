@@ -40,13 +40,21 @@ LABEL = sys.argv[3] if len(sys.argv) > 3 else 'Guest 1'
 JITTER_MS = int(sys.argv[4]) if len(sys.argv) > 4 else 200
 TRANSPORT = os.environ.get('MXL_GUEST_TRANSPORT', 'srt-direct')
 HOST = os.environ.get('MXL_GUEST_HOST', '172.17.0.1')  # mediamtx host (srt + rtsp)
+# srt-listen: the ingest binds its OWN SRT port and the contributor's caller lands
+# straight on it — mediamtx is out of the contribution path entirely. One port per
+# guest (default 8890 + slot offset). See SrtListenerGuestAdapter for the HW rationale.
+LISTEN_PORT = int(os.environ.get('MXL_GUEST_LISTEN_PORT', '8890'))
 
 if TRANSPORT == 'rtsp':
     from adapters import SrtGuestAdapter  # legacy rtspsrc path
     adapter = SrtGuestAdapter(path=PATH, flow_id=DST, label=LABEL,
                               latency_ms=JITTER_MS, rtsp_host=HOST)
+elif TRANSPORT == 'srt-listen':
+    from adapters import SrtListenerGuestAdapter  # direct: srtsrc mode=listener
+    adapter = SrtListenerGuestAdapter(path=PATH, flow_id=DST, label=LABEL,
+                                      latency_ms=JITTER_MS, listen_port=LISTEN_PORT)
 else:
-    from adapters import SrtGuestVideoAdapter  # default: srtsrc ! tsdemux
+    from adapters import SrtGuestVideoAdapter  # default: srtsrc ! tsdemux (via mediamtx)
     adapter = SrtGuestVideoAdapter(path=PATH, flow_id=DST, label=LABEL,
                                    latency_ms=JITTER_MS, srt_host=HOST)
 

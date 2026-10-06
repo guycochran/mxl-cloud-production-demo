@@ -100,6 +100,54 @@ class SrtGuestVideoAdapter(SourceAdapter):
                 f'! queue max-size-buffers=8 ')
 
 
+class SrtListenerGuestAdapter(SourceAdapter):
+    """Guest VIDEO via SRT-DIRECT-LISTEN: the ingest IS the SRT listener — the
+    contributor's SRT caller lands straight on srtsrc, no mediamtx in the contribution
+    path. This is the "spin up and ingest SRT to mix/switch, nothing in the way" path.
+
+    WHY (proven on HW Oct 6 2026): the mediamtx round-trip (publish TO mediamtx, then
+    srtsrc reads BACK over SRT with streamid=read:) is fragile — the read-back leg
+    throws `srtsrc: streaming stopped, reason error (-5)` on cellular/jittery sources
+    and restart-loops, so the flow never latches a stable writer. Reading the caller
+    DIRECTLY (srtsrc mode=listener) ran a real 1080p camera at a steady 30fps, 0 drops,
+    0 restarts — the extra hop was the entire problem. mediamtx stays only for the
+    WebRTC monitor, which reads the MXL flow OUT (never into the contribution path).
+
+    One listener owns one UDP port, so each guest slot binds its own SRT port
+    (8890 + slot offset). The contributor's deep-link/QR points straight here."""
+    def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
+                 listen_port: int = 8890):
+        self.path = path
+        self.flow_id = flow_id
+        self.label = label
+        self.latency_ms = latency_ms
+        # bind all interfaces so the public caller reaches us; one port per guest.
+        self._uri = (f'srt://0.0.0.0:{listen_port}'
+                     f'?mode=listener&latency={latency_ms}')
+        self.description = f'contributor SRT-direct-listen video ({path} :{listen_port})'
+
+    def source_fragment(self) -> str:
+        # Same caps-selective demux link as SrtGuestVideoAdapter: h264parse (sink caps
+        # video/x-h264) sits directly on the tsdemux SOMETIMES-pad so parse_launch binds
+        # the video ES regardless of TS track order.
+        #
+        # ⚠️ The post-decode queue MUST be leaky=downstream, NOT a plain bounded queue.
+        # The core appends a heavy synchronous conform (videorate 60→30 + videoscale +
+        # v210 10-bit + mxlsink). When that tail stalls for even a few frames, a plain
+        # queue fills, backpressures avdec/srtsrc, and srtsrc's SRT RECEIVE buffer then
+        # overflows → "streaming stopped, reason error (-5)" and a restart loop. (A bare
+        # srtsrc→decode→fakesink ran this exact camera at a steady 30fps/0-drops; adding
+        # the conform tail is what reintroduced -5.) A downstream-leaky queue decouples
+        # the SRT receiver from the conform: if the conform can't keep up it DROPS the
+        # oldest decoded frame instead of back-pressuring the network leg, so srtsrc keeps
+        # draining the socket and never trips -5. Sized by time (400ms) so it tolerates a
+        # conform hiccup without unbounded latency. (Diagnosed on HW Oct 6 2026.)
+        return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
+                f'! h264parse ! avdec_h264 max-threads=4 thread-type=frame '
+                f'! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 '
+                f'max-size-bytes=0 ')
+
+
 class SrtGuestAudioAdapter(SourceAdapter):
     """Guest AUDIO via SRT-direct: srtsrc ! tsdemux ! aac decode. essence='audio' so
     the core uses the F32LE/48k conform + the duration-accumulate restamp. The clean
