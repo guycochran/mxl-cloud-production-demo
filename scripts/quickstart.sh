@@ -20,12 +20,14 @@
 # D-series v5, AWS m5/m6i, GCP n2; QEMU needs `-cpu host` — see FINDINGS §11),
 # ~8 vCPU recommended, ports open in your cloud firewall:
 #   8889/tcp (WebRTC page+signaling)  8189/udp (WebRTC media)
-#   8890/udp (optional: SRT contribution for your own camera)
-#   + 8891/udp when MXL_GUEST_TRANSPORT=srt-listen (guest2's own listener port)
+#   8890/udp + 8891/udp (SRT contribution — one listener port per guest; DEFAULT)
 #
-# Guest transport (MXL_GUEST_TRANSPORT): srt-direct (default, via mediamtx) |
-#   srt-listen (ingest listens directly, mediamtx out of the contribution path —
-#   one UDP port per guest: 8890/8891) | rtsp (legacy).
+# Guest transport (MXL_GUEST_TRANSPORT): srt-listen (DEFAULT — the ingest listens
+#   directly, mediamtx is out of the contribution path, one UDP port per guest:
+#   8890/8891) | srt-direct (publish via mediamtx on one shared port 8890 with a
+#   streamid; +audio) | rtsp (legacy). srt-listen is HW-proven and avoids the
+#   mediamtx read-back restart-loop on jittery sources; it is VIDEO-ONLY (use
+#   srt-direct if you need the separate guest-audio leg).
 #
 # Idempotent: safe to re-run. Teardown: sudo scripts/quickstart.sh --down
 set -euo pipefail
@@ -60,27 +62,41 @@ fi
 IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
 CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2 guest1-audio guest2-audio"
 # Guest ingest transport (MXL_GUEST_TRANSPORT):
-#   srt-direct (DEFAULT) — contributor publishes to mediamtx (streamid publish:guestN),
-#     the ingest reads BACK from mediamtx over SRT. Multiplexes all guests on one port
-#     (8890). The hardware-proven default.
-#   srt-listen — the ingest IS the SRT listener; the contributor's caller lands STRAIGHT
-#     on it, mediamtx is OUT of the contribution path ("nothing in the way"). Fixes the
-#     read-back -5 restart-loop on jittery sources (see tools/adapters.py). One listener
-#     owns one UDP port, so guestN binds 8890+(N-1): guest1=8890, guest2=8891 — open BOTH
-#     in your cloud firewall. mediamtx's own SRT server is disabled (its WebRTC stays up).
-#     Audio rides the same MPEG-TS as video (one listener), so the separate audio leg is
-#     video-only in this mode — the program mixer tolerates an absent guest-audio flow.
+#   srt-listen (DEFAULT) — the ingest IS the SRT listener; the contributor's caller lands
+#     STRAIGHT on it, mediamtx is OUT of the contribution path ("nothing in the way").
+#     Avoids the mediamtx read-back -5 restart-loop on jittery sources (see
+#     tools/adapters.py) — HW-proven Oct 2026 (camera → listener → cut to program, 0 -5).
+#     One listener owns one UDP port, so guestN binds 8890+(N-1): guest1=8890, guest2=8891
+#     — open BOTH in your cloud firewall. mediamtx's own SRT server is disabled (its WebRTC
+#     stays up). VIDEO-ONLY: audio rides the same MPEG-TS as video on the one listener, so
+#     the separate audio leg is skipped — the program mixer tolerates an absent guest-audio
+#     flow. Use srt-direct if you need the standalone guest-audio leg.
+#   srt-direct — contributor publishes to mediamtx (streamid publish:guestN); the ingest
+#     reads BACK from mediamtx over SRT. Multiplexes all guests on one port (8890) and
+#     supports the separate guest-audio leg. Prone to the read-back -5 loop on jittery
+#     cellular sources — fine for stable LAN/encoder sources.
 #   rtsp — legacy rtspsrc path.
-GUEST_TRANSPORT="${MXL_GUEST_TRANSPORT:-srt-direct}"
+GUEST_TRANSPORT="${MXL_GUEST_TRANSPORT:-srt-listen}"
 GUEST_LISTEN_BASE_PORT="${MXL_GUEST_LISTEN_BASE_PORT:-8890}"
 # Guest image tag ENCODES THE MODE so a pinned run can't silently reuse an
 # edge-built base (or vice versa): `docker image inspect` keys on the tag, so
 # distinct tags = distinct cache entries. Pinned tag carries the base digest's
 # short id; edge is its own tag.
+#
+# The tag ALSO carries a short hash of the seam sources the Dockerfile COPYs
+# (contribution_core / adapters / guest_ingest / guest_audio / facility). WHY: the
+# build-guard below skips `docker build` when the tag already exists — so on a box
+# that already has the image, pulling NEW tool code (e.g. the srt-listen adapter)
+# would NOT rebuild, and the guest ingest silently runs the STALE code. Folding a
+# source hash into the tag means changed tools ⇒ new tag ⇒ rebuild, old tag ⇒ cache
+# hit. (Bit a reused lab VM Oct 6 2026: stale image had no SrtListenerGuestAdapter →
+# fell back to srt-direct with a host-resolve loop.)
+_seam_srcs="$REPO/tools/contribution_core.py $REPO/tools/adapters.py $REPO/tools/facility.py $REPO/tools/guest_ingest.py $REPO/tools/guest_audio.py"
+_seam_hash="$( (cat $_seam_srcs 2>/dev/null; cat "$REPO/docker/guest-ingest.Dockerfile" 2>/dev/null) | sha1sum | cut -c1-8)"
 if [ "${MXL_BLEEDING_EDGE:-0}" = 1 ]; then
-  GUEST_IMAGE=mxl-guest-ingest:edge
+  GUEST_IMAGE="mxl-guest-ingest:edge-$_seam_hash"
 else
-  GUEST_IMAGE="mxl-guest-ingest:pinned-$(printf '%s' "$IMG_TESTGEN_PIN" | sed 's/.*@sha256://' | cut -c1-12)"
+  GUEST_IMAGE="mxl-guest-ingest:pinned-$(printf '%s' "$IMG_TESTGEN_PIN" | sed 's/.*@sha256://' | cut -c1-12)-$_seam_hash"
 fi
 # Guest flow UUIDs from the facility manifest (config/facility.json) — the single
 # source of truth shared with the tools + backend. Fallback to the facility
@@ -354,11 +370,10 @@ if [ -n "$GUEST_IMAGE" ]; then
   # window) so the pipeline rebuilds within ~2s of a publisher appearing. This is
   # the same supervisor pattern the live demo uses (run-cam1.sh). The loop owns
   # liveness, so no docker --restart policy. ~1000ms jitterbuffer = cellular SRT.
-  # Guests default to SRT-direct (MXL_GUEST_TRANSPORT unset -> srt-direct): read the
-  # stream straight from mediamtx over SRT (srtsrc!tsdemux) — the hardware-proven path
-  # that avoids the RTSP two-track flap. Source host = host.docker.internal (the single
-  # box). Set MXL_GUEST_TRANSPORT=rtsp for the legacy path, or =srt-listen for the
-  # direct-listener path (the ingest binds its own SRT port; see the header note).
+  # Guests default to srt-listen (MXL_GUEST_TRANSPORT unset -> srt-listen): the ingest
+  # binds its own SRT port and the contributor dials straight in — mediamtx out of the
+  # contribution path (see the header note). Set MXL_GUEST_TRANSPORT=srt-direct to read
+  # back from mediamtx (adds the guest-audio leg), or =rtsp for the legacy path.
   run_guest(){ # name srt-stream flow label [listen-port]
     docker rm -f "$1" >/dev/null 2>&1 || true
     # srt-listen binds a UDP port on the host, so the container needs host networking
@@ -382,12 +397,14 @@ if [ -n "$GUEST_IMAGE" ]; then
   # same mediamtx path, via guest_audio.py (also SRT-direct by default). The program-
   # audio mixer tolerates an absent audio flow, so this is additive — a guest still
   # cuts video-only if audio is off. Set MXL_GUEST_AUDIO=0 to skip.
+  # NOTE: the audio leg only runs in srt-direct/rtsp mode (the caller below guards on
+  # GUEST_TRANSPORT != srt-listen), so it always dials OUT to mediamtx over the bridge.
   run_guest_audio(){ # name srt-stream flow label
     docker rm -f "$1-audio" >/dev/null 2>&1 || true
     docker run -d --name "$1-audio" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
       -e MXL_GUEST_HOST=host.docker.internal \
-      -e "MXL_GUEST_TRANSPORT=${MXL_GUEST_TRANSPORT:-srt-direct}" \
+      -e "MXL_GUEST_TRANSPORT=$GUEST_TRANSPORT" \
       --add-host host.docker.internal:host-gateway --entrypoint sh \
       "$GUEST_IMAGE" -c "while :; do python3 guest_audio.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 3; done" \
       "$2" "$3" "$4" >/dev/null
