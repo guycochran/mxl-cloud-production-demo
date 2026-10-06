@@ -21,6 +21,11 @@
 # ~8 vCPU recommended, ports open in your cloud firewall:
 #   8889/tcp (WebRTC page+signaling)  8189/udp (WebRTC media)
 #   8890/udp (optional: SRT contribution for your own camera)
+#   + 8891/udp when MXL_GUEST_TRANSPORT=srt-listen (guest2's own listener port)
+#
+# Guest transport (MXL_GUEST_TRANSPORT): srt-direct (default, via mediamtx) |
+#   srt-listen (ingest listens directly, mediamtx out of the contribution path —
+#   one UDP port per guest: 8890/8891) | rtsp (legacy).
 #
 # Idempotent: safe to re-run. Teardown: sudo scripts/quickstart.sh --down
 set -euo pipefail
@@ -54,6 +59,20 @@ else
 fi
 IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
 CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2 guest1-audio guest2-audio"
+# Guest ingest transport (MXL_GUEST_TRANSPORT):
+#   srt-direct (DEFAULT) — contributor publishes to mediamtx (streamid publish:guestN),
+#     the ingest reads BACK from mediamtx over SRT. Multiplexes all guests on one port
+#     (8890). The hardware-proven default.
+#   srt-listen — the ingest IS the SRT listener; the contributor's caller lands STRAIGHT
+#     on it, mediamtx is OUT of the contribution path ("nothing in the way"). Fixes the
+#     read-back -5 restart-loop on jittery sources (see tools/adapters.py). One listener
+#     owns one UDP port, so guestN binds 8890+(N-1): guest1=8890, guest2=8891 — open BOTH
+#     in your cloud firewall. mediamtx's own SRT server is disabled (its WebRTC stays up).
+#     Audio rides the same MPEG-TS as video (one listener), so the separate audio leg is
+#     video-only in this mode — the program mixer tolerates an absent guest-audio flow.
+#   rtsp — legacy rtspsrc path.
+GUEST_TRANSPORT="${MXL_GUEST_TRANSPORT:-srt-direct}"
+GUEST_LISTEN_BASE_PORT="${MXL_GUEST_LISTEN_BASE_PORT:-8890}"
 # Guest image tag ENCODES THE MODE so a pinned run can't silently reuse an
 # edge-built base (or vice versa): `docker image inspect` keys on the tag, so
 # distinct tags = distinct cache entries. Pinned tag carries the base digest's
@@ -238,15 +257,28 @@ render_mediamtx_guest_conf(){ # prints YAML on stdout; empty output = no auth co
 # --- END guest-srt-conf ---
 MTX_CONF_ARGS=()
 GUEST_CONF=$(render_mediamtx_guest_conf) || exit 1
-if [ -n "$GUEST_CONF" ]; then
+if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+  # mediamtx's SRT server is disabled in listen mode, so its publish passphrase can't
+  # apply — the contributor connects to the ingest's srtsrc listener, not mediamtx.
+  if [ -n "$GUEST_CONF" ]; then
+    echo "  ⚠ MXL_GUEST_*_SRT_PASSPHRASE is ignored in srt-listen mode (mediamtx SRT is off); gate the listener with the SRT passphrase on the publisher side, or restrict the port in your firewall"
+  else
+    echo "  ⚠ guest SRT slots are OPEN (srt-listen: any caller reaching the port). Restrict the UDP port in your cloud firewall to limit who can publish"
+  fi
+elif [ -n "$GUEST_CONF" ]; then
   umask 077; printf '%s\n' "$GUEST_CONF" > "$BASE/mediamtx.guest-auth.yml"; umask 022
   MTX_CONF_ARGS=(-v "$BASE/mediamtx.guest-auth.yml":/mediamtx.yml:ro)
   echo "  ✓ SRT publish passphrase REQUIRED for: $([ -n "$(_srt_pass_for 1)" ] && printf 'guest1 ')$([ -n "$(_srt_pass_for 2)" ] && printf 'guest2')"
 else
   echo "  ⚠ guest SRT slots are OPEN (any publisher who knows the stream id). Set MXL_GUEST_SRT_PASSPHRASE to require one — see SECURITY.md"
 fi
+# In srt-listen mode the guest ingests own the SRT port(s) directly, so mediamtx must
+# NOT bind its own SRT server (would collide on 8890). Disable it with MTX_SRT=no —
+# mediamtx keeps serving WebRTC (8889/8189), which the program monitor still needs.
+MTX_SRT_ARGS=()
+[ "$GUEST_TRANSPORT" = srt-listen ] && MTX_SRT_ARGS=(-e MTX_SRT=no)
 docker run -d --name mediamtx --network host --restart unless-stopped "${MTX_CONF_ARGS[@]}" \
-  -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" "$IMG_MEDIAMTX" >/dev/null
+  "${MTX_SRT_ARGS[@]}" -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" "$IMG_MEDIAMTX" >/dev/null
 run_mf(){ # name hostport image extra...
   local name=$1 port=$2 image=$3; shift 3
   # Control APIs bind 127.0.0.1 ONLY (least privilege): these are unauthenticated
@@ -325,14 +357,24 @@ if [ -n "$GUEST_IMAGE" ]; then
   # Guests default to SRT-direct (MXL_GUEST_TRANSPORT unset -> srt-direct): read the
   # stream straight from mediamtx over SRT (srtsrc!tsdemux) — the hardware-proven path
   # that avoids the RTSP two-track flap. Source host = host.docker.internal (the single
-  # box). Set MXL_GUEST_TRANSPORT=rtsp to force the legacy path.
-  run_guest(){ # name srt-stream flow label
+  # box). Set MXL_GUEST_TRANSPORT=rtsp for the legacy path, or =srt-listen for the
+  # direct-listener path (the ingest binds its own SRT port; see the header note).
+  run_guest(){ # name srt-stream flow label [listen-port]
     docker rm -f "$1" >/dev/null 2>&1 || true
+    # srt-listen binds a UDP port on the host, so the container needs host networking
+    # (so srtsrc listener is reachable from the internet on that port). srt-direct dials
+    # OUT to mediamtx, so host.docker.internal + the bridge is fine.
+    local net_args=(--add-host host.docker.internal:host-gateway)
+    local port_env=()
+    if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+      net_args=(--network host)
+      port_env=(-e "MXL_GUEST_LISTEN_PORT=${5:-$GUEST_LISTEN_BASE_PORT}")
+    fi
     docker run -d --name "$1" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
       -e MXL_GUEST_HOST=host.docker.internal \
-      -e "MXL_GUEST_TRANSPORT=${MXL_GUEST_TRANSPORT:-srt-direct}" \
-      --add-host host.docker.internal:host-gateway --entrypoint sh \
+      -e "MXL_GUEST_TRANSPORT=$GUEST_TRANSPORT" "${port_env[@]}" \
+      "${net_args[@]}" --entrypoint sh \
       "$GUEST_IMAGE" -c "while :; do python3 guest_ingest.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 2; done" \
       "$2" "$3" "$4" >/dev/null
   }
@@ -350,9 +392,15 @@ if [ -n "$GUEST_IMAGE" ]; then
       "$GUEST_IMAGE" -c "while :; do python3 guest_audio.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 3; done" \
       "$2" "$3" "$4" >/dev/null
   }
-  run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1"
-  run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2"
-  if [ "${MXL_GUEST_AUDIO:-1}" = 1 ]; then
+  # srt-listen: one UDP port per guest listener (guest1=base, guest2=base+1). srt-direct:
+  # both multiplex on mediamtx:8890 (the trailing port arg is ignored by run_guest).
+  run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1" "$GUEST_LISTEN_BASE_PORT"
+  run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2" "$((GUEST_LISTEN_BASE_PORT + 1))"
+  # AUDIO leg: a separate audio listener can't share the video listener's port, and the
+  # contributor's MPEG-TS already carries audio alongside video — so the standalone audio
+  # leg only applies to srt-direct/rtsp (where it reads its own stream from mediamtx). In
+  # srt-listen mode guests are video-only for now; the mixer tolerates an absent flow.
+  if [ "${MXL_GUEST_AUDIO:-1}" = 1 ] && [ "$GUEST_TRANSPORT" != srt-listen ]; then
     run_guest_audio guest1 guest1 "$GUEST1_AUDIO_FLOW" "Guest 1 Audio"
     run_guest_audio guest2 guest2 "$GUEST2_AUDIO_FLOW" "Guest 2 Audio"
   fi
@@ -361,8 +409,14 @@ if [ -n "$GUEST_IMAGE" ]; then
   pkill -f "guest_slot_watcher.py" 2>/dev/null || true
   BASE_LABELS="Pattern Video,Clip Video" GUEST_LABELS="Guest 1,Guest 2" \
     nohup python3 "$REPO/tools/guest_slot_watcher.py" >/tmp/quickstart-guest-watcher.log 2>&1 &
-  _audio_note=$([ "${MXL_GUEST_AUDIO:-1}" = 1 ] && echo "+audio" || echo "video-only")
-  echo "  ✓ Guest 1/2 slots armed ($_audio_note) · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"
+  if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+    _g2port="$((GUEST_LISTEN_BASE_PORT + 1))"
+    echo "  ✓ Guest 1/2 slots armed (video-only, SRT-direct-LISTEN · mediamtx SRT off) · publish straight to the ingest: guest1 srt://$PUBLIC_IP:$GUEST_LISTEN_BASE_PORT · guest2 srt://$PUBLIC_IP:$_g2port · watcher live"
+    echo "    ⚠ open UDP $GUEST_LISTEN_BASE_PORT AND $_g2port in your cloud firewall (one port per guest in listen mode)"
+  else
+    _audio_note=$([ "${MXL_GUEST_AUDIO:-1}" = 1 ] && echo "+audio" || echo "video-only")
+    echo "  ✓ Guest 1/2 slots armed ($_audio_note) · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"
+  fi
 fi
 
 # ── 3c. multiview thumbnails (opt-in, default on) ─────────────────────────────
@@ -428,10 +482,14 @@ if [ "${MXL_CONTROL_UI:-1}" = 1 ] && command -v node >/dev/null 2>&1; then
   # that comes from a ${VAR:+...} expansion is NOT treated as an assignment (bash sees
   # it as the command to run → "MXL_FACILITY_JSON=…: No such file or directory" and the
   # UI never starts). `env` consumes every leading NAME=VALUE arg regardless of origin.
+  # Pass the guest transport + base SRT port so the UI builds the right "Add your
+  # camera" QR/URL: srt-direct → one port + streamid; srt-listen → per-guest port, no
+  # streamid (matches run_guest above).
   nohup env MXL_VM_URL="http://127.0.0.1" \
     MXL_THUMBS_ORIGIN="${THUMBS_ORIGIN:-http://127.0.0.1:8086/thumbs}" \
     MXL_PROGRAM_ORIGIN="http://127.0.0.1:8889" MXL_CONTROL_PORT="$CTRL_PORT" \
-    MXL_PUBLIC_IP="$PUBLIC_IP" MXL_GUEST_SRT_PORT="8890" \
+    MXL_PUBLIC_IP="$PUBLIC_IP" MXL_GUEST_SRT_PORT="$GUEST_LISTEN_BASE_PORT" \
+    MXL_GUEST_TRANSPORT="$GUEST_TRANSPORT" \
     ${GEN_FACILITY:+MXL_FACILITY_JSON="$GEN_FACILITY"} \
     node "$REPO/backend/local-server.js" >/tmp/mxl-control-ui.log 2>&1 &
   sleep 1

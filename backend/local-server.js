@@ -98,22 +98,38 @@ app.get('/api/mxl/thumbs/:name', (req, res) => {
 // not launched via quickstart) → public_ip:null and the UI shows a fallback.
 const PUBLIC_IP = process.env.MXL_PUBLIC_IP || '';
 const SRT_PORT = parseInt(process.env.MXL_GUEST_SRT_PORT || '8890', 10);
+// Guest transport determines how a contributor connects:
+//   srt-direct (default) — publish to mediamtx on one shared port (8890) with a
+//     streamid (publish:guestN). mediamtx demuxes by streamid.
+//   srt-listen — the ingest IS the SRT listener; the contributor dials STRAIGHT into
+//     a per-guest port (SRT_PORT + index) with NO streamid. Mirrors quickstart's
+//     MXL_GUEST_TRANSPORT=srt-listen (one listener owns one UDP port).
+const GUEST_TRANSPORT = process.env.MXL_GUEST_TRANSPORT || 'srt-direct';
+const LISTEN_MODE = GUEST_TRANSPORT === 'srt-listen';
 const GUESTS = [
   { slot: 'guest1', label: 'Guest 1' },
   { slot: 'guest2', label: 'Guest 2' },
 ];
+// In listen mode each guest gets its own port; in direct mode they share SRT_PORT.
+const guestPort = (i) => (LISTEN_MODE ? SRT_PORT + i : SRT_PORT);
 
 app.get('/api/mxl/ingest', (req, res) => {
   res.json({
     public_ip: PUBLIC_IP || null,
     srt_port: SRT_PORT,
-    guests: GUESTS.map((g) => ({
+    transport: GUEST_TRANSPORT,
+    guests: GUESTS.map((g, i) => ({
       ...g,
-      streamid: 'publish:' + g.slot,
-      // Caller-mode SRT URL to paste into OBS / ffmpeg / any SRT source.
-      srt_url: PUBLIC_IP
-        ? `srt://${PUBLIC_IP}:${SRT_PORT}?streamid=publish:${g.slot}&latency=200`
-        : null,
+      port: guestPort(i),
+      // Listen mode carries no streamid (the port identifies the guest); direct mode
+      // multiplexes on one port by streamid.
+      streamid: LISTEN_MODE ? null : 'publish:' + g.slot,
+      // SRT URL to paste into OBS / ffmpeg / any SRT source.
+      srt_url: !PUBLIC_IP
+        ? null
+        : LISTEN_MODE
+          ? `srt://${PUBLIC_IP}:${guestPort(i)}?latency=200`
+          : `srt://${PUBLIC_IP}:${SRT_PORT}?streamid=publish:${g.slot}&latency=200`,
       qr: PUBLIC_IP ? `/api/mxl/ingest/qr/${g.slot}.png` : null,
     })),
   });
@@ -130,6 +146,14 @@ app.get('/api/mxl/ingest', (req, res) => {
 // URL query value, so the deep-link still parses.
 function larixUrl(slot, publicIp) {
   const name = encodeURIComponent('MXL ' + slot.replace(/^guest/, 'Guest '));
+  const idx = Math.max(0, parseInt(slot.replace(/^guest/, ''), 10) - 1) || 0;
+  if (LISTEN_MODE) {
+    // Direct-listener: dial straight into the per-guest port, NO streamid (the port
+    // identifies the guest). Larix connects as a caller to the ingest's listener.
+    const srt = encodeURIComponent(`srt://${publicIp}:${guestPort(idx)}`);
+    return `larix://set/v1?conn[][name]=${name}&conn[][url]=${srt}`
+      + `&conn[][mode]=av&conn[][srtlatency]=1000`;
+  }
   const srt = encodeURIComponent(`srt://${publicIp}:${SRT_PORT}`);
   const sid = 'publish:' + slot;   // literal colon — see note above
   return `larix://set/v1?conn[][name]=${name}&conn[][url]=${srt}`
