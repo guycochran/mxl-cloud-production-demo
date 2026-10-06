@@ -102,7 +102,15 @@ if [ "${1:-}" = "--down" ]; then
   pkill -f "guest_slot_watcher.py" 2>/dev/null || true
   pkill -f "backend/local-server.js" 2>/dev/null || true
   pkill -f "mxl-selfheal.sh" 2>/dev/null || true
-  echo "Done. ($BASE and the domain dir are left in place; rm -rf $BASE to remove.)"
+  # Wipe the shared-memory domain. A flow's writer lives in this shared memory, not
+  # in the process — so a container that was killed mid-stream (or a guest that
+  # dropped) leaves a flow dir behind whose writer is dead but still "owned". The
+  # next run's mxlsink then fails with "the UUID belongs to a flow with another
+  # active writer" and the source never attaches. Clearing the domain on --down
+  # means the next `up` always starts from a clean slate. (Volatile by design —
+  # it's gone on reboot anyway; $BASE with your clips/graphics is kept.)
+  rm -rf "$DOMAIN_HOST" 2>/dev/null || true
+  echo "Done. (domain wiped for a clean restart; $BASE kept — rm -rf $BASE to remove clips/graphics too.)"
   exit 0
 fi
 
