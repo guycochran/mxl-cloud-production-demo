@@ -98,43 +98,20 @@ app.get('/api/mxl/thumbs/:name', (req, res) => {
 // not launched via quickstart) → public_ip:null and the UI shows a fallback.
 const PUBLIC_IP = process.env.MXL_PUBLIC_IP || '';
 const SRT_PORT = parseInt(process.env.MXL_GUEST_SRT_PORT || '8890', 10);
-const GUESTS = [
-  { slot: 'guest1', label: 'Guest 1' },
-  { slot: 'guest2', label: 'Guest 2' },
-];
-
-app.get('/api/mxl/ingest', (req, res) => {
-  res.json({
-    public_ip: PUBLIC_IP || null,
-    srt_port: SRT_PORT,
-    guests: GUESTS.map((g) => ({
-      ...g,
-      streamid: 'publish:' + g.slot,
-      // Caller-mode SRT URL to paste into OBS / ffmpeg / any SRT source.
-      srt_url: PUBLIC_IP
-        ? `srt://${PUBLIC_IP}:${SRT_PORT}?streamid=publish:${g.slot}&latency=200`
-        : null,
-      qr: PUBLIC_IP ? `/api/mxl/ingest/qr/${g.slot}.png` : null,
-    })),
-  });
+// Guest-ingest info (SRT URL / streamid / Larix deep-link) lives in a pure,
+// dependency-free module so it can be unit-tested without express (see
+// backend/ingest-info.js + tests/js/mxl-ingest-transport.test.js). srt-direct is the
+// default; MXL_GUEST_TRANSPORT=srt-listen switches to per-guest listener ports.
+const { ingestConfig, ingestInfo, larixUrl } = require('./ingest-info');
+const INGEST_CFG = ingestConfig({
+  publicIp: PUBLIC_IP,
+  srtPort: SRT_PORT,
+  transport: process.env.MXL_GUEST_TRANSPORT || 'srt-direct',
 });
 
-// Build the Larix Broadcaster deep-link the QR encodes.
-//   larix://set/v1 (v1) · conn[] empty-index arrays · srtstreamid LOWERCASE ·
-//   mode=av (the string) · name + url percent-encoded.
-// ⚠️ The srtstreamid value keeps a LITERAL colon (publish:guestN), NOT %3A.
-// Larix passes srtstreamid straight to the SRT handshake, and mediamtx requires
-// the form "action:pathname" with a real colon — it rejects "publish%3AguestN"
-// as an invalid stream ID. (Verified on hardware 2026-10-05: literal colon →
-// "is publishing"; %3A → "invalid stream ID".) A colon is legal unencoded in a
-// URL query value, so the deep-link still parses.
-function larixUrl(slot, publicIp) {
-  const name = encodeURIComponent('MXL ' + slot.replace(/^guest/, 'Guest '));
-  const srt = encodeURIComponent(`srt://${publicIp}:${SRT_PORT}`);
-  const sid = 'publish:' + slot;   // literal colon — see note above
-  return `larix://set/v1?conn[][name]=${name}&conn[][url]=${srt}`
-    + `&conn[][mode]=av&conn[][srtstreamid]=${sid}&conn[][srtlatency]=1000`;
-}
+app.get('/api/mxl/ingest', (req, res) => {
+  res.json(ingestInfo(INGEST_CFG));
+});
 
 // Server-rendered QR PNG for a guest slot. Uses python3 + segno (pure-python,
 // installed by quickstart). If the dep is missing we return 501 so the UI falls
@@ -144,7 +121,7 @@ app.get('/api/mxl/ingest/qr/:slot.png', (req, res) => {
   const slot = req.params.slot;
   if (!/^guest[12]$/.test(slot)) return res.status(400).end();
   if (!PUBLIC_IP) return res.status(503).end();   // no IP → nothing to encode
-  const payload = larixUrl(slot, PUBLIC_IP);
+  const payload = larixUrl(INGEST_CFG, slot);
   // segno writes a PNG to stdout; -o - with --scale for a crisp phone-scannable size.
   const py = spawn('python3', ['-c',
     'import sys,segno; segno.make(sys.argv[1], error="m").save(sys.stdout.buffer, kind="png", scale=6, border=2)',

@@ -1,0 +1,58 @@
+// Verifies the "Add your camera" ingest builders produce the right SRT URL / streamid
+// / Larix deep-link for each guest transport: srt-direct (one shared port + streamid)
+// vs srt-listen (per-guest port, no streamid). Tests the pure backend/ingest-info.js
+// module directly — no express, no server, no npm deps (CI runs `node --test` without
+// `npm install`).
+const test = require('node:test');
+const assert = require('node:assert');
+const path = require('node:path');
+
+const { ingestConfig, ingestInfo, larixUrl } =
+  require(path.join(__dirname, '..', '..', 'backend', 'ingest-info.js'));
+
+const PUBLIC_IP = '203.0.113.7';   // TEST-NET-3 documentation IP
+const BASE_PORT = 8890;
+
+test('srt-direct (default): one shared port + publish:guestN streamid', () => {
+  const cfg = ingestConfig({ publicIp: PUBLIC_IP, srtPort: BASE_PORT });
+  const j = ingestInfo(cfg);
+  assert.equal(j.transport, 'srt-direct');
+  assert.equal(j.guests.length, 2);
+  const [g1, g2] = j.guests;
+  assert.equal(g1.port, BASE_PORT);
+  assert.equal(g2.port, BASE_PORT);                      // SHARED port
+  assert.equal(g1.streamid, 'publish:guest1');
+  assert.equal(g2.streamid, 'publish:guest2');
+  assert.match(g1.srt_url, /streamid=publish:guest1/);   // LITERAL colon, not %3A
+  assert.ok(!g1.srt_url.includes('%3A'), 'streamid must keep a literal colon');
+  // Larix deep-link carries the streamid with a literal colon.
+  const lx = larixUrl(cfg, 'guest1');
+  assert.match(lx, /srtstreamid\]=publish:guest1/);
+  assert.ok(lx.includes('srtstreamid]=publish:guest1'), 'streamid keeps a literal colon');
+});
+
+test('srt-listen: per-guest port, NO streamid', () => {
+  const cfg = ingestConfig({ publicIp: PUBLIC_IP, srtPort: BASE_PORT, transport: 'srt-listen' });
+  const j = ingestInfo(cfg);
+  assert.equal(j.transport, 'srt-listen');
+  const [g1, g2] = j.guests;
+  assert.equal(g1.port, BASE_PORT);         // guest1 = base
+  assert.equal(g2.port, BASE_PORT + 1);     // guest2 = base + 1 (its own port)
+  assert.equal(g1.streamid, null);          // listener needs no streamid
+  assert.equal(g2.streamid, null);
+  assert.match(g1.srt_url, new RegExp(`:${BASE_PORT}\\?latency=`));
+  assert.match(g2.srt_url, new RegExp(`:${BASE_PORT + 1}\\?latency=`));
+  assert.ok(!g1.srt_url.includes('streamid'), 'listen-mode URL carries no streamid');
+  // Larix deep-link: per-guest port, no srtstreamid field.
+  const lx2 = larixUrl(cfg, 'guest2');
+  assert.match(lx2, new RegExp(`%3A${BASE_PORT + 1}`));   // the port colon IS %-encoded (inside the url value)
+  assert.ok(!lx2.includes('srtstreamid'), 'listen-mode deep-link carries no streamid');
+});
+
+test('no public IP: srt_url + qr are null, no crash', () => {
+  const cfg = ingestConfig({ srtPort: BASE_PORT });   // publicIp defaults to ''
+  const j = ingestInfo(cfg);
+  assert.equal(j.public_ip, null);
+  assert.equal(j.guests[0].srt_url, null);
+  assert.equal(j.guests[0].qr, null);
+});
