@@ -25,9 +25,9 @@
 # Guest transport (MXL_GUEST_TRANSPORT): srt-listen (DEFAULT — the ingest listens
 #   directly, mediamtx is out of the contribution path, one UDP port per guest:
 #   8890/8891) | srt-direct (publish via mediamtx on one shared port 8890 with a
-#   streamid; +audio) | rtsp (legacy). srt-listen is HW-proven and avoids the
-#   mediamtx read-back restart-loop on jittery sources; it is VIDEO-ONLY (use
-#   srt-direct if you need the separate guest-audio leg).
+#   streamid) | rtsp (legacy). srt-listen is HW-proven and avoids the mediamtx
+#   read-back restart-loop on jittery sources; it carries A/V (a per-guest fan-out
+#   splits the one SRT stream into a video + an audio flow; MXL_GUEST_AUDIO=0 skips audio).
 #
 # Idempotent: safe to re-run. Teardown: sudo scripts/quickstart.sh --down
 set -euo pipefail
@@ -60,17 +60,19 @@ else
   IMG_KEYER="$IMG_KEYER_PIN"; IMG_WEBRTC="$IMG_WEBRTC_PIN"
 fi
 IMAGES="$IMG_MEDIAMTX $IMG_TESTGEN $IMG_FILEPLAYER $IMG_SELECTOR $IMG_KEYER $IMG_WEBRTC"
-CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2 guest1-audio guest2-audio"
+CONTAINERS="mediamtx test-generator file-player input-selector html5-keyer mxl2webrtc guest1 guest2 guest1-audio guest2-audio guest1-fanout guest2-fanout"
 # Guest ingest transport (MXL_GUEST_TRANSPORT):
 #   srt-listen (DEFAULT) — the ingest IS the SRT listener; the contributor's caller lands
 #     STRAIGHT on it, mediamtx is OUT of the contribution path ("nothing in the way").
 #     Avoids the mediamtx read-back -5 restart-loop on jittery sources (see
 #     tools/adapters.py) — HW-proven Oct 2026 (camera → listener → cut to program, 0 -5).
-#     One listener owns one UDP port, so guestN binds 8890+(N-1): guest1=8890, guest2=8891
-#     — open BOTH in your cloud firewall. mediamtx's own SRT server is disabled (its WebRTC
-#     stays up). VIDEO-ONLY: audio rides the same MPEG-TS as video on the one listener, so
-#     the separate audio leg is skipped — the program mixer tolerates an absent guest-audio
-#     flow. Use srt-direct if you need the standalone guest-audio leg.
+#     One PUBLIC listener port per guest: guest1=8890, guest2=8891 — open BOTH in your
+#     cloud firewall. mediamtx's own SRT server is disabled (its WebRTC stays up). A/V: the
+#     contributor's one SRT stream carries both essences, so a per-guest FAN-OUT
+#     (tools/guest_av_listen.sh) owns the public port and splits the TS to a local video
+#     leg + a local audio leg (127.0.0.1-only, ports public+100/public+200), each its own
+#     ContributionCore + MXL flow. MXL_GUEST_AUDIO=0 → video-only. The mixer tolerates an
+#     absent audio flow, so a guest still cuts video-only if the audio leg isn't up.
 #   srt-direct — contributor publishes to mediamtx (streamid publish:guestN); the ingest
 #     reads BACK from mediamtx over SRT. Multiplexes all guests on one port (8890) and
 #     supports the separate guest-audio leg. Prone to the read-back -5 loop on jittery
@@ -91,7 +93,7 @@ GUEST_LISTEN_BASE_PORT="${MXL_GUEST_LISTEN_BASE_PORT:-8890}"
 # source hash into the tag means changed tools ⇒ new tag ⇒ rebuild, old tag ⇒ cache
 # hit. (Bit a reused lab VM Oct 6 2026: stale image had no SrtListenerGuestAdapter →
 # fell back to srt-direct with a host-resolve loop.)
-_seam_srcs="$REPO/tools/contribution_core.py $REPO/tools/adapters.py $REPO/tools/facility.py $REPO/tools/guest_ingest.py $REPO/tools/guest_audio.py"
+_seam_srcs="$REPO/tools/contribution_core.py $REPO/tools/adapters.py $REPO/tools/facility.py $REPO/tools/guest_ingest.py $REPO/tools/guest_audio.py $REPO/tools/guest_av_listen.sh"
 _seam_hash="$( (cat $_seam_srcs 2>/dev/null; cat "$REPO/docker/guest-ingest.Dockerfile" 2>/dev/null) | sha1sum | cut -c1-8)"
 if [ "${MXL_BLEEDING_EDGE:-0}" = 1 ]; then
   GUEST_IMAGE="mxl-guest-ingest:edge-$_seam_hash"
@@ -376,14 +378,16 @@ if [ -n "$GUEST_IMAGE" ]; then
   # back from mediamtx (adds the guest-audio leg), or =rtsp for the legacy path.
   run_guest(){ # name srt-stream flow label [listen-port]
     docker rm -f "$1" >/dev/null 2>&1 || true
-    # srt-listen binds a UDP port on the host, so the container needs host networking
-    # (so srtsrc listener is reachable from the internet on that port). srt-direct dials
-    # OUT to mediamtx, so host.docker.internal + the bridge is fine.
+    # srt-listen binds a UDP port, so the container needs host networking (so the srtsrc
+    # listener is reachable on that port). srt-direct dials OUT to mediamtx, so
+    # host.docker.internal + the bridge is fine. In srt-listen A/V mode the video leg
+    # binds 127.0.0.1 on its LOCAL leg port (arg 5) — the fan-out owns the public port.
     local net_args=(--add-host host.docker.internal:host-gateway)
     local port_env=()
     if [ "$GUEST_TRANSPORT" = srt-listen ]; then
       net_args=(--network host)
-      port_env=(-e "MXL_GUEST_LISTEN_PORT=${5:-$GUEST_LISTEN_BASE_PORT}")
+      port_env=(-e "MXL_GUEST_LISTEN_PORT=${5:-$GUEST_LISTEN_BASE_PORT}"
+                -e "MXL_GUEST_LISTEN_HOST=${6:-0.0.0.0}")
     fi
     docker run -d --name "$1" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
@@ -393,33 +397,59 @@ if [ -n "$GUEST_IMAGE" ]; then
       "$GUEST_IMAGE" -c "while :; do python3 guest_ingest.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 2; done" \
       "$2" "$3" "$4" >/dev/null
   }
-  # AUDIO leg (v0.3): a guest is A/V, so pair the video ingest with an audio one —
-  # same mediamtx path, via guest_audio.py (also SRT-direct by default). The program-
-  # audio mixer tolerates an absent audio flow, so this is additive — a guest still
-  # cuts video-only if audio is off. Set MXL_GUEST_AUDIO=0 to skip.
-  # NOTE: the audio leg only runs in srt-direct/rtsp mode (the caller below guards on
-  # GUEST_TRANSPORT != srt-listen), so it always dials OUT to mediamtx over the bridge.
-  run_guest_audio(){ # name srt-stream flow label
+  # AUDIO leg (v0.3): a guest is A/V, so pair the video ingest with an audio one. In
+  # srt-direct/rtsp it reads its own stream from mediamtx; in srt-listen it binds a LOCAL
+  # listener (127.0.0.1:leg-port) that the A/V fan-out feeds. The program-audio mixer
+  # tolerates an absent audio flow, so this is additive. Set MXL_GUEST_AUDIO=0 to skip.
+  run_guest_audio(){ # name srt-stream flow label [listen-port] [listen-host]
     docker rm -f "$1-audio" >/dev/null 2>&1 || true
+    local net_args=(--add-host host.docker.internal:host-gateway)
+    local port_env=()
+    if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+      net_args=(--network host)
+      port_env=(-e "MXL_GUEST_LISTEN_PORT=${5:-$GUEST_LISTEN_BASE_PORT}"
+                -e "MXL_GUEST_LISTEN_HOST=${6:-0.0.0.0}")
+    fi
     docker run -d --name "$1-audio" \
       -v "$DOMAIN_HOST":/mxl-domain -e MXL_DOMAIN=/mxl-domain -e MXL_REPAIR_URL=none \
       -e MXL_GUEST_HOST=host.docker.internal \
-      -e "MXL_GUEST_TRANSPORT=$GUEST_TRANSPORT" \
-      --add-host host.docker.internal:host-gateway --entrypoint sh \
+      -e "MXL_GUEST_TRANSPORT=$GUEST_TRANSPORT" "${port_env[@]}" \
+      "${net_args[@]}" --entrypoint sh \
       "$GUEST_IMAGE" -c "while :; do python3 guest_audio.py \"\$0\" \"\$1\" \"\$2\" 1000; sleep 3; done" \
       "$2" "$3" "$4" >/dev/null
   }
-  # srt-listen: one UDP port per guest listener (guest1=base, guest2=base+1). srt-direct:
-  # both multiplex on mediamtx:8890 (the trailing port arg is ignored by run_guest).
-  run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1" "$GUEST_LISTEN_BASE_PORT"
-  run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2" "$((GUEST_LISTEN_BASE_PORT + 1))"
-  # AUDIO leg: a separate audio listener can't share the video listener's port, and the
-  # contributor's MPEG-TS already carries audio alongside video — so the standalone audio
-  # leg only applies to srt-direct/rtsp (where it reads its own stream from mediamtx). In
-  # srt-listen mode guests are video-only for now; the mixer tolerates an absent flow.
-  if [ "${MXL_GUEST_AUDIO:-1}" = 1 ] && [ "$GUEST_TRANSPORT" != srt-listen ]; then
-    run_guest_audio guest1 guest1 "$GUEST1_AUDIO_FLOW" "Guest 1 Audio"
-    run_guest_audio guest2 guest2 "$GUEST2_AUDIO_FLOW" "Guest 2 Audio"
+  # A/V fan-out (srt-listen only): one public SRT listener splits the contributor's TS to
+  # the local video + audio leg listeners. See tools/guest_av_listen.sh.
+  run_guest_fanout(){ # name public-port video-leg-port audio-leg-port
+    docker rm -f "$1-fanout" >/dev/null 2>&1 || true
+    docker run -d --name "$1-fanout" --network host --entrypoint sh \
+      "$GUEST_IMAGE" -c "exec sh guest_av_listen.sh \"\$0\" \"\$1\" \"\$2\" 300" \
+      "$2" "$3" "$4" >/dev/null
+  }
+  if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+    # A/V in one listener: public port per guest (8890/8891), plus two LOCAL leg ports
+    # (video = public+100, audio = public+200) the fan-out splits into. Only the public
+    # ports need firewall holes; the leg ports are 127.0.0.1-only.
+    _g1pub="$GUEST_LISTEN_BASE_PORT";       _g2pub="$((GUEST_LISTEN_BASE_PORT + 1))"
+    _g1v="$((_g1pub + 100))"; _g1a="$((_g1pub + 200))"
+    _g2v="$((_g2pub + 100))"; _g2a="$((_g2pub + 200))"
+    # legs first (they listen on 127.0.0.1), then the fan-out dials them.
+    run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1" "$_g1v" 127.0.0.1
+    run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2" "$_g2v" 127.0.0.1
+    if [ "${MXL_GUEST_AUDIO:-1}" = 1 ]; then
+      run_guest_audio guest1 guest1 "$GUEST1_AUDIO_FLOW" "Guest 1 Audio" "$_g1a" 127.0.0.1
+      run_guest_audio guest2 guest2 "$GUEST2_AUDIO_FLOW" "Guest 2 Audio" "$_g2a" 127.0.0.1
+    fi
+    run_guest_fanout guest1 "$_g1pub" "$_g1v" "$_g1a"
+    run_guest_fanout guest2 "$_g2pub" "$_g2v" "$_g2a"
+  else
+    # srt-direct/rtsp: all guests multiplex on mediamtx:8890 (the port args are ignored).
+    run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1"
+    run_guest guest2 guest2 "$GUEST2_FLOW" "Guest 2"
+    if [ "${MXL_GUEST_AUDIO:-1}" = 1 ]; then
+      run_guest_audio guest1 guest1 "$GUEST1_AUDIO_FLOW" "Guest 1 Audio"
+      run_guest_audio guest2 guest2 "$GUEST2_AUDIO_FLOW" "Guest 2 Audio"
+    fi
   fi
   # backend-free selector re-attach: wires a Guest flow into the selector the
   # instant it appears (and drops it when it goes). Runs on the host, stdlib only.
@@ -428,8 +458,9 @@ if [ -n "$GUEST_IMAGE" ]; then
     nohup python3 "$REPO/tools/guest_slot_watcher.py" >/tmp/quickstart-guest-watcher.log 2>&1 &
   if [ "$GUEST_TRANSPORT" = srt-listen ]; then
     _g2port="$((GUEST_LISTEN_BASE_PORT + 1))"
-    echo "  ✓ Guest 1/2 slots armed (video-only, SRT-direct-LISTEN · mediamtx SRT off) · publish straight to the ingest: guest1 srt://$PUBLIC_IP:$GUEST_LISTEN_BASE_PORT · guest2 srt://$PUBLIC_IP:$_g2port · watcher live"
-    echo "    ⚠ open UDP $GUEST_LISTEN_BASE_PORT AND $_g2port in your cloud firewall (one port per guest in listen mode)"
+    _avnote=$([ "${MXL_GUEST_AUDIO:-1}" = 1 ] && echo "A/V" || echo "video-only")
+    echo "  ✓ Guest 1/2 slots armed ($_avnote, SRT-direct-LISTEN · mediamtx SRT off) · publish straight to the ingest: guest1 srt://$PUBLIC_IP:$GUEST_LISTEN_BASE_PORT · guest2 srt://$PUBLIC_IP:$_g2port · watcher live"
+    echo "    ⚠ open UDP $GUEST_LISTEN_BASE_PORT AND $_g2port in your cloud firewall (one PUBLIC port per guest; the A/V split legs are 127.0.0.1-only)"
   else
     _audio_note=$([ "${MXL_GUEST_AUDIO:-1}" = 1 ] && echo "+audio" || echo "video-only")
     echo "  ✓ Guest 1/2 slots armed ($_audio_note) · SRT publish point: srt://$PUBLIC_IP:8890 · watcher live"

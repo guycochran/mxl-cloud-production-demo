@@ -151,3 +151,45 @@ def test_srt_direct_audio_launch_is_pinned():
                              label="Guest 1 Audio"),
         repair_url="")
     assert core.pipe._launch == GOLDEN_SRT_AUDIO
+
+
+# --- SRT-direct-LISTEN adapters (srt-listen): the ingest IS the listener. Video +
+#     audio each tap their own srtsrc(listener)!tsdemux. Used by the A/V fan-out.
+def test_srt_listen_video_launch_is_pinned():
+    from adapters import SrtListenerGuestAdapter
+    core = cc.ContributionCore(
+        SrtListenerGuestAdapter(path="guest1", flow_id="9e111e00-aaaa-4bbb-8ccc-000000000001",
+                                label="Guest 1", listen_port=8990, listen_host="127.0.0.1"),
+        repair_url="")
+    expect = (
+        'srtsrc uri="srt://127.0.0.1:8990?mode=listener&latency=300" ! tsdemux name=d d. '
+        "! h264parse ! avdec_h264 max-threads=4 thread-type=frame "
+        "! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 max-size-bytes=0 "
+        "! videorate ! videoscale add-borders=true ! videoconvert n-threads=2 "
+        "! video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,"
+        "pixel-aspect-ratio=1/1,interlace-mode=progressive,colorimetry=bt709 "
+        "! mxlsink name=sink domain=/mxl-domain flow-id=9e111e00-aaaa-4bbb-8ccc-000000000001 "
+        'label="Guest 1" description="contributor SRT-direct-listen video (guest1 :8990)" '
+        'group-hint="Guest1:Video" sync=false'
+    )
+    assert core.pipe._launch == expect
+
+
+def test_srt_listen_audio_launch_is_pinned():
+    from adapters import SrtListenerGuestAudioAdapter
+    core = cc.ContributionCore(
+        SrtListenerGuestAudioAdapter(path="guest1", flow_id="a1111e00-aaaa-4bbb-8ccc-000000000001",
+                                     label="Guest 1 Audio", listen_port=9090, listen_host="127.0.0.1"),
+        repair_url="")
+    expect = (
+        'srtsrc uri="srt://127.0.0.1:9090?mode=listener&latency=300" ! tsdemux name=d d. '
+        "! aacparse ! avdec_aac "
+        "! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 max-size-bytes=0 "
+        "! audioconvert ! audioresample "
+        "! audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2,channel-mask=(bitmask)0x3 "
+        "! queue max-size-buffers=32 "
+        "! mxlsink name=sink domain=/mxl-domain flow-id=a1111e00-aaaa-4bbb-8ccc-000000000001 "
+        'label="Guest 1 Audio" description="contributor SRT-direct-listen audio (guest1 :9090)" '
+        'group-hint="Guest1Audio:Audio" sync=false'
+    )
+    assert core.pipe._launch == expect

@@ -44,6 +44,10 @@ HOST = os.environ.get('MXL_GUEST_HOST', '172.17.0.1')  # mediamtx host (srt + rt
 # straight on it — mediamtx is out of the contribution path entirely. One port per
 # guest (default 8890 + slot offset). See SrtListenerGuestAdapter for the HW rationale.
 LISTEN_PORT = int(os.environ.get('MXL_GUEST_LISTEN_PORT', '8890'))
+# Bind host for the listener: 0.0.0.0 by default (public caller reaches us). The A/V
+# fan-out sets 127.0.0.1 so this leg only reads the local split (the fan-out owns the
+# public port). See tools/guest_av_listen.sh.
+LISTEN_HOST = os.environ.get('MXL_GUEST_LISTEN_HOST', '0.0.0.0')
 
 if TRANSPORT == 'rtsp':
     from adapters import SrtGuestAdapter  # legacy rtspsrc path
@@ -52,7 +56,8 @@ if TRANSPORT == 'rtsp':
 elif TRANSPORT == 'srt-listen':
     from adapters import SrtListenerGuestAdapter  # direct: srtsrc mode=listener
     adapter = SrtListenerGuestAdapter(path=PATH, flow_id=DST, label=LABEL,
-                                      latency_ms=JITTER_MS, listen_port=LISTEN_PORT)
+                                      latency_ms=JITTER_MS, listen_port=LISTEN_PORT,
+                                      listen_host=LISTEN_HOST)
 else:
     from adapters import SrtGuestVideoAdapter  # default: srtsrc ! tsdemux (via mediamtx)
     adapter = SrtGuestVideoAdapter(path=PATH, flow_id=DST, label=LABEL,

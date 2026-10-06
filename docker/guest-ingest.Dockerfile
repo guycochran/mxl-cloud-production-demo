@@ -34,7 +34,8 @@ RUN apt-get update -qq \
 # flow UUIDs from config/facility.json (copied below) with the baked-in fallback.
 WORKDIR /opt/seam
 COPY tools/contribution_core.py tools/adapters.py tools/facility.py \
-     tools/guest_ingest.py tools/guest_audio.py tools/zoomiso_dryrun.py ./
+     tools/guest_ingest.py tools/guest_audio.py tools/guest_av_listen.sh \
+     tools/zoomiso_dryrun.py ./
 # facility manifest so facility.py resolves it from the cwd (see tools/facility.py search path)
 COPY config/facility.json ./config/facility.json
 

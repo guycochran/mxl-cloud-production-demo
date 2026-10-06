@@ -116,13 +116,15 @@ class SrtListenerGuestAdapter(SourceAdapter):
     One listener owns one UDP port, so each guest slot binds its own SRT port
     (8890 + slot offset). The contributor's deep-link/QR points straight here."""
     def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
-                 listen_port: int = 8890):
+                 listen_port: int = 8890, listen_host: str = '0.0.0.0'):
         self.path = path
         self.flow_id = flow_id
         self.label = label
         self.latency_ms = latency_ms
-        # bind all interfaces so the public caller reaches us; one port per guest.
-        self._uri = (f'srt://0.0.0.0:{listen_port}'
+        # Default binds all interfaces so the public caller reaches us (one port per
+        # guest). The A/V fan-out (guest_av_listen) binds 127.0.0.1 instead: there the
+        # public listener is the fan-out, and this leg only reads the local split.
+        self._uri = (f'srt://{listen_host}:{listen_port}'
                      f'?mode=listener&latency={latency_ms}')
         self.description = f'contributor SRT-direct-listen video ({path} :{listen_port})'
 
@@ -144,6 +146,41 @@ class SrtListenerGuestAdapter(SourceAdapter):
         # conform hiccup without unbounded latency. (Diagnosed on HW Oct 6 2026.)
         return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
                 f'! h264parse ! avdec_h264 max-threads=4 thread-type=frame '
+                f'! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 '
+                f'max-size-bytes=0 ')
+
+
+class SrtListenerGuestAudioAdapter(SourceAdapter):
+    """Guest AUDIO via SRT-DIRECT-LISTEN: the audio twin of SrtListenerGuestAdapter.
+    srtsrc mode=listener ! tsdemux taps the AAC track; essence='audio' so the core
+    uses the F32LE/48k conform + duration-accumulate restamp. Used by the A/V fan-out
+    (guest_av_listen) so a single contributor SRT stream feeds BOTH a video and an
+    audio MXL flow — the fan-out splits the one listener's TS to a local video leg and
+    a local audio leg, each bound on 127.0.0.1 (listen_host)."""
+    essence = 'audio'
+
+    def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
+                 listen_port: int = 8890, listen_host: str = '0.0.0.0'):
+        self.path = path
+        self.flow_id = flow_id
+        self.label = label
+        self.latency_ms = latency_ms
+        self._uri = (f'srt://{listen_host}:{listen_port}'
+                     f'?mode=listener&latency={latency_ms}')
+        self.description = f'contributor SRT-direct-listen audio ({path} :{listen_port})'
+
+    def source_fragment(self) -> str:
+        # Mirror the video listener on BOTH counts (HW Oct 6 2026):
+        # 1) aacparse (sink caps audio/mpeg) sits DIRECTLY on the tsdemux SOMETIMES-pad —
+        #    no ANY-caps queue between them — so parse_launch binds the AUDIO ES regardless
+        #    of TS track order (a `queue` there, ANY caps, could grab the video pad).
+        # 2) a leaky=downstream queue AFTER decode decouples srtsrc from the F32LE conform:
+        #    if the conform stalls (or the fan-out leg reconnects), DROP the oldest decoded
+        #    audio rather than back-pressure srtsrc into an SRT receive overflow → the same
+        #    "streaming stopped, reason error (-5)" restart-loop the video leg hit. Observed
+        #    on the A/V fan-out's audio leg: plain queue → srtsrc -5 loop; leaky → stable.
+        return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
+                f'! aacparse ! avdec_aac '
                 f'! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 '
                 f'max-size-bytes=0 ')
 
