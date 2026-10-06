@@ -22,7 +22,8 @@
 # can't publish the same stream to two sockets. The split must happen server-side.
 #
 # Usage: guest_av_listen.sh <public_port> <video_port> <audio_port> [latency_ms]
-set -euo pipefail
+# POSIX sh-safe (the container entrypoint may be dash): no `pipefail`, no bashisms.
+set -eu
 
 PUBLIC_PORT="${1:?public SRT port}"
 VIDEO_PORT="${2:?local video leg port}"

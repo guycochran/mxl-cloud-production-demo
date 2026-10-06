@@ -170,12 +170,19 @@ class SrtListenerGuestAudioAdapter(SourceAdapter):
         self.description = f'contributor SRT-direct-listen audio ({path} :{listen_port})'
 
     def source_fragment(self) -> str:
-        # Mirror the video listener's caps-selective demux link: aacparse (sink caps
-        # audio/mpeg) sits directly on the tsdemux SOMETIMES-pad so parse_launch binds
-        # the AUDIO ES regardless of TS track order. (The video leg of the fan-out taps
-        # the H264 pad from its own srtsrc; this leg taps the AAC pad from its own.)
+        # Mirror the video listener on BOTH counts (HW Oct 6 2026):
+        # 1) aacparse (sink caps audio/mpeg) sits DIRECTLY on the tsdemux SOMETIMES-pad —
+        #    no ANY-caps queue between them — so parse_launch binds the AUDIO ES regardless
+        #    of TS track order (a `queue` there, ANY caps, could grab the video pad).
+        # 2) a leaky=downstream queue AFTER decode decouples srtsrc from the F32LE conform:
+        #    if the conform stalls (or the fan-out leg reconnects), DROP the oldest decoded
+        #    audio rather than back-pressure srtsrc into an SRT receive overflow → the same
+        #    "streaming stopped, reason error (-5)" restart-loop the video leg hit. Observed
+        #    on the A/V fan-out's audio leg: plain queue → srtsrc -5 loop; leaky → stable.
         return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
-                f'! queue ! aacparse ! avdec_aac ')
+                f'! aacparse ! avdec_aac '
+                f'! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 '
+                f'max-size-bytes=0 ')
 
 
 class SrtGuestAudioAdapter(SourceAdapter):

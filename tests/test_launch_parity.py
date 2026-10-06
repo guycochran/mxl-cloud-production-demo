@@ -183,7 +183,9 @@ def test_srt_listen_audio_launch_is_pinned():
         repair_url="")
     expect = (
         'srtsrc uri="srt://127.0.0.1:9090?mode=listener&latency=300" ! tsdemux name=d d. '
-        "! queue ! aacparse ! avdec_aac ! audioconvert ! audioresample "
+        "! aacparse ! avdec_aac "
+        "! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 max-size-bytes=0 "
+        "! audioconvert ! audioresample "
         "! audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2,channel-mask=(bitmask)0x3 "
         "! queue max-size-buffers=32 "
         "! mxlsink name=sink domain=/mxl-domain flow-id=a1111e00-aaaa-4bbb-8ccc-000000000001 "
