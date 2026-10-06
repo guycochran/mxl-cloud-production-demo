@@ -500,5 +500,12 @@ class ContributionCore:
         try:
             self.loop.run()
         finally:
+            # Release the pipeline — crucially the mxlsink WRITER, which lives in the
+            # shared-memory domain, not the process. set_state(NULL) is async, so WAIT
+            # for it to finish before exiting: if we exit while the writer is still
+            # held, the supervisor's 2s-later restart hits mxlsink "the UUID belongs to
+            # a flow with another active writer" and the source never re-attaches
+            # (observed Oct 5, surfaced as a misleading srtsrc not-negotiated loop).
             self.pipe.set_state(Gst.State.NULL)
+            self.pipe.get_state(Gst.CLOCK_TIME_NONE)  # block until NULL is reached → writer released
             sys.exit(1)  # abnormal by definition; supervisor restarts (idle 404 loop is cheap)
