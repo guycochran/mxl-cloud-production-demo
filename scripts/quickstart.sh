@@ -515,7 +515,19 @@ fi
 # ── 4. done ───────────────────────────────────────────────────────────────────
 sleep 4
 GUEST_PASS_NOTE=""
-[ -n "$GUEST_CONF" ] && GUEST_PASS_NOTE="         Passphrase: the SRT passphrase you configured for that slot (encryption AES, required)"
+[ -n "$GUEST_CONF" ] && [ "$GUEST_TRANSPORT" != srt-listen ] && GUEST_PASS_NOTE="         Passphrase: the SRT passphrase you configured for that slot (encryption AES, required)"
+# Transport-aware "put your face on air" help: srt-listen has per-guest ports + no
+# streamid; srt-direct/rtsp share 8890 with a publish:guestN streamid.
+if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+  _g2p="$((GUEST_LISTEN_BASE_PORT + 1))"
+  GUEST_SRT_HELP="         URL:  srt://$PUBLIC_IP:$GUEST_LISTEN_BASE_PORT  (Guest 1)   ·   srt://$PUBLIC_IP:$_g2p  (Guest 2)
+         Mode: Caller   ·   Stream ID: (leave blank — the port picks the guest)"
+  GUEST_SRT_FW="(OBS/vMix/ffmpeg work too — same URL. Open UDP $GUEST_LISTEN_BASE_PORT AND $_g2p in your cloud firewall.)"
+else
+  GUEST_SRT_HELP="         URL:  srt://$PUBLIC_IP:8890
+         Mode: Caller   ·   Stream ID:  publish:guest1   (or publish:guest2)"
+  GUEST_SRT_FW="(OBS/vMix/ffmpeg work too — same URL. Open 8890/udp in your cloud firewall.)"
+fi
 cat <<EOF
 
 ✅ YOUR MXL SWITCHER IS ON AIR
@@ -533,12 +545,11 @@ ${CONTROL_UI_URL:+
 
    📱 PUT YOUR OWN FACE ON AIR (no camera needed):
       Install "Larix Broadcaster" (free, iOS/Android). New connection → SRT →
-         URL:  srt://$PUBLIC_IP:8890
-         Mode: Caller   ·   Stream ID:  publish:guest1   (or publish:guest2)
+$GUEST_SRT_HELP
 $GUEST_PASS_NOTE
       Tap to go live → it appears as Guest 1, cuttable like any source:
          curl -X POST -H 'Content-Type: application/json' -d '{"slot":2}' http://127.0.0.1:9604/pipeline/active-input
-      (OBS/vMix/ffmpeg work too — same URL. Open 8890/udp in your cloud firewall.)
+      $GUEST_SRT_FW
 
    Every pixel above crossed a shared-memory MXL domain at $DOMAIN_HOST
    List the flows:      docker exec input-selector /opt/mxl/tools/mxl-info/mxl-info -d /mxl-domain -l
