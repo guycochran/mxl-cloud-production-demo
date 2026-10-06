@@ -132,6 +132,14 @@
   .btn:disabled{opacity:.45;cursor:not-allowed}
   select.btn{flex:1;font-family:var(--mono);font-size:12px;font-weight:500;text-transform:none;letter-spacing:0}
   .msg{font-family:var(--mono);font-size:10.5px;color:var(--amber);min-height:14px;letter-spacing:.3px}
+  .diag{margin-top:4px;border-top:1px solid var(--line);padding-top:8px}
+  .diag>summary{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:1px;
+    text-transform:uppercase;color:var(--faint);cursor:pointer;list-style:none;user-select:none}
+  .diag>summary::before{content:'▸ ';color:var(--faint)}
+  .diag[open]>summary::before{content:'▾ '}
+  .diag>summary:hover{color:var(--dim)}
+  .diaghint{font-family:var(--mono);font-size:9.5px;color:var(--faint);line-height:1.5;margin:7px 0 8px}
+  .diag .crow{margin-top:6px}
   .msg.err{color:#ff8f92}
 
   footer{flex:0 0 auto;font-family:var(--mono);font-size:10px;color:var(--faint);
@@ -162,7 +170,7 @@
       </div>
       <div class="wallhead">
         <h2>Multiview</h2>
-        <span class="k">click a source to arm preview · 1–9 to arm · Enter / Space = Take</span>
+        <span class="k">click a source to arm preview · 1–9 to arm · Enter / Space = Cut (flips PVW↔PGM)</span>
       </div>
       <div class="wall" id="wall"></div>
     </div>
@@ -174,7 +182,7 @@
           <div class="b pgmb"><div class="t">Program</div><div class="v" id="pgmV">—</div></div>
           <div class="b pvwb"><div class="t">Preview</div><div class="v" id="pvwV">—</div></div>
         </div>
-        <button class="takebtn" id="take" disabled>Take<span class="sub" id="takeSub">arm a source first</span></button>
+        <button class="takebtn" id="take" disabled>Cut<span class="sub" id="takeSub">arm a source first</span></button>
       </div>
 
       <div class="controls">
@@ -187,11 +195,17 @@
         <div class="crow"><span class="lbl">Sources</span>
           <button class="btn" id="addCamBtn" title="Show the SRT details + QR to put your own phone or camera on air">Add your camera</button>
         </div>
-        <div class="crow"><span class="lbl">Recover</span>
-          <button class="btn" id="primeBtn" title="Prime every source's reader (fallback — cuts already pre-warm their target; use this only if a cut still looks stuck)">Prime sources</button>
-          <button class="btn" id="repairBtn" title="Rebuild the downstream program path (heavier)">Repair program</button>
-        </div>
         <div class="msg" id="msg"></div>
+        <details class="diag">
+          <summary>Troubleshoot</summary>
+          <p class="diaghint">Recovery tools for the MXL pipeline — not normally needed. Use only if a source looks stuck or the program path wedges.</p>
+          <div class="crow"><span class="lbl">Readers</span>
+            <button class="btn" id="primeBtn" title="Prime every source's reader (cuts already pre-warm their target; use this only if a cut still looks stuck)">Prime sources</button>
+          </div>
+          <div class="crow"><span class="lbl">Program</span>
+            <button class="btn" id="repairBtn" title="Rebuild the downstream program path (heavier)">Repair program</button>
+          </div>
+        </details>
       </div>
     </div>
   </main>
