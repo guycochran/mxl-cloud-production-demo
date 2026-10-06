@@ -181,3 +181,26 @@ test('R5: a stalled BODY (headers ok, text() hangs) also surfaces 504, not a raw
   const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 0 }, ip: '1.1.1.1' });
   assert.strictEqual(res.code, 504, `stalled body should be 504 (got ${res.code}: ${res.body && res.body.error})`);
 });
+
+test('Take flip-flops PVW↔PGM: the old program drops back to preview', async () => {
+  // Standard switcher behaviour — after a take, the source that WAS on program
+  // lands on preview, so repeated takes bounce between two sources. (The old bug
+  // put the NEW program on preview, making a second take a no-op.)
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';        // layout slot 0
+  const PLAYOUT = '2f34c189-64bf-5971-993a-332a28a7a6ee';     // layout slot 1
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_PREWARM: '0' }, log: silent });
+  mkFetch((url) => {
+    // keyer wired to cam → program is cam (slot 0). selector wires cam+playout.
+    if (url.includes(':9605/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ input_flow_uuid: CAM, key_on: false }) };
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 0, input_flow_uuids: [CAM, PLAYOUT] }) };
+    if (url.includes(':9600/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ video: { pattern: '100% bars' } }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  // program is slot 0 (cam); arm slot 1 (playout) on preview, then take
+  const armed = await call(app, 'POST /api/mxl/preview', { headers: {}, body: { input: 1 }, ip: '1.1.1.1' });
+  assert.strictEqual(armed.body.pvw, 1, 'preview armed slot 1');
+  const took = await call(app, 'POST /api/mxl/take', { headers: {}, body: {}, ip: '1.1.1.1' });
+  assert.strictEqual(took.code, 200);
+  assert.strictEqual(took.body.input, 1, 'program is now the armed source (slot 1)');
+  assert.strictEqual(took.body.pvw, 0, 'preview is now the OLD program (slot 0) — the flip-flop');
+});
