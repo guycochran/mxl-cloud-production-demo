@@ -334,12 +334,15 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
     if (pvw === null) return res.status(409).json({ error: 'nothing armed on preview' });
     try {
       const st = await mxlStatus();
-      if (pvw === st.input) {
+      const oldPgm = st.input;                   // what's on air right now
+      if (pvw === oldPgm) {
         // already on air — nothing to cut, but clear the arm so the UI settles
-        return res.json({ ok: true, input: st.input, pvw, noop: true });
+        return res.json({ ok: true, input: oldPgm, pvw, noop: true });
       }
-      const result = await mxlSetInput(pvw);   // the ~30ms cut
-      pvw = result.input;                        // armed source is now PGM
+      const result = await mxlSetInput(pvw);     // the ~30ms cut
+      // Flip-flop (standard switcher behaviour): the source that WAS on program
+      // drops back onto preview, so repeated Takes bounce between the two.
+      pvw = oldPgm;
       res.json({ ok: true, input: result.input, pvw });
     } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
   });
