@@ -119,15 +119,19 @@ app.get('/api/mxl/ingest', (req, res) => {
   });
 });
 
-// Build the EXACT Larix Broadcaster deep-link that scans on an iPhone camera.
-// This format is load-bearing (memory: larix-qr-format-2026-10) — every piece
-// matters or the phone's camera won't even recognize the QR:
-//   larix://set/v1  (v1, not v3) · conn[] empty-index arrays · srtstreamid
-//   LOWERCASE · mode=av (the string) · EVERYTHING percent-encoded.
+// Build the Larix Broadcaster deep-link the QR encodes.
+//   larix://set/v1 (v1) · conn[] empty-index arrays · srtstreamid LOWERCASE ·
+//   mode=av (the string) · name + url percent-encoded.
+// ⚠️ The srtstreamid value keeps a LITERAL colon (publish:guestN), NOT %3A.
+// Larix passes srtstreamid straight to the SRT handshake, and mediamtx requires
+// the form "action:pathname" with a real colon — it rejects "publish%3AguestN"
+// as an invalid stream ID. (Verified on hardware 2026-10-05: literal colon →
+// "is publishing"; %3A → "invalid stream ID".) A colon is legal unencoded in a
+// URL query value, so the deep-link still parses.
 function larixUrl(slot, publicIp) {
   const name = encodeURIComponent('MXL ' + slot.replace(/^guest/, 'Guest '));
   const srt = encodeURIComponent(`srt://${publicIp}:${SRT_PORT}`);
-  const sid = encodeURIComponent('publish:' + slot);
+  const sid = 'publish:' + slot;   // literal colon — see note above
   return `larix://set/v1?conn[][name]=${name}&conn[][url]=${srt}`
     + `&conn[][mode]=av&conn[][srtstreamid]=${sid}&conn[][srtlatency]=1000`;
 }
