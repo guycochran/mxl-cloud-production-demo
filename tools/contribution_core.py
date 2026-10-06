@@ -399,6 +399,20 @@ class ContributionCore:
                 mapped = buf.pts + s['offset']
         else:
             s['drift_n'] = 0
+        # ⚠️ Monotonicity guard (HW Oct 6 2026): a re-sync can swing the offset by a full
+        # second (seen `cadence re-synced by -1036ms` on bursty SRT, where the latency
+        # buffer delivers grains ahead of wall-clock). Writing the resulting `mapped` PTS
+        # unclamped pushes it BACKWARDS past the grain already committed to the flow →
+        # non-monotonic PTS into v210/mxlsink → "Internal data stream error (-5)" → srtsrc
+        # dies → restart loop. (Proven: the SAME listener pipeline WITHOUT this probe ran a
+        # live camera 0-error; re-enabling the unclamped resync reintroduced -5.) The
+        # re-lock path already forbids rewinding past last_mapped+FRAME_NS; apply the same
+        # floor to EVERY emitted grain so a resync can only ever nudge the cadence forward,
+        # never rewind the flow. Drift that genuinely needs catching up is absorbed over
+        # subsequent grains instead of in one flow-breaking jump.
+        if s.get('last_mapped') is not None and mapped <= s['last_mapped']:
+            mapped = s['last_mapped'] + FRAME_NS
+            s['offset'] = mapped - buf.pts   # keep offset consistent with the clamped PTS
         buf.pts = mapped
         s['last_mapped'] = mapped   # for a monotonic re-lock on the next leg rebuild
         s['n'] += 1
