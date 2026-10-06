@@ -1,5 +1,20 @@
 # Guest-ingest: what to test when the VMs come back up
 
+> **HW RUN — Oct 6 2026 (cold-clone on mxl-lab):**
+> - **Test 1 (QR %3A fix): PASS** — a real iPhone published to `guest1` through the
+>   literal-colon QR (`is publishing to path 'guest1'`, 2 tracks, no `invalid stream ID`).
+> - **Test 3 (`--down` domain wipe): PASS** — `/dev/shm/mxl/domain_1` gone after teardown.
+> - **Test 2 (cuttable + to program): PASS, but exposed a real bug + a redesign.**
+>   The mediamtx **read-back** SRT hop restart-loops with `srtsrc … reason error (-5)`
+>   on jittery sources. Root cause (isolated on HW): the `_restamp` probe's unclamped
+>   ~1s resync writes a **backwards** PTS → non-monotonic into v210/mxlsink → `-5`.
+>   **Fix shipped on branch `fix/srt-direct-listener-ingest` / draft PR #32:** (a) a
+>   new **SRT-direct-LISTENER** ingest (`MXL_GUEST_TRANSPORT=srt-listen`) that drops
+>   mediamtx from the contribution path entirely, and (b) a monotonic guard in
+>   `_restamp`. Verified with a **live 1080p camera**: 0 `-5`, 0 restarts, flow latched
+>   to selector idx 2, **cut to program** (frame showed the camera's real-time burn-in).
+>   The camera was used as the continuous controlled source (phone kept dropping).
+
 The phone→air guest path was proven end-to-end on Oct 5 2026 (a real iPhone via
 Larix went to program). Three fixes landed offline afterward that need a live VM
 to confirm. Run these in order; each has a clear pass/fail.
