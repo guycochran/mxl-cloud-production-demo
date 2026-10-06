@@ -13,8 +13,14 @@ const { ingestConfig, ingestInfo, larixUrl } =
 const PUBLIC_IP = '203.0.113.7';   // TEST-NET-3 documentation IP
 const BASE_PORT = 8890;
 
-test('srt-direct (default): one shared port + publish:guestN streamid', () => {
-  const cfg = ingestConfig({ publicIp: PUBLIC_IP, srtPort: BASE_PORT });
+test('default transport is srt-listen', () => {
+  // ingestConfig with no transport uses the project default.
+  assert.equal(ingestConfig({}).transport, 'srt-listen');
+  assert.equal(ingestConfig({}).listen, true);
+});
+
+test('srt-direct (explicit): one shared port + publish:guestN streamid', () => {
+  const cfg = ingestConfig({ publicIp: PUBLIC_IP, srtPort: BASE_PORT, transport: 'srt-direct' });
   const j = ingestInfo(cfg);
   assert.equal(j.transport, 'srt-direct');
   assert.equal(j.guests.length, 2);

@@ -16,8 +16,9 @@ const GUESTS = [
 ];
 
 // Resolve the config once from a plain object (e.g. process.env), so callers and
-// tests share identical logic. transport defaults to srt-direct.
-function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-direct' } = {}) {
+// tests share identical logic. transport defaults to srt-listen (matches quickstart's
+// default; quickstart also passes MXL_GUEST_TRANSPORT through explicitly).
+function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-listen' } = {}) {
   const listen = transport === 'srt-listen';
   return {
     publicIp,

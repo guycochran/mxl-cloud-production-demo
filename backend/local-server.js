@@ -106,7 +106,7 @@ const { ingestConfig, ingestInfo, larixUrl } = require('./ingest-info');
 const INGEST_CFG = ingestConfig({
   publicIp: PUBLIC_IP,
   srtPort: SRT_PORT,
-  transport: process.env.MXL_GUEST_TRANSPORT || 'srt-direct',
+  transport: process.env.MXL_GUEST_TRANSPORT || 'srt-listen',
 });
 
 app.get('/api/mxl/ingest', (req, res) => {
