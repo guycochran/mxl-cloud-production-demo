@@ -36,13 +36,22 @@ JITTER_MS = int(sys.argv[4]) if len(sys.argv) > 4 else 300
 TRANSPORT = os.environ.get('MXL_GUEST_TRANSPORT', 'srt-direct')
 # MXL_AUDIO_RTSP_HOST kept for back-compat; MXL_GUEST_HOST is the unified knob.
 HOST = os.environ.get('MXL_GUEST_HOST', os.environ.get('MXL_AUDIO_RTSP_HOST', '172.17.0.1'))
+# srt-listen: the audio leg of the A/V fan-out reads the local AAC split (own port on
+# 127.0.0.1). See tools/guest_av_listen.sh + SrtListenerGuestAudioAdapter.
+LISTEN_PORT = int(os.environ.get('MXL_GUEST_LISTEN_PORT', '8890'))
+LISTEN_HOST = os.environ.get('MXL_GUEST_LISTEN_HOST', '0.0.0.0')
 
 if TRANSPORT == 'rtsp':
     from adapters import AudioGuestAdapter  # legacy rtspsrc ! decodebin
     adapter = AudioGuestAdapter(path=PATH, flow_id=DST, label=LABEL,
                                 latency_ms=JITTER_MS, rtsp_host=HOST)
+elif TRANSPORT == 'srt-listen':
+    from adapters import SrtListenerGuestAudioAdapter  # direct: srtsrc mode=listener ! aac
+    adapter = SrtListenerGuestAudioAdapter(path=PATH, flow_id=DST, label=LABEL,
+                                           latency_ms=JITTER_MS, listen_port=LISTEN_PORT,
+                                           listen_host=LISTEN_HOST)
 else:
-    from adapters import SrtGuestAudioAdapter  # default: srtsrc ! tsdemux ! aac
+    from adapters import SrtGuestAudioAdapter  # default: srtsrc ! tsdemux ! aac (via mediamtx)
     adapter = SrtGuestAudioAdapter(path=PATH, flow_id=DST, label=LABEL,
                                    latency_ms=JITTER_MS, srt_host=HOST)
 
