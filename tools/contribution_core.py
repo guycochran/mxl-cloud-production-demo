@@ -504,7 +504,6 @@ class ContributionCore:
         # is rate-derived so 50/59.94 grids work too. `err` is kept purely as a DIAGNOSTIC of
         # how far the raw source PTS sat from the grid (not a control input anymore)."""
         target = now + MARGIN_NS
-        err = target - (buf.pts + s['offset'])   # DIAGNOSTIC ONLY: raw source-vs-grid gap
         last_mapped = s.get('last_mapped')        # not in the initial state dict (HW Oct-8 KeyError)
         if last_mapped is None:
             mapped = target
@@ -519,6 +518,12 @@ class ContributionCore:
                 s['dropped'] = s.get('dropped', 0) + 1
                 return Gst.PadProbeReturn.DROP
             mapped = max(nxt, target)
+        # GRID RESIDUAL (the real health signal, HW Oct-8): how far the emitted grain sits from
+        # where wall-clock wants it. By construction this stays within ~one grain in steady
+        # state; a value that grows means the grid is drifting ahead of realtime (the drop-guard
+        # should prevent it). NOT the old source-PTS-vs-offset gap, which was meaningless on a
+        # grid servo (it read -10s on HW while the flow was a perfectly healthy 30fps grid).
+        err = mapped - target
         buf.pts = mapped
         buf.duration = grain_ns     # stamp an explicit one-grain duration (mirrors the v4 servo)
         s['last_mapped'] = mapped
