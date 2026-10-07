@@ -358,6 +358,26 @@ class ContributionCore:
                 print(f'announce err: {e} (attempt {attempt+1})', flush=True)
             _t.sleep(30)
 
+    def _grain_ns(self, pad):
+        """The monotonic grain step, derived from the NEGOTIATED output framerate on the
+        restamp pad — NOT the 30fps `FRAME_NS` constant.
+
+        The probe sits on the sink pad, AFTER the conform stage's
+        `videorate ! ...framerate=30/1`, so for a conform source this is one grain of
+        CANON_CAPS (33.3ms). But the servo/clamp must not BAKE IN 30fps: a 60fps source
+        whose videorate hasn't fully settled can momentarily deliver buffers ~16.6ms
+        apart. With a hardcoded 30fps clamp those map AHEAD of wall-clock faster than the
+        grain clock — `mapped` races `now`, `err` runs away (the Oct-6 `err=-41s/fps=173`
+        on a 60fps camera). Reading the actual framerate makes the step correct for
+        whatever cadence the pad negotiated (30, 50, 59.94, …). Falls back to FRAME_NS if
+        caps carry no framerate (e.g. pre-negotiation)."""
+        caps = pad.get_current_caps()
+        if caps and caps.get_size() > 0:
+            ok, num, den = caps.get_structure(0).get_fraction('framerate')
+            if ok and num > 0:
+                return round(den * 1_000_000_000 / num)
+        return FRAME_NS
+
     # --- the cadence-preserving restamp (verbatim; the single most load-bearing idea) ---
     def _restamp(self, pad, info):
         # Wait for caps before touching buffers — a dynamic-pad demux (tsdemux on the
@@ -370,6 +390,7 @@ class ContributionCore:
         if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
             return Gst.PadProbeReturn.OK
         now = clock.get_time() - self.pipe.get_base_time()
+        grain_ns = self._grain_ns(pad)   # rate-derived step (see _grain_ns); 30fps => FRAME_NS
         s = self.state
         if s['offset'] is None:
             s['offset'] = now - buf.pts + MARGIN_NS
@@ -377,7 +398,7 @@ class ContributionCore:
             # last_mapped; clamp the offset so the first new-leg grain lands STRICTLY after
             # that (never rewind the flow — a rewind is exactly the "grain too early" read).
             if s.get('relock') and s.get('last_mapped') is not None:
-                min_pts = s['last_mapped'] + FRAME_NS
+                min_pts = s['last_mapped'] + grain_ns
                 if buf.pts + s['offset'] < min_pts:
                     s['offset'] = min_pts - buf.pts
                 print(f'cadence offset RE-LOCKED (monotonic): {s["offset"]/1e6:.0f}ms', flush=True)
@@ -399,19 +420,21 @@ class ContributionCore:
                 mapped = buf.pts + s['offset']
         else:
             s['drift_n'] = 0
-        # ⚠️ Monotonicity guard (HW Oct 6 2026): a re-sync can swing the offset by a full
-        # second (seen `cadence re-synced by -1036ms` on bursty SRT, where the latency
-        # buffer delivers grains ahead of wall-clock). Writing the resulting `mapped` PTS
-        # unclamped pushes it BACKWARDS past the grain already committed to the flow →
-        # non-monotonic PTS into v210/mxlsink → "Internal data stream error (-5)" → srtsrc
-        # dies → restart loop. (Proven: the SAME listener pipeline WITHOUT this probe ran a
-        # live camera 0-error; re-enabling the unclamped resync reintroduced -5.) The
-        # re-lock path already forbids rewinding past last_mapped+FRAME_NS; apply the same
-        # floor to EVERY emitted grain so a resync can only ever nudge the cadence forward,
-        # never rewind the flow. Drift that genuinely needs catching up is absorbed over
-        # subsequent grains instead of in one flow-breaking jump.
+        # ⚠️ Monotonicity guard (HW Oct 6 2026; rate-aware Oct 7): no emitted grain may
+        # rewind past the last one. mxlsink maps pts->grain index with NO backward guard
+        # (clock.rs / render_continuous.rs — the writer relies on US for monotonic PTS), so
+        # a re-sync that swings the offset ~1s (seen `re-synced by -1036ms` on bursty SRT)
+        # would push `mapped` BEHIND the committed head → non-monotonic PTS → mxlsink
+        # "Internal data stream error (-5)" → srtsrc dies → restart loop. Floor every grain
+        # at last_mapped + ONE GRAIN so a resync can only nudge forward, never rewind.
+        #
+        # The step is now RATE-DERIVED (`grain_ns`), not the 30fps `FRAME_NS` constant: the
+        # probe sits after `videorate ! framerate=30/1`, so for a 60fps camera the floor was
+        # using a step 2x too large, which (with the old count-based diag) surfaced as the
+        # Oct-6 `err=-41s / fps=173`. Reading the negotiated framerate keeps the floor exactly
+        # one true grain for whatever cadence the pad carries (30, 50, 59.94, …).
         if s.get('last_mapped') is not None and mapped <= s['last_mapped']:
-            mapped = s['last_mapped'] + FRAME_NS
+            mapped = s['last_mapped'] + grain_ns
             s['offset'] = mapped - buf.pts   # keep offset consistent with the clamped PTS
         buf.pts = mapped
         s['last_mapped'] = mapped   # for a monotonic re-lock on the next leg rebuild
@@ -420,8 +443,12 @@ class ContributionCore:
             s['t0'] = now
         if s['n'] % self.diag_every == 0:
             el = (now - s['t0']) / 1e9
+            # fps over the FULL window since t0 (not a per-tick burst) → the committed
+            # cadence, ~grain rate in steady state. A persistently high value means
+            # videorate isn't decimating (source-rate mismatch worth investigating).
             fps = s['n'] / el if el > 0 else 0
-            print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms", flush=True)
+            print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms "
+                  f"grain={grain_ns/1e6:.1f}ms", flush=True)
         return Gst.PadProbeReturn.OK
 
     # --- the AUDIO restamp (verbatim from guest_audio.py) ---

@@ -24,6 +24,41 @@ These values live in one place in the code: the `PIN_*` map at the top of
 `scripts/quickstart.sh`. `docker/guest-ingest.Dockerfile` pins its base
 (`test-generator`) via a build arg that defaults to the same digest.
 
+## MXL SDK version (inside the base image)
+
+The MXL SDK (`libmxl.so` + the `mxlsink`/`mxlsrc` GStreamer plugins) is **not
+built by this repo** — it ships *inside* the pinned `ghcr.io/cbcrc/test-generator`
+base digest above, which `docker/guest-ingest.Dockerfile` builds `FROM`. So the
+effective SDK version is whatever that digest baked in:
+
+| Component | Pinned to | Expected version |
+|---|---|---|
+| MXL SDK (Flow + Fabric API) | the `test-generator` base digest `sha256:09cad09…` | **v1.1.0** (released 2026-09-09; Fabric API) |
+| GStreamer | — | 1.24.x |
+
+Why this matters: a future base-digest refresh could silently change the SDK
+version. The Flow API `mxlsink` behaviour we depend on — one shared clock offset
+`D` sampled per pipeline, `index = timestamp_to_index(pts + base_time + D)`, and
+**no writer-side backward-index guard** (the writer requires the caller to present
+monotonic PTS; that is exactly what `contribution_core._restamp`'s monotonic clamp
+provides) — is the v1.1.0 `gst-mxl-rs` contract. Pin and verify it.
+
+**Verify the SDK version in the pinned base before a cold-clone proof:**
+
+```bash
+IMG=ghcr.io/cbcrc/test-generator@sha256:09cad0981475095ab948ca51511d4fbdc0521e2a23632d50abaf14fc3847cd92
+# plugins present + their version
+docker run --rm --entrypoint sh "$IMG" -c 'gst-inspect-1.0 mxlsink | grep -iE "Version|Filename"; gst-inspect-1.0 mxlsrc >/dev/null && echo mxlsrc=OK'
+# libmxl SONAME / version strings
+docker run --rm --entrypoint sh "$IMG" -c 'f=$(find / -name "libmxl*.so*" 2>/dev/null | head -1); echo "$f"; strings "$f" 2>/dev/null | grep -iE "^1\.[01]\.[0-9]+$|v1\.[01]" | head'
+```
+
+If that reports anything other than v1.1.0, do **not** treat a green run as
+v1.1.0-conformant — update this table and re-run the HW proof. (The standalone
+fabric build on the GCP/Azure boxes already pins the SDK explicitly:
+`git clone dmf-mxl/mxl && git checkout v1.1.0` — see
+`docs/JONAS-FABRIC-HANDOFF.md`.)
+
 ## Bleeding-edge mode (opt-in)
 
 To test against the current upstream `:latest` instead of the pinned digests —

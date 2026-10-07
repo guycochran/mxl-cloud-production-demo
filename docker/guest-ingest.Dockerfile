@@ -18,8 +18,13 @@
 #   docker build -f docker/guest-ingest.Dockerfile -t mxl-guest-ingest:local .
 # Run (quickstart wires this): one container per guest slot, SRT in → MXL flow.
 
-# Base pinned by digest for reproducibility (docs/VERSIONS.md). Override to track
-# upstream:  docker build --build-arg BASE=ghcr.io/cbcrc/test-generator:latest ...
+# Base pinned by digest for reproducibility (docs/VERSIONS.md). This digest bakes
+# in MXL SDK v1.1.0 (released 2026-09-09; Flow + Fabric API) — the gst-mxl-rs
+# contract contribution_core._restamp relies on (mxlsink maps pts->grain index via
+# one shared clock offset D and has NO backward-index guard, so the writer requires
+# monotonic PTS from us). Verify with the commands in docs/VERSIONS.md before a
+# cold-clone proof; a base refresh could silently change the SDK version.
+# Override to track upstream:  docker build --build-arg BASE=ghcr.io/cbcrc/test-generator:latest ...
 ARG BASE=ghcr.io/cbcrc/test-generator@sha256:09cad0981475095ab948ca51511d4fbdc0521e2a23632d50abaf14fc3847cd92
 FROM ${BASE}
 

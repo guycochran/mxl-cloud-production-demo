@@ -272,3 +272,55 @@ def test_monotonic_relock_never_rewinds_the_flow(monkeypatch):
         offset = min_pts - new_leg_pts
     mapped = new_leg_pts + offset
     assert mapped >= s["last_mapped"] + cc.FRAME_NS   # strictly forward — no rewind
+
+
+# ── _grain_ns: the monotonic step must be RATE-DERIVED, not a 30fps constant ──────
+# Oct 7 2026 fix: a 60fps source's floor was using FRAME_NS (33.3ms), a step 2x too
+# large, which surfaced as the Oct-6 `err=-41s / fps=173`. The step must come from the
+# pad's NEGOTIATED framerate. These use duck-typed caps/pad — no real GStreamer needed.
+class _FakeStructure:
+    def __init__(self, num, den):
+        self._fr = (num, den)
+
+    def get_fraction(self, name):
+        assert name == "framerate"
+        if self._fr is None:
+            return (False, 0, 0)
+        return (True, self._fr[0], self._fr[1])
+
+
+class _FakeCaps:
+    def __init__(self, num=None, den=1):
+        self._st = _FakeStructure(num, den) if num is not None else None
+
+    def get_size(self):
+        return 1 if self._st is not None else 0
+
+    def get_structure(self, i):
+        return self._st
+
+
+class _FakePad:
+    def __init__(self, caps):
+        self._caps = caps
+
+    def get_current_caps(self):
+        return self._caps
+
+
+def test_grain_ns_is_rate_derived():
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    # 30fps (the canonical conform rate) == FRAME_NS
+    assert core._grain_ns(_FakePad(_FakeCaps(30, 1))) == cc.FRAME_NS
+    # 60fps => half the step (the exact bug: floor was 2x too large)
+    assert core._grain_ns(_FakePad(_FakeCaps(60, 1))) == round(1_000_000_000 / 60)
+    # 59.94 (60000/1001) => correct fractional grain
+    assert core._grain_ns(_FakePad(_FakeCaps(60000, 1001))) == round(1001 * 1_000_000_000 / 60000)
+    # 50fps (EU) => 20ms
+    assert core._grain_ns(_FakePad(_FakeCaps(50, 1))) == 20_000_000
+
+
+def test_grain_ns_falls_back_to_frame_ns_without_framerate():
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert core._grain_ns(_FakePad(_FakeCaps(None))) == cc.FRAME_NS     # empty caps
+    assert core._grain_ns(_FakePad(None)) == cc.FRAME_NS                # no caps yet
