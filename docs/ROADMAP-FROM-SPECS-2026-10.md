@@ -72,16 +72,21 @@ Consequences for `tools/contribution_core.py::_restamp`:
 
 ## Tier 2 — Align now (cheap spec/positioning wins)
 
-### 2.1 — IN-005 ingress registry
+### 2.1 — IN-005 ingress registry ✅ DONE
 - **Why:** IN-005 wants ingress timing adjustments *traceable* via a registry; we only
-  `print()` `cadence offset locked / re-synced`. Promote to a structured per-guest
-  record (provenance, locked offset, resync count, source caps). Makes us citeably
-  IN-005-aligned and demoable.
+  `print()` `cadence offset locked / re-synced`.
+- **Shipped:** `contribution_core` writes `$MXL_INGRESS_DIR/<flow8>.json` (default
+  `/tmp/mxl-ingress`) on lock / re-lock / hard-relock / diag — source caps (provenance) +
+  locked offset, running `err_ms`, grain step, hard-relock count. Atomic write, stdlib-only,
+  opt-out via empty `MXL_INGRESS_DIR`. Tests + `docs/CONFIG.md` §"IN-005 ingress registry".
 
-### 2.2 — Timing-Model drift criterion as the soak pass/fail
-- **Why:** the Timing Model says latency must stay "low and mostly constant over hours,"
-  monitored via `mxl-info`. Wire `mxl-info` sampling into the soak runbook and state the
-  soak result in the spec's own terms.
+### 2.2 — Timing-Model drift criterion as the soak pass/fail ✅ DONE
+- **Why:** the Timing Model says latency must stay "low and mostly constant over hours."
+  `mxl-info` exposes no transfer latency directly, so derive it from the ingress records.
+- **Shipped:** `tools/ingress-soak.sh` samples the IN-005 records over a window and renders
+  PASS/FAIL in the spec's own terms — frames advancing (not DRIFT), `|err_ms|` bounded,
+  `err_ms` not trending, `hard_relocks` not climbing (no re-lock churn). This is the
+  explicit acceptance test for the 60fps restamp HW re-verify.
 
 ### 2.3 — IN-001 / IN-004 gap-note refresh
 - **Why:** IN-004 (Flow-Connection Phase-2 control API) is now WIP and extends IN-001.

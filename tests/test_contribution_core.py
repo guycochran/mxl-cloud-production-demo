@@ -301,6 +301,12 @@ class _FakeCaps:
     def get_structure(self, i):
         return self._st
 
+    def to_string(self):
+        if self._st is None:
+            return "video/x-raw"
+        n, d = self._st._fr
+        return f"video/x-raw, format=(string)v210, framerate=(fraction){n}/{d}"
+
 
 class _FakePad:
     def __init__(self, caps):
@@ -326,3 +332,36 @@ def test_grain_ns_falls_back_to_frame_ns_without_framerate():
     core = cc.ContributionCore(_persist_adapter(), repair_url="none")
     assert core._grain_ns(_FakePad(_FakeCaps(None))) == cc.FRAME_NS     # empty caps
     assert core._grain_ns(_FakePad(None)) == cc.FRAME_NS                # no caps yet
+
+
+# ── IN-005 ingress registry: the restamp must leave a TRACEABLE per-flow record ───
+def test_ingress_record_captures_provenance_and_timing(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("MXL_INGRESS_DIR", str(tmp_path))
+    monkeypatch.setenv("MXL_GUEST_TRANSPORT", "srt-listen")
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    core.state["offset"] = 66_000_000
+    core.state["n"] = 1200
+    core._write_ingress_record(_FakePad(_FakeCaps(30, 1)), event="diag",
+                               err_ns=-4_700_000, grain_ns=cc.FRAME_NS)
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    rec = json.loads(files[0].read_text())
+    # provenance (IN-005: identify the signal + its source timing)
+    assert rec["transport"] == "srt-listen"
+    assert rec["source_caps"] and "framerate=(fraction)30/1" in rec["source_caps"]
+    assert rec["essence"] == "video"
+    # timing adjustments (IN-005: traceable offsets)
+    assert rec["offset_ms"] == 66.0
+    assert rec["err_ms"] == -4.7
+    assert rec["grain_ns"] == cc.FRAME_NS
+    assert rec["event"] == "diag" and rec["frames"] == 1200
+
+
+def test_ingress_record_disabled_by_empty_dir(tmp_path, monkeypatch):
+    # An adopter can opt OUT (no file written) by clearing MXL_INGRESS_DIR.
+    monkeypatch.setenv("MXL_INGRESS_DIR", "")
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert core._ingress_path is None
+    core._write_ingress_record(_FakePad(_FakeCaps(30, 1)), event="locked")  # must not raise
+    assert list(tmp_path.glob("*.json")) == []

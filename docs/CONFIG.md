@@ -62,9 +62,33 @@ Already env-driven before this change (unchanged): `MXL_GUEST_HOST`, `MXL_GUEST_
 |---|---|---|
 | `MXL_SELFHEAL` | `scripts/quickstart.sh` — start `tools/mxl-selfheal.sh --watch` (selector + relay drift recovery) | **unset / off**. Set `MXL_SELFHEAL=1` to enable. |
 | `MXL_SELFHEAL_INTERVAL` | `tools/mxl-selfheal.sh` — seconds between `--watch` passes | `15` |
+| `MXL_INGRESS_DIR` | `tools/contribution_core.py` — directory for the IN-005 ingress registry (one `<flow8>.json` per ingest: source caps/provenance + the restamp's locked offset, running err, grain step, hard-relock count). Read by `tools/ingress-soak.sh`. | `/tmp/mxl-ingress`. Set **empty** to disable (no file written). |
 
 Self-heal is **opt-in**. Desired-state reporting (`docs/DESIRED-STATE-v0.md`) stays
 report-only and is separate from this watcher.
+
+## IN-005 ingress registry + soak verdict
+
+Each contribution ingest writes an **IN-005 ingress record** (`$MXL_INGRESS_DIR/<flow8>.json`)
+as the restamp locks and runs — the signal's negotiated source caps (provenance) and the
+timing adjustments applied (locked offset, running wall-clock `err_ms`, grain step,
+hard-relock count). AMWA IN-005 ("External Signal Ingress for DMF") asks that these be
+*traceable*; this is that trace. Inspect it live:
+
+```sh
+cat /tmp/mxl-ingress/9e111e00.json
+```
+
+`tools/ingress-soak.sh` turns those records into an objective PASS/FAIL in the **Timing
+Model's own terms** ("latency low and mostly constant over hours"): over a sampling window
+it asserts frames keep advancing (essence moving, not DRIFT), `|err_ms|` stays bounded
+(`ERR_BAND_MS`), `err_ms` doesn't trend away (`ERR_DRIFT_MS`), and `hard_relocks` does not
+climb (no re-lock churn — the Oct-7 60fps-restamp symptom). This is the acceptance test for
+the 60fps restamp HW re-verify and any guest soak:
+
+```sh
+DURATION=300 INTERVAL=10 tools/ingress-soak.sh guest1   # 5-min soak, PASS/FAIL + exit code
+```
 
 ## Security-related switches (see [SECURITY.md](../SECURITY.md))
 

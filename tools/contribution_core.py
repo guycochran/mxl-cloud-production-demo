@@ -167,6 +167,15 @@ class ContributionCore:
         self.repair_url = None if repair_url.strip().lower() in ('', 'none') else repair_url
         self.diag_every = diag_every
         self.state = {'offset': None, 'n': 0, 't0': None}
+        # IN-005 ingress registry: AMWA IN-005 ("External Signal Ingress for DMF") asks that
+        # a workload record each external signal's provenance and the timing adjustments it
+        # applied, so they are TRACEABLE. We already compute all of it in _restamp; this
+        # persists it as a per-ingest JSON record (mirrors guest_slot_watcher's /tmp map
+        # pattern). Empty MXL_INGRESS_DIR disables it (default on so the quickstart writes it;
+        # a cloned core still writes only to /tmp, no external calls). One file per flow.
+        self.ingress_dir = _os.environ.get('MXL_INGRESS_DIR', '/tmp/mxl-ingress')
+        self._ingress_path = (os.path.join(self.ingress_dir, f'{(adapter.flow_id or "src")[:8]}.json')
+                              if self.ingress_dir else None)
         # Persistent-flow mode: adapter property OR env override (env wins when set),
         # so an adopter can turn it on for an existing adapter without editing it.
         env_persist = _os.environ.get('MXL_INGEST_PERSISTENT', '').strip().lower()
@@ -370,6 +379,45 @@ class ContributionCore:
                 print(f'announce err: {e} (attempt {attempt+1})', flush=True)
             _t.sleep(30)
 
+    def _write_ingress_record(self, pad, *, event, err_ns=None, grain_ns=None):
+        """Persist the IN-005 ingress record for this flow (atomic, best-effort).
+
+        `event` is the lifecycle tag that triggered the write ('locked', 'relocked',
+        'hard-relock', 'diag'). Captures signal PROVENANCE (source caps/essence/transport)
+        and the TIMING ADJUSTMENTS applied (locked offset, running wall-clock error, grain
+        step) so an operator can see — from one file — what the restamp is doing, which is
+        exactly what was invisible during the Oct-7 60fps churn. Never raises into the probe."""
+        if not self._ingress_path:
+            return
+        try:
+            s = self.state
+            caps = pad.get_current_caps()
+            rec = {
+                'flow_id': self.a.flow_id,
+                'label': self.a.label,
+                'essence': self.a.essence,
+                'transport': os.environ.get('MXL_GUEST_TRANSPORT', 'n/a'),
+                'timing_policy': self.a.timing_policy,
+                'event': event,
+                'frames': s.get('n', 0),
+                # timing adjustments (ns and ms for human + machine readers)
+                'offset_ns': s.get('offset'),
+                'offset_ms': round(s['offset'] / 1e6, 1) if s.get('offset') is not None else None,
+                'err_ms': round(err_ns / 1e6, 1) if err_ns is not None else None,
+                'grain_ns': grain_ns,
+                'hard_relocks': len(s.get('relock_times', [])),
+                # provenance: the negotiated source caps on the restamp pad
+                'source_caps': caps.to_string() if caps else None,
+                'mono_ns': time.monotonic_ns(),   # NOT wall time — no Date dependency, just ordering
+            }
+            os.makedirs(self.ingress_dir, exist_ok=True)
+            tmp = self._ingress_path + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(rec, f)
+            os.replace(tmp, self._ingress_path)   # atomic swap — a reader never sees a half-write
+        except Exception as e:
+            print(f'ingress-record write skipped: {e}', flush=True)
+
     def _grain_ns(self, pad):
         """The monotonic grain step, derived from the NEGOTIATED output framerate on the
         restamp pad — NOT the 30fps `FRAME_NS` constant.
@@ -415,8 +463,10 @@ class ContributionCore:
                     s['offset'] = min_pts - buf.pts
                 print(f'cadence offset RE-LOCKED (monotonic): {s["offset"]/1e6:.0f}ms', flush=True)
                 s['relock'] = False
+                self._write_ingress_record(pad, event='relocked', grain_ns=grain_ns)
             else:
                 print(f'cadence offset locked: {s["offset"]/1e6:.0f}ms', flush=True)
+                self._write_ingress_record(pad, event='locked', grain_ns=grain_ns)
                 if self.a.announce_on_lock and self.repair_url:
                     threading.Thread(target=self._announce, daemon=True).start()
                 elif self.a.announce_on_lock:
@@ -438,6 +488,7 @@ class ContributionCore:
             print(f'cadence HARD re-lock ({err/1e9:+.2f}s)', flush=True)
             wall = time.monotonic()
             s['relock_times'] = [t for t in s.get('relock_times', []) if wall - t < 10] + [wall]
+            self._write_ingress_record(pad, event='hard-relock', err_ns=err, grain_ns=grain_ns)
             if len(s['relock_times']) >= 8:
                 print('cadence re-lock LOOP (8/10s) — exiting for a fresh offset', flush=True)
                 os._exit(1)
@@ -477,6 +528,7 @@ class ContributionCore:
             fps = s['n'] / el if el > 0 else 0
             print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms "
                   f"grain={grain_ns/1e6:.1f}ms", flush=True)
+            self._write_ingress_record(pad, event='diag', err_ns=err, grain_ns=grain_ns)
         return Gst.PadProbeReturn.OK
 
     # --- the AUDIO restamp (verbatim from guest_audio.py) ---
