@@ -397,3 +397,81 @@ def test_data_launch_is_st2038_to_mxlsink_no_video_conform():
     assert "videoconvert" not in launch
     assert "format=v210" not in launch
     assert "audioconvert" not in launch
+
+
+# ── _restamp probe: drive it directly (HW Oct-8 caught a KeyError the launch-string ──
+# tests never would — the state dict had no 'last_mapped' key). These fake a pad/buffer/
+# clock and call the probe, asserting: no crash, monotonic PTS on the local grid, and
+# that ahead-of-realtime burst frames are DROPPED rather than marching PTS forward.
+class _ProbeBuf:
+    def __init__(self, pts):
+        self.pts = pts
+        self.duration = 0
+    def get_buffer(self):
+        return self
+
+
+class _ProbeClock:
+    def __init__(self, t=0):
+        self.t = t
+    def get_time(self):
+        return self.t
+
+
+def _drive_restamp(core, pad, clock, pts_list):
+    """Feed a sequence of source PTS through _restamp; return the mapped PTS list
+    (None where the buffer was dropped). Advances the clock one grain per CALL."""
+    import contribution_core as _cc
+    out = []
+    for pts in pts_list:
+        buf = _ProbeBuf(pts)
+
+        class _Info:
+            def get_buffer(_s):
+                return buf
+        ret = core._restamp(pad, _Info())
+        out.append(None if ret == _cc.Gst.PadProbeReturn.DROP else buf.pts)
+        clock.t += _cc.FRAME_NS   # wall-clock advances one grain per frame (realtime 30fps)
+    return out
+
+
+def test_restamp_probe_no_keyerror_and_monotonic(monkeypatch):
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    clock = _ProbeClock(10_000_000_000)              # arbitrary non-zero "now"
+    pad = _FakePad(_FakeCaps(30, 1))                 # 30fps negotiated caps (post-videorate)
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    # realtime-paced source: PTS advances one grain per frame
+    pts = [i * cc.FRAME_NS for i in range(10)]
+    mapped = _drive_restamp(core, pad, clock, pts)
+    kept = [m for m in mapped if m is not None]
+    assert kept, "all frames dropped — grid never emitted"
+    # strictly monotonic, one grain apart (the local grid)
+    for a, b in zip(kept, kept[1:]):
+        assert b > a, (a, b)
+        assert b - a == cc.FRAME_NS
+
+
+def test_restamp_probe_drops_ahead_of_realtime_burst(monkeypatch):
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    clock = _ProbeClock(10_000_000_000)
+    pad = _FakePad(_FakeCaps(30, 1))
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    import contribution_core as _cc
+
+    # lock on the first frame
+    _drive_restamp(core, pad, clock, [0])
+    # now a BURST: 5 buffers arrive with NO wall-clock advance (freeze the clock)
+    burst_dropped = 0
+    for i in range(1, 6):
+        buf = _ProbeBuf(i * cc.FRAME_NS)
+
+        class _Info:
+            def get_buffer(_s):
+                return buf
+        if core._restamp(pad, _Info()) == _cc.Gst.PadProbeReturn.DROP:
+            burst_dropped += 1
+        # clock does NOT advance — simulates a burst faster than realtime
+    assert burst_dropped >= 1, "burst frames should be dropped, not stamped ahead of now"
+    assert core.state.get("dropped", 0) >= 1

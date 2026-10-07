@@ -505,10 +505,11 @@ class ContributionCore:
         # how far the raw source PTS sat from the grid (not a control input anymore)."""
         target = now + MARGIN_NS
         err = target - (buf.pts + s['offset'])   # DIAGNOSTIC ONLY: raw source-vs-grid gap
-        if s['last_mapped'] is None:
+        last_mapped = s.get('last_mapped')        # not in the initial state dict (HW Oct-8 KeyError)
+        if last_mapped is None:
             mapped = target
         else:
-            nxt = s['last_mapped'] + grain_ns
+            nxt = last_mapped + grain_ns
             # DROP ahead-of-realtime arrivals: if the next grid slot is already more than one
             # grain beyond where wall-clock wants it, this buffer is a burst/catch-up frame
             # (e.g. the 1000ms SRT jitter buffer flushing). Stamping it would march `mapped`
