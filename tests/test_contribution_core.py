@@ -26,10 +26,12 @@ def test_margin_is_exactly_two_grains():
     assert abs(cc.MARGIN_NS - 2 * one_grain_ns) < 1_000_000  # ~2 grains, rounding slack
 
 
-def test_resync_requires_sustained_drift():
-    # A momentary hiccup must NOT yank the offset — re-sync only after N consecutive.
-    assert cc.RESYNC_COUNT >= 2
-    assert cc.RESYNC_NS > cc.MARGIN_NS
+def test_slew_servo_constants_are_sane():
+    # The offset is driven by a PROPORTIONAL slew, not a step re-sync (HW Oct-7: a step
+    # churned every batch on a 60fps-decimated-to-30 source). Guard the servo shape:
+    assert 0 < cc.SLEW_GAIN < 1            # a fraction of the error per frame, not a jump
+    assert 0 < cc.SLEW_MAX_NS < cc.FRAME_NS  # per-frame correction capped well below one grain
+    assert cc.HARD_RELOCK_NS >= cc.FRAME_NS  # only a GROSS error triggers a one-shot hard re-lock
 
 
 def test_canon_caps_are_v210_1080p30_progressive():

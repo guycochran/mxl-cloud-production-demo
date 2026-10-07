@@ -12,11 +12,16 @@ there is ONE place that carries the FINDINGS lessons instead of three copy-paste
 scripts. A transport is expressed as a `SourceAdapter`; `ContributionCore.run()`
 wires it to the canonical conform + restamp + mxlsink + announce and runs the loop.
 
-The restamp probe here is byte-for-byte the one that shipped in cam_ingest.py and
-guest_ingest.py — do not "improve" it without re-reading FINDINGS §1/§6:
+The restamp probe maps a remote source onto our local grain grid — do not "improve"
+it without re-reading FINDINGS §1/§6 and §"Separate the output clock from the input":
   * MARGIN_NS = 2 grains. Bigger margins starve READERS (166ms => "too late" wedges).
-  * RESYNC only after RESYNC_COUNT consecutive out-of-band frames, so a momentary
-    network hiccup never yanks the offset.
+  * The offset is driven by a SLEWING SERVO (layout_pgm v4 / mxl_multiview /
+    flow_stabilizer): a proportional controller nudges the offset by SLEW_GAIN of the
+    wall-clock error per frame (±SLEW_MAX_NS cap) so it CONVERGES to a stable standing
+    offset. The earlier STEP re-sync (offset += err after RESYNC_COUNT frames) churned
+    every batch on a source whose effective rate ≠ the grain grid (HW Oct-7: a 60fps
+    camera decimated to 30 showed err≈-4.7s re-syncing every batch). A gross error (>1s)
+    still HARD re-locks once, with an 8-relocks/10s escape hatch.
 Grain timestamps are RING ADDRESSES, not metadata: a remote source MUST be restamped
 onto the local clock cadence or it is not cuttable against local flows.
 
@@ -26,6 +31,7 @@ import json
 import os
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -37,8 +43,14 @@ from gi.repository import Gst, GLib
 # --- canonical cadence constants (FINDINGS §1/§6 — load-bearing, do not tune blindly) ---
 MARGIN_NS = 66_000_000      # 2 grains @30fps. Bigger => reader starvation ("too late" wedges).
 FRAME_NS = 33_333_333       # 1 grain @30fps — the monotonic step used on a persistent re-lock.
-RESYNC_NS = 150_000_000     # out-of-band threshold before we consider re-locking the offset
-RESYNC_COUNT = 45           # consecutive out-of-band frames required to actually re-sync
+# Slewing-servo constants (layout_pgm v4 / mxl_multiview / flow_stabilizer, FINDINGS §"Separate
+# the output clock from the input"). A STEP re-sync (offset += err all at once) overcorrects and
+# churns every batch on a source whose effective rate ≠ the grain grid — exactly the HW Oct-7
+# `err≈-4.7s, re-synced every batch` on a 60fps camera decimated to 30. A proportional slew nudges
+# the offset a small fraction of the error per frame so it CONVERGES to a stable standing offset.
+SLEW_GAIN = 0.02            # fraction of the current error corrected per frame (2%)
+SLEW_MAX_NS = 80_000        # cap per-frame correction (±80µs) — a slow, jitter-free drift pull
+HARD_RELOCK_NS = 1_000_000_000  # gross error (>1s): jump once rather than slew for minutes
 
 # --- canonical output formats: the chain's one true grain spec, per essence ---
 CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
@@ -154,7 +166,7 @@ class ContributionCore:
             repair_url = _os.environ.get('MXL_REPAIR_URL', '')
         self.repair_url = None if repair_url.strip().lower() in ('', 'none') else repair_url
         self.diag_every = diag_every
-        self.state = {'offset': None, 'drift_n': 0, 'n': 0, 't0': None}
+        self.state = {'offset': None, 'n': 0, 't0': None}
         # Persistent-flow mode: adapter property OR env override (env wins when set),
         # so an adopter can turn it on for an existing adapter without editing it.
         env_persist = _os.environ.get('MXL_INGEST_PERSISTENT', '').strip().lower()
@@ -410,16 +422,31 @@ class ContributionCore:
                 elif self.a.announce_on_lock:
                     print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
         mapped = buf.pts + s['offset']
+        # SLEWING SERVO (replaces the old step re-sync; FINDINGS §"Separate the output clock
+        # from the input", proven in mxl_multiview/flow_stabilizer). `err` = how far the mapped
+        # grain sits from the wall-clock target (now + 2-grain margin).
+        #   - gross error (>1s): the source genuinely jumped (reconnect, long freeze) — HARD
+        #     re-lock once, with an 8-relocks/10s escape hatch to a clean respawn.
+        #   - normal drift: nudge the offset by a small FRACTION of the error (±80µs cap) so it
+        #     CONVERGES to a stable standing offset instead of the old `offset += err` step that
+        #     overcorrected and re-synced every batch on a 60fps-decimated-to-30 source (HW Oct-7
+        #     `err≈-4.7s, re-synced every batch`). A proportional controller settles; a step fights.
         err = now + MARGIN_NS - mapped
-        if abs(err) > RESYNC_NS:
-            s['drift_n'] += 1
-            if s['drift_n'] >= RESYNC_COUNT:
-                s['offset'] += err
-                s['drift_n'] = 0
-                print(f'cadence re-synced by {err/1e6:.0f}ms', flush=True)
-                mapped = buf.pts + s['offset']
+        if abs(err) > HARD_RELOCK_NS:
+            s['offset'] = now + MARGIN_NS - buf.pts
+            mapped = buf.pts + s['offset']
+            print(f'cadence HARD re-lock ({err/1e9:+.2f}s)', flush=True)
+            wall = time.monotonic()
+            s['relock_times'] = [t for t in s.get('relock_times', []) if wall - t < 10] + [wall]
+            if len(s['relock_times']) >= 8:
+                print('cadence re-lock LOOP (8/10s) — exiting for a fresh offset', flush=True)
+                os._exit(1)
         else:
-            s['drift_n'] = 0
+            # err>0 means mapped is BEHIND the target → increase offset to catch up (and vice
+            # versa). Slew by SLEW_GAIN of err, capped — never a jump.
+            corr = max(-SLEW_MAX_NS, min(SLEW_MAX_NS, int(err * SLEW_GAIN)))
+            s['offset'] += corr
+            mapped = buf.pts + s['offset']
         # ⚠️ Monotonicity guard (HW Oct 6 2026; rate-aware Oct 7): no emitted grain may
         # rewind past the last one. mxlsink maps pts->grain index with NO backward guard
         # (clock.rs / render_continuous.rs — the writer relies on US for monotonic PTS), so
@@ -437,6 +464,7 @@ class ContributionCore:
             mapped = s['last_mapped'] + grain_ns
             s['offset'] = mapped - buf.pts   # keep offset consistent with the clamped PTS
         buf.pts = mapped
+        buf.duration = grain_ns     # stamp an explicit one-grain duration (mirrors the v4 servo)
         s['last_mapped'] = mapped   # for a monotonic re-lock on the next leg rebuild
         s['n'] += 1
         if s['t0'] is None:
