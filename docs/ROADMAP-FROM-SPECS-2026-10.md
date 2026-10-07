@@ -97,12 +97,24 @@ Consequences for `tools/contribution_core.py::_restamp`:
 
 ## Tier 3 — Track & prep for v1.2
 
-### 3.1 — ANC / closed-captions data flow (ships before v1.2 needs it)
+### 3.1 — ANC / closed-captions data flow 🟡 CODE DONE, HW-verify owed
 - **Why:** v1.1.0's `gst-mxl-rs` already has a worked, tested
   `meta/x-st-2038 ↔ video/smpte291` CEA-608 round-trip. De-risked path to captions /
   SCTE through the switcher today, and the exact thing v1.2 Timed Data generalizes.
-- **Do:** a `data_flow`-carrying ingest/forward path (deps: `gst-plugins-rs ≥ 0.14` +
-  `ccconverter`), prototyped against the upstream example. Medium effort; after Tier 1.
+- **Shipped (no-VM):**
+  - `contribution_core` gained a **third essence: `data`** — a conform branch that enforces
+    `CANON_DATA_CAPS = meta/x-st-2038,alignment=frame` + queue → `mxlsink` (writes the
+    `video/smpte291` data flow). No restamp (forced `timing_policy=preserve`; ANC grains are
+    frame-aligned). `group_hint` knows `:Data`.
+  - `CaptionFileAdapter` (adapters.py) mirrors the v1.1.0 README producer chain
+    `filesrc ! subparse ! tttocea608 ! ccconverter ! closedcaption/x-cea-608 ! cctost2038anc`.
+  - `docker/guest-ingest.Dockerfile` `--build-arg WITH_CAPTIONS=1` (OFF by default so the
+    HW-proven image is byte-identical) installs `plugins-bad` (`ccconverter`); it documents
+    that `rsclosedcaption` (gst-plugins-rs ≥ 0.14) must still be **built from source**.
+  - Tests: data launch string, adapter chain + preserve policy, `:Data` group hint.
+- **Still owed (needs HW):** build `rsclosedcaption` into the caption image, then run the
+  round-trip (subtitle → data flow → `st2038anctocc` decode) on the lab box and confirm a
+  reader recovers the captions. Batch with the next HW session.
 
 ### 3.2 — Timed Data (event flows) readiness
 - **Why:** PR #720 (`MXL_DATA_FORMAT_EVENT`) is review-complete and near merge —

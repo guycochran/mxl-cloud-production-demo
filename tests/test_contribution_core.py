@@ -10,6 +10,7 @@ If one of these fails, do NOT "fix the test" — re-read the cited finding first
 """
 import contribution_core as cc
 from adapters import (
+    CaptionFileAdapter,
     MakitoAdapter,
     RtspCamAdapter,
     SrtGuestAdapter,
@@ -365,3 +366,34 @@ def test_ingress_record_disabled_by_empty_dir(tmp_path, monkeypatch):
     assert core._ingress_path is None
     core._write_ingress_record(_FakePad(_FakeCaps(30, 1)), event="locked")  # must not raise
     assert list(tmp_path.glob("*.json")) == []
+
+
+# ── Data essence: ANC / closed-caption (video/smpte291) data flow (Tier 3.1) ──────
+def test_caption_adapter_is_data_essence_and_preserve():
+    a = CaptionFileAdapter(srt_file="show.srt", flow_id="d" * 36, label="Captions")
+    assert a.essence == "data"
+    assert a.timing_policy == "preserve"          # ST-2038 grains are frame-aligned; no restamp
+    assert a.group_hint == "Captions:Data"        # group_hint knows the data essence
+
+
+def test_caption_adapter_source_fragment_is_the_st2038_chain():
+    a = CaptionFileAdapter(srt_file="show.srt", flow_id="d" * 36)
+    frag = a.source_fragment()
+    # mirrors the gst-mxl-rs v1.1.0 README producer chain
+    for tok in ("filesrc location=show.srt", "subparse", "tttocea608",
+                "ccconverter", "closedcaption/x-cea-608", "cctost2038anc",
+                "meta/x-st-2038"):
+        assert tok in frag, frag
+    assert "30000/1001" in frag                   # README default / NTSC 608 framerate
+
+
+def test_data_launch_is_st2038_to_mxlsink_no_video_conform():
+    a = CaptionFileAdapter(srt_file="show.srt", flow_id="d" * 36, label="CC")
+    launch = _core(a).pipe._launch
+    assert "meta/x-st-2038,alignment=frame" in launch   # canonical data caps enforced
+    assert "mxlsink" in launch
+    # a data flow must NOT get the video conform transforms
+    assert "videorate" not in launch
+    assert "videoconvert" not in launch
+    assert "format=v210" not in launch
+    assert "audioconvert" not in launch

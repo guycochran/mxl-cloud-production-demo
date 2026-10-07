@@ -59,6 +59,11 @@ CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
 # contributed audio flow drops straight into the program mix with no reconvert.
 CANON_AUDIO_CAPS = ('audio/x-raw,format=F32LE,layout=interleaved,rate=48000,'
                     'channels=2,channel-mask=(bitmask)0x3')
+# Data (ANC / timed metadata) canonical grain: SMPTE ST 2038-wrapped ancillary, frame-
+# aligned. mxlsink turns `meta/x-st-2038,alignment=frame` into a `video/smpte291` DATA flow
+# (gst-mxl-rs v1.1.0). This is the path for CEA-608/708 captions, SCTE-104, etc. — the
+# generalization of what v1.2 "Timed Data" (event flows, dmf-mxl #327) will make first-class.
+CANON_DATA_CAPS = 'meta/x-st-2038,alignment=frame'
 DEFAULT_DOMAIN = '/mxl-domain'
 
 
@@ -131,7 +136,7 @@ class SourceAdapter(ABC):
 
     @property
     def group_hint(self) -> str:
-        suffix = 'Audio' if self.essence == 'audio' else 'Video'
+        suffix = {'audio': 'Audio', 'data': 'Data'}.get(self.essence, 'Video')
         return f'{self.label.replace(" ", "")}:{suffix}'
 
     @abstractmethod
@@ -214,6 +219,14 @@ class ContributionCore:
             return (f'{a.source_fragment()}'
                     f'! audioconvert ! audioresample ! {CANON_AUDIO_CAPS} '
                     f'! queue max-size-buffers=32 ! {sink}')
+        if a.essence == 'data':
+            # Data (ANC) conform: the adapter's source_fragment IS the conform here — it
+            # ends at `meta/x-st-2038,alignment=frame` (e.g. caption text -> CEA-608 ->
+            # cctost2038anc). We only enforce the canonical caps + a queue before mxlsink,
+            # which writes the video/smpte291 data flow. No restamp: ST-2038 grains are
+            # frame-aligned by the ANC wrapper (adapter sets timing_policy='preserve').
+            return (f'{a.source_fragment()}'
+                    f'! {CANON_DATA_CAPS} ! queue max-size-buffers=32 ! {sink}')
         # Video decode path: front end -> canonical conform -> mxlsink.
         # videorate reconciles any 30000/1001 (etc.) to exact 30/1 — WITHOUT it the
         # v210 capsfilter intermittently fails to negotiate (documented crash). It
@@ -249,6 +262,8 @@ class ContributionCore:
         if a.essence == 'audio':
             return (f'{jbuf} ! audioconvert ! audioresample ! {CANON_AUDIO_CAPS} '
                     f'! queue max-size-buffers=32 ! {sink}')
+        if a.essence == 'data':
+            return f'{jbuf} ! {CANON_DATA_CAPS} ! queue max-size-buffers=32 ! {sink}'
         return (f'{jbuf} ! videorate ! videoscale add-borders=true ! videoconvert n-threads=2 '
                 f'! {CANON_CAPS} ! {sink}')
 
@@ -572,6 +587,13 @@ class ContributionCore:
 
     def run(self):
         policy = self.a.timing_policy
+        # Data (ANC) grains are frame-aligned by the ST-2038 wrapper and carry their own
+        # timing — there is no sensible video/audio restamp for them. Force 'preserve' so
+        # the probe is never attached, regardless of what the adapter requested.
+        if self.a.essence == 'data' and policy == 'restamp':
+            print("essence=data: forcing timing_policy=preserve (ST-2038 grains are "
+                  "frame-aligned; no restamp)", flush=True)
+            policy = 'preserve'
         # pick the essence-appropriate restamp probe (video offset-map vs audio
         # duration-accumulate). Both reference the same clock + MARGIN_NS.
         restamp_probe = self._restamp_audio if self.a.essence == 'audio' else self._restamp
