@@ -116,18 +116,28 @@ Consequences for `tools/contribution_core.py::_restamp`:
   round-trip (subtitle → data flow → `st2038anctocc` decode) on the lab box and confirm a
   reader recovers the captions. Batch with the next HW session.
 
-### 3.2 — Timed Data (event flows) readiness
+### 3.2 — Timed Data (event flows) readiness ✅ DONE (tracking + design)
 - **Why:** PR #720 (`MXL_DATA_FORMAT_EVENT`) is review-complete and near merge —
   a registry-typed, strongly-timestamped home for SCTE-104/35, tally, ADM metadata;
   #731 makes it fabric-portable. Our guest-ingest is a natural first consumer.
-- **Do now (cheap):** a thin design sketch for a "guest event-flow sidecar alongside
-  A/V"; watch #720/#731/#730 for merge, then be the reference consumer.
+- **Shipped:** `docs/TIMED-DATA-READINESS.md` — the PR #720 API surface, v1.1 data flow
+  (3.1) vs v1.2 event flow mapping, an `essence='event'` guest-sidecar sketch reusing the
+  seam + IN-005 registry, and the blocking deps (#720 merge, #730 bindings, MXL URN
+  registry scheme). Tracking-only until upstream lands.
 
-### 3.3 — IS-05 connection shim on our NMOS node
-- **Why:** `tools/nmos_node.py` is IS-04 discovery-only; its docstring calls IS-05 "the
-  next build." NVIDIA's `gst-nmos-rs` confirms IS-05 + IS-08 are tractable but needs the
-  `nvnmosd` daemon and is NOT our MXL transport — **blueprint only.** Build the shim
-  ourselves on our lightweight BCP-007-03 node. Medium effort; after ANC.
+### 3.3 — IS-05 connection shim on our NMOS node ✅ DONE
+- **Why:** `tools/nmos_node.py` was IS-04 discovery-only; its docstring called IS-05 "the
+  next build." NVIDIA's `gst-nmos-rs` confirms IS-05 is tractable but needs `nvnmosd` and
+  is NOT our MXL transport — blueprint only. Built ourselves on our BCP-007-03 node.
+- **Shipped:** `/x-nmos/connection/v1.1/` Connection API in `nmos_node.py`. Receivers are
+  the switcher's input slots, so **PATCH `single/receivers/<id>/staged` with
+  `activate_immediate` → a real selector cut** (`POST /api/mxl/input {slot:N}` on the
+  facility) and promotes staged→active. Senders read-only (MXL has no transport file —
+  BCP-007-03). Device advertises an `sr-ctrl/v1.1` control. Mutation gated by
+  `MXL_CONTROL_TOKEN` (same as the facility). 5 tests drive the real server end-to-end
+  (tree, staged read, activate→cut, stage-without-activate, sender-405). Scheduled
+  activation → 501 (immediate only). This turns the node from *discoverable* into
+  *routable* by a standard NMOS controller.
 
 ### 3.4 — Watch #232 (GStreamer-plugin alpha support) for the keyer
 - Backlog item, not ours to build — alpha in the gst plugin benefits the html5-keyer
