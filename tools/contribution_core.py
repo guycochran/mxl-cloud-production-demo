@@ -420,6 +420,7 @@ class ContributionCore:
                 'offset_ms': round(s['offset'] / 1e6, 1) if s.get('offset') is not None else None,
                 'err_ms': round(err_ns / 1e6, 1) if err_ns is not None else None,
                 'grain_ns': grain_ns,
+                'dropped': s.get('dropped', 0),   # ahead-of-realtime frames dropped (burst guard)
                 'hard_relocks': len(s.get('relock_times', [])),
                 # provenance: the negotiated source caps on the restamp pad
                 'source_caps': caps.to_string() if caps else None,
@@ -486,52 +487,40 @@ class ContributionCore:
                     threading.Thread(target=self._announce, daemon=True).start()
                 elif self.a.announce_on_lock:
                     print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
-        mapped = buf.pts + s['offset']
-        # SLEWING SERVO (replaces the old step re-sync; FINDINGS §"Separate the output clock
-        # from the input", proven in mxl_multiview/flow_stabilizer). `err` = how far the mapped
-        # grain sits from the wall-clock target (now + 2-grain margin).
-        #   - gross error (>1s): the source genuinely jumped (reconnect, long freeze) — HARD
-        #     re-lock once, with an 8-relocks/10s escape hatch to a clean respawn.
-        #   - normal drift: nudge the offset by a small FRACTION of the error (±80µs cap) so it
-        #     CONVERGES to a stable standing offset instead of the old `offset += err` step that
-        #     overcorrected and re-synced every batch on a 60fps-decimated-to-30 source (HW Oct-7
-        #     `err≈-4.7s, re-synced every batch`). A proportional controller settles; a step fights.
-        err = now + MARGIN_NS - mapped
-        if abs(err) > HARD_RELOCK_NS:
-            s['offset'] = now + MARGIN_NS - buf.pts
-            mapped = buf.pts + s['offset']
-            print(f'cadence HARD re-lock ({err/1e9:+.2f}s)', flush=True)
-            wall = time.monotonic()
-            s['relock_times'] = [t for t in s.get('relock_times', []) if wall - t < 10] + [wall]
-            self._write_ingress_record(pad, event='hard-relock', err_ns=err, grain_ns=grain_ns)
-            if len(s['relock_times']) >= 8:
-                print('cadence re-lock LOOP (8/10s) — exiting for a fresh offset', flush=True)
-                os._exit(1)
+        # LOCAL-GRID RESTAMP (HW Oct-8: the offset-follows-source approaches all failed on a
+        # 60fps camera — the 1000ms SRT jitter buffer releases a BURST whose source PTS is ~1s
+        # ahead of the just-started wall clock, so `buf.pts + offset` lands >1s off and every
+        # earlier design — step re-sync, slew servo, monotonic+grain clamp — either churned or
+        # hard-relock-looped to death). FINDINGS §"Separate the output clock from the input"
+        # (v-final / flow_stabilizer) is explicit: drive output from a FIXED grain grid SLEWED
+        # TO THE WALL CLOCK and DROP ahead-of-realtime arrivals. So we stop following buf.pts
+        # entirely and drive a local grid:
+        #   target = now + MARGIN_NS                     (where a live grain should sit)
+        #   mapped = max(last_mapped + grain_ns, target) (one grain forward, never behind now)
+        # This is monotonic by construction (mxlsink has NO backward-index guard — clock.rs —
+        # so WE must guarantee it), paced to wall-clock (bursts can't race ahead: a frame that
+        # would land before last_mapped+grain is simply placed on the next grid slot; a frame
+        # far ahead is pulled back to `target`), and has no offset to drift or re-lock. grain_ns
+        # is rate-derived so 50/59.94 grids work too. `err` is kept purely as a DIAGNOSTIC of
+        # how far the raw source PTS sat from the grid (not a control input anymore)."""
+        target = now + MARGIN_NS
+        err = target - (buf.pts + s['offset'])   # DIAGNOSTIC ONLY: raw source-vs-grid gap
+        if s['last_mapped'] is None:
+            mapped = target
         else:
-            # err>0 means mapped is BEHIND the target → increase offset to catch up (and vice
-            # versa). Slew by SLEW_GAIN of err, capped — never a jump.
-            corr = max(-SLEW_MAX_NS, min(SLEW_MAX_NS, int(err * SLEW_GAIN)))
-            s['offset'] += corr
-            mapped = buf.pts + s['offset']
-        # ⚠️ Monotonicity guard (HW Oct 6 2026; rate-aware Oct 7): no emitted grain may
-        # rewind past the last one. mxlsink maps pts->grain index with NO backward guard
-        # (clock.rs / render_continuous.rs — the writer relies on US for monotonic PTS), so
-        # a re-sync that swings the offset ~1s (seen `re-synced by -1036ms` on bursty SRT)
-        # would push `mapped` BEHIND the committed head → non-monotonic PTS → mxlsink
-        # "Internal data stream error (-5)" → srtsrc dies → restart loop. Floor every grain
-        # at last_mapped + ONE GRAIN so a resync can only nudge forward, never rewind.
-        #
-        # The step is now RATE-DERIVED (`grain_ns`), not the 30fps `FRAME_NS` constant: the
-        # probe sits after `videorate ! framerate=30/1`, so for a 60fps camera the floor was
-        # using a step 2x too large, which (with the old count-based diag) surfaced as the
-        # Oct-6 `err=-41s / fps=173`. Reading the negotiated framerate keeps the floor exactly
-        # one true grain for whatever cadence the pad carries (30, 50, 59.94, …).
-        if s.get('last_mapped') is not None and mapped <= s['last_mapped']:
-            mapped = s['last_mapped'] + grain_ns
-            s['offset'] = mapped - buf.pts   # keep offset consistent with the clamped PTS
+            nxt = s['last_mapped'] + grain_ns
+            # DROP ahead-of-realtime arrivals: if the next grid slot is already more than one
+            # grain beyond where wall-clock wants it, this buffer is a burst/catch-up frame
+            # (e.g. the 1000ms SRT jitter buffer flushing). Stamping it would march `mapped`
+            # ahead of `now` unbounded (the Oct-8 -30ms/frame runaway). Drop it; the grid stays
+            # locked to wall-clock and the flow keeps exactly real-time cadence.
+            if nxt > target + grain_ns:
+                s['dropped'] = s.get('dropped', 0) + 1
+                return Gst.PadProbeReturn.DROP
+            mapped = max(nxt, target)
         buf.pts = mapped
         buf.duration = grain_ns     # stamp an explicit one-grain duration (mirrors the v4 servo)
-        s['last_mapped'] = mapped   # for a monotonic re-lock on the next leg rebuild
+        s['last_mapped'] = mapped
         s['n'] += 1
         if s['t0'] is None:
             s['t0'] = now
@@ -542,7 +531,7 @@ class ContributionCore:
             # videorate isn't decimating (source-rate mismatch worth investigating).
             fps = s['n'] / el if el > 0 else 0
             print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms "
-                  f"grain={grain_ns/1e6:.1f}ms", flush=True)
+                  f"grain={grain_ns/1e6:.1f}ms dropped={s.get('dropped', 0)}", flush=True)
             self._write_ingress_record(pad, event='diag', err_ns=err, grain_ns=grain_ns)
         return Gst.PadProbeReturn.OK
 
