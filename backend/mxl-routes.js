@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // MXL demo control routes — mount into any Express app that can reach the MXL VM.
 // The kiosk page (web/mxl.html) calls these; the browser can't reach the VM
 // directly (NSG-locked), so this proxies from a host whose IP is allowed.

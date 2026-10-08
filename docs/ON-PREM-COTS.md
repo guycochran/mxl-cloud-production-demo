@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # On-prem / owned hardware: what does this cost to *buy*?
 
 **The demo runs in the cloud, but nothing about MXL requires the cloud.** The

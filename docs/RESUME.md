@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Resume / rebuild after teardown
 
 The IBC-week VMs were deallocated. Everything needed to stand the facility

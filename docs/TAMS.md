@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # MXL → TAMS: the full recipe
 
 The DMF white paper notes *"MXL Grains can be grouped as TAMS Flow Segments"*

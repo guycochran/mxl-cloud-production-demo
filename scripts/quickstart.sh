@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # quickstart.sh — fresh Ubuntu VM → cuttable MXL switcher in one command.
 #
 #   git clone https://github.com/guycochran/mxl-switcher

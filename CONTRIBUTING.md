@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Contributing
 
 This is an **open DMF/MXL interoperability lab**. The most valuable thing you can do
@@ -49,3 +50,74 @@ writers, multiview, and TAMS clipper are all here and buildable.
 
 Open a [Discussion](https://github.com/guycochran/mxl-switcher/discussions)
 for "how would I…" / "does MXL do…", and an Issue for a concrete bug or gap.
+
+## License of contributions
+
+This project is licensed under the [Apache License 2.0](LICENSE). By contributing, you
+agree that your contribution is licensed under Apache-2.0 (Apache-2.0 §5). There is **no
+CLA** — instead every commit carries a Developer Certificate of Origin sign-off.
+
+## Developer Certificate of Origin (DCO)
+
+Every commit in a pull request must be **signed off**, certifying the DCO 1.1 below. Add
+the sign-off with `-s`:
+
+```bash
+git commit -s -m "fix: describe the change"
+```
+
+That appends a trailer using your `git config user.name` / `user.email`:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+The sign-off email must match the commit's author email. CI runs a DCO check on every PR
+(`scripts/check-dco.sh`, workflow `.github/workflows/dco.yml`). Forgot it? Fix the
+branch and force-push it:
+
+```bash
+git commit --amend -s --no-edit          # last commit only
+git rebase --signoff origin/master       # every commit on the branch
+git push --force-with-lease
+```
+
+Commits written with an AI assistant are fine; the human who submits them signs off and
+takes responsibility for them under the DCO, the same as for any other commit.
+
+```
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
+```

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """PGM Lite: 960x540 copy of the Keyer PGM for bandwidth-limited fabric
 receivers. Full 1080p30 v210 is ~1.32 Gbps — MORE than 1GbE; this quarter-
 resolution flow is ~0.33 Gbps and fits comfortably on a GigE laptop at a

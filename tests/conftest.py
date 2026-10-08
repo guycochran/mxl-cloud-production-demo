@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Stub GStreamer (`gi`) so the contribution seam imports on a CI runner with no
 GStreamer installed.
 

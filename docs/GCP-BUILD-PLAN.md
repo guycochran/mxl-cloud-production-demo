@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Building the MXL Cloud Production Demo on GCP
 
 > **✅ VERIFIED 2026‑09‑15.** The `scripts/quickstart.sh` path ran clean end‑to‑end

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """MXL → TAMS bridge (shipper half). Runs on VM2.
 
 Watches the spool of 1s MPEG-TS segments cut from the fabric-delivered MXL

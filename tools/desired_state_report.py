@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """desired_state_report — report-only desired vs actual drift table (v0.1 sketch).
 
 Compares config/facility.json (desired) to a mocked actual-state JSON and prints

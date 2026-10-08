@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Grain-rate + uniqueness probe for the MXL demo health board (v2).
 
 Why uniqueness and not just rate: every wedge species we've hit passes the

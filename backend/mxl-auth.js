@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Optional shared-token auth + a tiny in-memory rate limiter for the MXL control
 // routes (backend/mxl-routes.js). Dependency-free; plain Express-style
 // (req, res, next) middleware, so it also works with connect/restify/etc.

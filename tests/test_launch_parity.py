@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Golden-string parity test for the guest SRT launch pipeline.
 
 During the seam refactor we verified (via a stubbed-gi dry run) that the guest launch

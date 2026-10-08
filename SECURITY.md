@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Security Policy
 
 This is a **reference/lab project**, not a hardened production service. It is meant to

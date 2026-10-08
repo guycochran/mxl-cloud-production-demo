@@ -2,6 +2,7 @@
   "name": "mxl-local-control",
   "version": "0.3.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Self-contained control plane for an MXL quickstart box: mounts the portable mxl-routes and serves the web/local.html switcher UI.",
   "main": "local-server.js",
   "scripts": {

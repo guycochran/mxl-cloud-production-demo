@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Camera 2 (static SDI shot via Haivision Makito X4) ingest — thin adapter.
 
 Same canonical back half as cam1/guest (contribution_core.py); this is the front

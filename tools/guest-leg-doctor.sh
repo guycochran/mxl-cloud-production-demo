@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # guest-leg-doctor — fast (15s) healer for the guest fabric legs.
 # Every contributor reconnect (cellular EOS, Larix stop/start) recreates the
 # VM2 source flow, which wedges the leg on BOTH ends: the initiator's reader

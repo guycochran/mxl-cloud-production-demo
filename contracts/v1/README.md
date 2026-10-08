@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # `contracts/v1/` — the MXL switcher v1 API contract (SKETCH)
 
 JSON Schemas are the **source of truth** for the `/api/mxl/v1` surface. The design

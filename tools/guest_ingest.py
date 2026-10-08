@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Contributor ("guest") video ingest for the MXL switcher — thin adapter.
 
 Anyone can push SRT to mediamtx (streamid publish:guest1 / guest2); this conforms

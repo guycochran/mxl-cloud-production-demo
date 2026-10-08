@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Guest AUDIO ingest — thin adapter (v0.3).
 
 Pulls a contributor's audio and writes it as an MXL audio flow for the program

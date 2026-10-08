@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # bring-up-mxl.sh — one-command restore of the full MXL IBC demo
 # Restores: Azure VM containers → pipelines (exact live config captured 2026-09-09)
 #           → cam push → cloudflared feed tunnel → mxl.html iframe URL → verify.

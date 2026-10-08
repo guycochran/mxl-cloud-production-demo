@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Architecture note: core ("bones") and skins
 
 **Status:** DRAFT proposal for discussion — nothing here is implemented yet. Written against `master` @ `ab44ddc` plus the open drafts it refers to (#17, #19, #20, #23, and the two UI mockups in #18 / #21).

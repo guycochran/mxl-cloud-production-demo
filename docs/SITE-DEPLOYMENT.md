@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Informational site deployment
 
 The informational site is deliberately static and lives in `docs/`:

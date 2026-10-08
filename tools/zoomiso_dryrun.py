@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """zoomiso_dryrun — prove the ZoomISO Cloud pipeline WITHOUT the real product.
 
 ZoomISO Cloud (when we get the beta) emits native MXL v210 grains. We don't have it

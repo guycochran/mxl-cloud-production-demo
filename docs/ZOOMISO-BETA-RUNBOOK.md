@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # ZoomISO Cloud — first 30 minutes with the beta (measure → wire → cut)
 
 **Goal:** when the ZoomISO Cloud beta lands, go from "we have access" to "Zoom participants

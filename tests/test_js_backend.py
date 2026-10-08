@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Runs the dependency-free Node tests under tests/js/ (backend auth + rate limit).
 
 Skipped automatically when `node` isn't installed, so the Python suite still runs

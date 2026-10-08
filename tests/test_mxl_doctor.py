@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """mxl-doctor is the single front door that consolidates the four health scripts.
 These check the dispatcher's SAFE, environment-free paths — help text, argument
 handling, and that every script it dispatches to actually exists. The report and

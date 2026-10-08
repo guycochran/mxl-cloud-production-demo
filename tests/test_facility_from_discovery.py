@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """R2 fixture test: the quickstart's discovered flow UUIDs must flow into a manifest
 the UI/backend can use, so cuts resolve to REAL flows on a fresh box — not the lab's
 fixed UUIDs that don't exist there.

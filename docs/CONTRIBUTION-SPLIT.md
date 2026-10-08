@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Contribution ‖ Mixer: cameras, and isolating the attack surface
 
 **The question this answers:** how does a new user get *their* cameras in (SRT or MXL),

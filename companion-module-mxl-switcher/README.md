@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # companion-module-mxl-switcher
 
 Bitfocus Companion module for the MXL cloud switcher in this repo:

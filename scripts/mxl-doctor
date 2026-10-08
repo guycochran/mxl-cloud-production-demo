@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # mxl-doctor — one front door for all MXL lab health tooling.
 #
 # Consolidates what used to be four separate scripts into one command with a

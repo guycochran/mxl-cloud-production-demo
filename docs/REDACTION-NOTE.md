@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Facility-identifier redaction — note to the reviewer
 
 **Re:** review items **R6d** and **R6e** in `docs/REVIEW-RESPONSE.md`.

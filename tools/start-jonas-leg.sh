@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # start-jonas-leg.sh — send our live Keyer PGM (or PGM Lite) to a remote
 # MXL target as raw grains over the fabric.   Run on VM1 as guy.
 #

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # R1 — eliminate the cold-reader wedge with stabilizers (design + PoC)
 
 **Status: mechanism PROVEN on hardware (Oct 4 2026); full selector integration is

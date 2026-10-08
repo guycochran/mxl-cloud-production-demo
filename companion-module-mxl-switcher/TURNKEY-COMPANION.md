@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Turnkey Companion setup (Windows PC + Stream Deck)
 
 Two ways to drive the MXL switcher from a Stream Deck. Pick by whether

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate a facility.json from the flow UUIDs the quickstart actually discovered.
 
 The problem (review R2): the UI / backend read flow UUIDs from config/facility.json

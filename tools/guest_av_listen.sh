@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # guest_av_listen — A/V SRT fan-out for srt-listen mode.
 #
 # In srt-listen mode the contributor dials ONE SRT stream straight into the switcher

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # MXL Switcher
 
 **An open DMF/MXL production lab — clone it, run one script, and put your own phone
@@ -511,4 +512,13 @@ The interesting engineering is in **[docs/FINDINGS.md](docs/FINDINGS.md)** — i
 - [CLOUDflex-broadcast/easy-mxl](https://github.com/CLOUDflex-broadcast/easy-mxl) — the
   control panel that makes the domain approachable.
 
-MIT licensed. Not affiliated with EBU or CBC; all findings offered upstream with love.
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE) — see also [NOTICE](NOTICE) and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for bundled components. Releases and tags
+published before the switch (including `v0.2.0` and `core-v1.0.0`) were released under the
+MIT License and remain available under MIT. Contributions are accepted under the
+[Developer Certificate of Origin](CONTRIBUTING.md#developer-certificate-of-origin-dco)
+(`git commit -s`). Project name and logo: see [TRADEMARKS.md](TRADEMARKS.md).
+
+Not affiliated with EBU or CBC; all findings offered upstream with love.
