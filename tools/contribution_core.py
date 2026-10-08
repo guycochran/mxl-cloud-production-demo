@@ -15,13 +15,14 @@ wires it to the canonical conform + restamp + mxlsink + announce and runs the lo
 The restamp probe maps a remote source onto our local grain grid — do not "improve"
 it without re-reading FINDINGS §1/§6 and §"Separate the output clock from the input":
   * MARGIN_NS = 2 grains. Bigger margins starve READERS (166ms => "too late" wedges).
-  * The offset is driven by a SLEWING SERVO (layout_pgm v4 / mxl_multiview /
-    flow_stabilizer): a proportional controller nudges the offset by SLEW_GAIN of the
-    wall-clock error per frame (±SLEW_MAX_NS cap) so it CONVERGES to a stable standing
-    offset. The earlier STEP re-sync (offset += err after RESYNC_COUNT frames) churned
-    every batch on a source whose effective rate ≠ the grain grid (HW Oct-7: a 60fps
-    camera decimated to 30 showed err≈-4.7s re-syncing every batch). A gross error (>1s)
-    still HARD re-locks once, with an 8-relocks/10s escape hatch.
+  * The output is driven by a LOCAL WALL-CLOCK GRID, not by the source PTS (HW Oct-8):
+    each grain is placed at `max(last_mapped + grain_ns, now + MARGIN_NS)` and any frame
+    that would land more than one grain ahead of wall-clock is DROPPED. This is monotonic
+    by construction (mxlsink has NO backward-index guard) and paced to real time. It
+    replaced an offset-following STEP re-sync and then a proportional SLEW servo — both
+    churned/ran away on a 60fps source decimated to 30 (the 1000ms SRT jitter buffer
+    flushes a burst ~1s ahead of the just-started wall clock, so ANY offset-follows-source
+    design breaks). HW-proven: clean 30fps, err bounded ~5-18ms, 0 restarts.
 Grain timestamps are RING ADDRESSES, not metadata: a remote source MUST be restamped
 onto the local clock cadence or it is not cuttable against local flows.
 
@@ -42,15 +43,10 @@ from gi.repository import Gst, GLib
 
 # --- canonical cadence constants (FINDINGS §1/§6 — load-bearing, do not tune blindly) ---
 MARGIN_NS = 66_000_000      # 2 grains @30fps. Bigger => reader starvation ("too late" wedges).
-FRAME_NS = 33_333_333       # 1 grain @30fps — the monotonic step used on a persistent re-lock.
-# Slewing-servo constants (layout_pgm v4 / mxl_multiview / flow_stabilizer, FINDINGS §"Separate
-# the output clock from the input"). A STEP re-sync (offset += err all at once) overcorrects and
-# churns every batch on a source whose effective rate ≠ the grain grid — exactly the HW Oct-7
-# `err≈-4.7s, re-synced every batch` on a 60fps camera decimated to 30. A proportional slew nudges
-# the offset a small fraction of the error per frame so it CONVERGES to a stable standing offset.
-SLEW_GAIN = 0.02            # fraction of the current error corrected per frame (2%)
-SLEW_MAX_NS = 80_000        # cap per-frame correction (±80µs) — a slow, jitter-free drift pull
-HARD_RELOCK_NS = 1_000_000_000  # gross error (>1s): jump once rather than slew for minutes
+FRAME_NS = 33_333_333       # 1 grain @30fps — fallback grain step when caps carry no framerate.
+# (The restamp drives a local wall-clock grid + drop-ahead-of-realtime; it does NOT use a
+#  proportional slew or a hard-relock escape hatch — those were earlier designs the grid
+#  replaced on HW Oct-8. See _restamp. The SLEW_* constants that lived here are gone.)
 
 # --- canonical output formats: the chain's one true grain spec, per essence ---
 CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
@@ -181,6 +177,11 @@ class ContributionCore:
         self.ingress_dir = _os.environ.get('MXL_INGRESS_DIR', '/tmp/mxl-ingress')
         self._ingress_path = (os.path.join(self.ingress_dir, f'{(adapter.flow_id or "src")[:8]}.json')
                               if self.ingress_dir else None)
+        if self._ingress_path:   # create the dir ONCE here, not on every record write
+            try:
+                os.makedirs(self.ingress_dir, exist_ok=True)
+            except Exception as _e:
+                print(f'ingress dir setup skipped: {_e}', flush=True)
         # Persistent-flow mode: adapter property OR env override (env wins when set),
         # so an adopter can turn it on for an existing adapter without editing it.
         env_persist = _os.environ.get('MXL_INGEST_PERSISTENT', '').strip().lower()
@@ -420,13 +421,13 @@ class ContributionCore:
                 'offset_ms': round(s['offset'] / 1e6, 1) if s.get('offset') is not None else None,
                 'err_ms': round(err_ns / 1e6, 1) if err_ns is not None else None,
                 'grain_ns': grain_ns,
-                'dropped': s.get('dropped', 0),   # ahead-of-realtime frames dropped (burst guard)
-                'hard_relocks': len(s.get('relock_times', [])),
+                'dropped': s.get('dropped', 0),   # ahead-of-realtime frames dropped (burst guard) —
+                                                  # the grid servo's real health signal (replaces the
+                                                  # old relock count; the grid has no relock path).
                 # provenance: the negotiated source caps on the restamp pad
                 'source_caps': caps.to_string() if caps else None,
                 'mono_ns': time.monotonic_ns(),   # NOT wall time — no Date dependency, just ordering
             }
-            os.makedirs(self.ingress_dir, exist_ok=True)
             tmp = self._ingress_path + '.tmp'
             with open(tmp, 'w') as f:
                 json.dump(rec, f)
@@ -469,24 +470,23 @@ class ContributionCore:
         grain_ns = self._grain_ns(pad)   # rate-derived step (see _grain_ns); 30fps => FRAME_NS
         s = self.state
         if s['offset'] is None:
+            # LOCK ANCHOR — a once-per-lock trigger + IN-005 provenance only. The grid below
+            # does NOT use s['offset'] for pacing (HW Oct-8: the grid is driven by last_mapped +
+            # now, see below); offset is recorded purely as "where wall-clock sat at lock" in the
+            # ingress record. On a persistent-flow RE-LOCK the grid's own monotonic floor
+            # (max(last_mapped + grain_ns, now + MARGIN)) already guarantees the first new-leg
+            # grain lands after the last committed one — no offset clamp needed.
             s['offset'] = now - buf.pts + MARGIN_NS
-            # On a RE-LOCK (persistent-flow leg rebuild) the flow already has grains up to
-            # last_mapped; clamp the offset so the first new-leg grain lands STRICTLY after
-            # that (never rewind the flow — a rewind is exactly the "grain too early" read).
-            if s.get('relock') and s.get('last_mapped') is not None:
-                min_pts = s['last_mapped'] + grain_ns
-                if buf.pts + s['offset'] < min_pts:
-                    s['offset'] = min_pts - buf.pts
-                print(f'cadence offset RE-LOCKED (monotonic): {s["offset"]/1e6:.0f}ms', flush=True)
-                s['relock'] = False
-                self._write_ingress_record(pad, event='relocked', grain_ns=grain_ns)
-            else:
-                print(f'cadence offset locked: {s["offset"]/1e6:.0f}ms', flush=True)
-                self._write_ingress_record(pad, event='locked', grain_ns=grain_ns)
-                if self.a.announce_on_lock and self.repair_url:
-                    threading.Thread(target=self._announce, daemon=True).start()
-                elif self.a.announce_on_lock:
-                    print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
+            relock = bool(s.get('relock') and s.get('last_mapped') is not None)
+            s['relock'] = False
+            print(f'cadence {"RE-locked" if relock else "locked"} '
+                  f'(grid-driven; anchor {s["offset"]/1e6:.0f}ms)', flush=True)
+            self._write_ingress_record(pad, event=('relocked' if relock else 'locked'),
+                                       grain_ns=grain_ns)
+            if not relock and self.a.announce_on_lock and self.repair_url:
+                threading.Thread(target=self._announce, daemon=True).start()
+            elif not relock and self.a.announce_on_lock:
+                print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
         # LOCAL-GRID RESTAMP (HW Oct-8: the offset-follows-source approaches all failed on a
         # 60fps camera — the 1000ms SRT jitter buffer releases a BURST whose source PTS is ~1s
         # ahead of the just-started wall clock, so `buf.pts + offset` lands >1s off and every

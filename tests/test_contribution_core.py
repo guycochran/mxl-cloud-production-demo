@@ -27,12 +27,13 @@ def test_margin_is_exactly_two_grains():
     assert abs(cc.MARGIN_NS - 2 * one_grain_ns) < 1_000_000  # ~2 grains, rounding slack
 
 
-def test_slew_servo_constants_are_sane():
-    # The offset is driven by a PROPORTIONAL slew, not a step re-sync (HW Oct-7: a step
-    # churned every batch on a 60fps-decimated-to-30 source). Guard the servo shape:
-    assert 0 < cc.SLEW_GAIN < 1            # a fraction of the error per frame, not a jump
-    assert 0 < cc.SLEW_MAX_NS < cc.FRAME_NS  # per-frame correction capped well below one grain
-    assert cc.HARD_RELOCK_NS >= cc.FRAME_NS  # only a GROSS error triggers a one-shot hard re-lock
+def test_no_dead_slew_servo_constants():
+    # The restamp is a local wall-clock grid + drop-ahead-of-realtime (HW Oct-8), NOT a slew
+    # servo. The old SLEW_GAIN/SLEW_MAX_NS/HARD_RELOCK_NS constants were removed when the grid
+    # replaced the servo; guard against them creeping back as dead config that misleads tuning.
+    for dead in ("SLEW_GAIN", "SLEW_MAX_NS", "HARD_RELOCK_NS"):
+        assert not hasattr(cc, dead), f"{dead} is dead after the grid rewrite — remove it"
+    assert cc.FRAME_NS == 33_333_333   # still the grain-step fallback (30fps)
 
 
 def test_canon_caps_are_v210_1080p30_progressive():

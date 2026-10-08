@@ -129,14 +129,15 @@ Consequences for `tools/contribution_core.py::_restamp`:
 - **Why:** `tools/nmos_node.py` was IS-04 discovery-only; its docstring called IS-05 "the
   next build." NVIDIA's `gst-nmos-rs` confirms IS-05 is tractable but needs `nvnmosd` and
   is NOT our MXL transport — blueprint only. Built ourselves on our BCP-007-03 node.
-- **Shipped:** `/x-nmos/connection/v1.1/` Connection API in `nmos_node.py`. Receivers are
+- **Shipped:** `/x-nmos/connection/v1.2/` Connection API in `nmos_node.py` (flow identity in
+  `transport_params`, disable/re-enable, domain-UUID resolution — see ADR-001). Receivers are
   the switcher's input slots, so **PATCH `single/receivers/<id>/staged` with
   `activate_immediate` → a real selector cut** (`POST /api/mxl/input {slot:N}` on the
   facility) and promotes staged→active. Senders read-only (MXL has no transport file —
-  BCP-007-03). Device advertises an `sr-ctrl/v1.1` control. Mutation gated by
-  `MXL_CONTROL_TOKEN` (same as the facility). 5 tests drive the real server end-to-end
-  (tree, staged read, activate→cut, stage-without-activate, sender-405). Scheduled
-  activation → 501 (immediate only). This turns the node from *discoverable* into
+  BCP-007-03). Device advertises an `sr-ctrl/v1.2` control. Mutation gated by
+  `MXL_CONTROL_TOKEN` (same as the facility). 8 tests drive the real server end-to-end
+  (tree, staged read, activate→cut, route-by-transport_params, disable, stage-without-activate,
+  sender-405). Scheduled activation → 501 (immediate only). This turns the node from *discoverable* into
   *routable* by a standard NMOS controller.
 
 ### 3.4 — Watch #232 (GStreamer-plugin alpha support) for the keyer

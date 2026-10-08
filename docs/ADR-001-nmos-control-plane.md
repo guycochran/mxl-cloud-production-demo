@@ -68,17 +68,19 @@ Corollaries:
 
 ## Convergence steps (how we get from here to the decision)
 
-Current state: `tools/nmos_node.py` already does IS-04 discovery + an IS-05 `connection/v1.1`
+Current state: `tools/nmos_node.py` does IS-04 discovery + an IS-05 **`connection/v1.2`**
 shim whose receiver `/staged` activation drives a real selector cut (PR #37).
 
-To mature it toward the reference, in priority order:
-1. **Carry flow identity in `transport_params`**, not just IS-04 tags:
+Convergence toward the reference (steps 1–4 ✅ done on PR #37, step 5 pending):
+1. ✅ **Carry flow identity in `transport_params`**, not just IS-04 tags:
    `transport_params: [{ "mxl_flow_id": "<uuid>", "mxl_domain_id": "<uuid|null>" }]`.
-2. **Bump Connection API to v1.2** (the version `connect.sh` in the reference speaks).
-3. **Add Sender/Receiver disable + re-enable** (IS-05 `master_enable` false→true cycle).
-4. **Advertise the domain UUID** as `mxl_domain_id` (from `domain_def.json`; BCP-007-03 wants
-   a UUID here too).
-5. **Reader re-open via re-activation** (the #34 fix) — wire `flow_stabilizer` / the repair
+2. ✅ **Connection API bumped to v1.2** (the version `connect.sh` in the reference speaks);
+   device control = `sr-ctrl/v1.2`.
+3. ✅ **Sender/Receiver disable + re-enable** (IS-05 `master_enable` false→true; disable
+   activates without forcing a program cut).
+4. ✅ **Domain UUID advertised** as `mxl_domain_id` (resolved from `domain_def.json`'s `id`,
+   then env, then the legacy string).
+5. ⬜ **Reader re-open via re-activation** (the #34 fix) — wire `flow_stabilizer` / the repair
    path to re-drive IS-05 activation on flow recreation, once a controller drives activations.
 
 None of these touch the media engine; they are all in the control-plane layer, which is the
