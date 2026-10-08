@@ -1,0 +1,1118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Switcher — Broadcast Panel</title>
+<!--
+  MXL Switcher — broadcast-panel UI (MOCKUP, drop-in for web/local.html).
+  Single file, no external hosts: fonts are the repo's own web/fonts/*.woff2.
+  Same API surface as local.html:  GET /api/mxl/status · GET /api/mxl/slots · GET /api/mxl/thumbs/<role>.jpg
+  POST /api/mxl/{preview,take,input,key,pattern,warmup,repair}.  See docs/UI-DESIGN-NOTES.md.
+  Tip: add ?demo=1 to force the offline demo, ?demo=0 to disable the automatic demo fallback.
+-->
+<style>
+  /* ── self-hosted fonts (bundled woff2 — works on an air-gapped box) ─────────
+     Absolute path first (matches local.html / express.static(web)), relative second
+     so the file also renders when opened straight from web/ on disk. */
+  @font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;font-display:swap;
+    src:url('/fonts/BarlowCondensed-600.woff2') format('woff2'),url('fonts/BarlowCondensed-600.woff2') format('woff2')}
+  @font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;font-display:swap;
+    src:url('/fonts/BarlowCondensed-700.woff2') format('woff2'),url('fonts/BarlowCondensed-700.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:500;font-style:normal;font-display:swap;
+    src:url('/fonts/IBMPlexMono-500.woff2') format('woff2'),url('fonts/IBMPlexMono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:600;font-style:normal;font-display:swap;
+    src:url('/fonts/IBMPlexMono-600.woff2') format('woff2'),url('fonts/IBMPlexMono-600.woff2') format('woff2')}
+
+  :root{
+    /* chassis greys (cool-neutral charcoal) */
+    --c0:#0b0c0d; --c1:#131416; --c2:#1b1c1f; --c3:#232529; --c4:#2c2e33; --c5:#373a40; --c6:#4a4e56;
+    --ink:#e4e6ea; --dim:#9aa0ab; --faint:#69707b; --engrave:#848a95;
+    /* tally + state colours — the three that carry meaning */
+    --red:#e5484d; --red-hot:#ff6a6e; --red-glow:rgba(229,72,77,.6);      /* PGM / on air   */
+    --grn:#23d97c; --grn-hot:#5cf0a2; --grn-glow:rgba(35,217,124,.5);     /* PVW / armed    */
+    --amber:#ffb400; --amber-hot:#ffd04d; --amber-glow:rgba(255,180,0,.5);/* selected / pending / option on */
+    --cyan:#35e0ff;
+    --disp:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    --key:clamp(56px,min(5.6vw,11.5vh),112px);   /* source-button edge length */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#070708;color:var(--ink);font-family:var(--disp);font-weight:600;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-y:auto;user-select:none;-webkit-user-select:none}
+  button,select,input{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+  /* ═══ CHASSIS ═══ */
+  .chassis{position:relative;height:max(100vh,860px);display:grid;
+    grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto;gap:10px;padding:10px 12px 8px;
+    background:
+      radial-gradient(1200px 500px at 30% -10%,rgba(255,255,255,.05),transparent 70%),
+      linear-gradient(180deg,#2a2c30 0,#1d1e21 38%,#161719 100%)}
+  .chassis::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.55;
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.016) 0 1px,transparent 1px 3px)}
+  .chassis>*{position:relative}
+
+  .panel{position:relative;background:linear-gradient(180deg,#2d2f34 0,#232529 100%);
+    border:1px solid #08080a;border-radius:8px;padding:12px 14px 12px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px rgba(255,255,255,.02),
+      0 1px 0 rgba(255,255,255,.05),0 8px 18px rgba(0,0,0,.4)}
+  /* four corner screws */
+  .panel.screws::before{content:"";position:absolute;inset:0;pointer-events:none;border-radius:8px;
+    background:
+      radial-gradient(circle at 7px 7px,#6c7078 0 1.6px,#1a1b1d 2.2px 3.4px,transparent 3.8px),
+      radial-gradient(circle at calc(100% - 7px) 7px,#6c7078 0 1.6px,#1a1b1d 2.2px 3.4px,transparent 3.8px),
+      radial-gradient(circle at 7px calc(100% - 7px),#6c7078 0 1.6px,#1a1b1d 2.2px 3.4px,transparent 3.8px),
+      radial-gradient(circle at calc(100% - 7px) calc(100% - 7px),#6c7078 0 1.6px,#1a1b1d 2.2px 3.4px,transparent 3.8px)}
+  .eng{display:flex;align-items:center;gap:8px;font-weight:700;font-size:12.5px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--engrave);text-shadow:0 1px 0 rgba(0,0,0,.9),0 -1px 0 rgba(255,255,255,.04);
+    margin-bottom:9px;white-space:nowrap}
+  .eng::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(0,0,0,.7),rgba(255,255,255,.07));
+    box-shadow:0 1px 0 rgba(255,255,255,.04)}
+  .tag{font-family:var(--mono);font-weight:600;font-size:9px;letter-spacing:.08em;padding:2px 5px;border-radius:3px;
+    border:1px solid;line-height:1;text-shadow:none;order:2}
+  .tag.wired{color:#7fd9a9;border-color:#25503b;background:#0e1d16}
+  .tag.mock{color:#d9b25a;border-color:#58461b;background:#201a0b}
+  .eng::after{order:1}.eng .tag{order:2}
+  body.hide-tags .tag{display:none}
+
+  /* ═══ HEADER ═══ */
+  .top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding:8px 14px;
+    background:linear-gradient(180deg,#1a1b1e,#111214);border:1px solid #060607;border-radius:8px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 14px rgba(0,0,0,.35)}
+  .brand{display:flex;align-items:center;gap:12px;min-width:0}
+  .mark{flex:0 0 auto;width:34px;height:34px;border-radius:7px;background:linear-gradient(145deg,#3a3d44,#17181b);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 0 0 1px #000;display:grid;place-items:center}
+  .mark i{display:block;width:18px;height:12px;border:2px solid var(--red);border-radius:2px;position:relative;
+    box-shadow:0 0 8px var(--red-glow)}
+  .mark i::after{content:"";position:absolute;left:3px;top:2px;width:8px;height:4px;background:var(--grn);
+    box-shadow:0 0 6px var(--grn-glow)}
+  .fac{font-weight:700;font-size:23px;letter-spacing:.14em;text-transform:uppercase;line-height:1;white-space:nowrap}
+  .fac small{display:block;font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.14em;color:var(--faint);margin-top:4px}
+  .tc{justify-self:center;text-align:center}
+  .tcbox{font-family:var(--mono);font-weight:600;font-size:30px;letter-spacing:.06em;line-height:1;color:var(--amber);
+    background:#060705;border:1px solid #000;border-radius:5px;padding:6px 16px;
+    box-shadow:inset 0 2px 6px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.06),0 0 18px rgba(255,180,0,.07);
+    text-shadow:0 0 8px rgba(255,180,0,.45);font-variant-numeric:tabular-nums}
+  .tcbox .fr{opacity:.8}
+  .tcsub{font-family:var(--mono);font-weight:500;font-size:9px;letter-spacing:.16em;color:var(--faint);margin-top:4px;text-transform:uppercase}
+  .stat{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:nowrap}
+  .led{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:12.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--faint);background:#0b0c0d;border:1px solid #000;border-radius:5px;
+    padding:6px 10px 6px 9px;box-shadow:inset 0 1px 3px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.05);white-space:nowrap}
+  .led .d{width:9px;height:9px;border-radius:50%;background:#2a2c30;box-shadow:inset 0 1px 1px rgba(0,0,0,.8),0 0 0 1px #000}
+  .led b{font-weight:700}
+  .led.ok{color:var(--ink)} .led.ok .d{background:var(--grn);box-shadow:0 0 8px var(--grn-glow),0 0 0 1px #0a3a21}
+  .led.bad{color:#ff9a9d} .led.bad .d{background:var(--red);box-shadow:0 0 8px var(--red-glow)}
+  .led.demo{color:var(--amber-hot)} .led.demo .d{background:var(--amber);box-shadow:0 0 8px var(--amber-glow)}
+  .led.red{color:var(--ink)} .led.red .d{background:var(--red);box-shadow:0 0 8px var(--red-glow)}
+  .led.red.blink .d{animation:blink 1.1s steps(2,jump-none) infinite}
+  .led.amb{color:var(--ink)} .led.amb .d{background:var(--amber);box-shadow:0 0 8px var(--amber-glow)}
+  .led .v{font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.02em;color:var(--dim)}
+  .onair{font-weight:700;font-size:21px;letter-spacing:.24em;text-transform:uppercase;line-height:1;
+    padding:6px 16px 6px 18px;border-radius:5px;color:#4b2022;background:#2a1213;border:1px solid #000;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);display:inline-flex;align-items:center;gap:9px;transition:all .15s}
+  .onair.on{color:#fff;background:linear-gradient(180deg,#ff5a5f,#d6262c);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 22px var(--red-glow);animation:pulse 2s ease-in-out infinite}
+  .onair .d{width:9px;height:9px;border-radius:50%;background:currentColor}
+
+  @keyframes blink{50%{opacity:.15}}
+  @keyframes pulse{50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 0 7px var(--red-glow)}}
+
+  /* ═══ STAGE: multiview + side ═══ */
+  .stage{display:grid;grid-template-columns:minmax(0,1fr) clamp(290px,23vw,380px);gap:10px;min-height:0}
+  .mv{display:flex;flex-direction:column;min-height:0;container-type:size;padding-bottom:10px}
+  .mvin{display:flex;flex-direction:column;height:100%;min-height:0}
+  .mvhead{display:flex;align-items:center;gap:10px}
+  .mvhead .eng{flex:1}
+  .demostrip{display:none;font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.1em;color:#1a1200;
+    background:repeating-linear-gradient(-45deg,var(--amber) 0 10px,#e0a000 10px 20px);padding:3px 10px;border-radius:3px;
+    margin-bottom:9px;text-transform:uppercase;white-space:nowrap}
+  body.demo .demostrip{display:block}
+  .monitors{flex:1 1 auto;min-height:0;display:flex;gap:12px;justify-content:center;align-items:flex-start}
+  .mon{flex:0 1 auto;min-width:0;width:min(calc(50% - 6px),calc((100cqh - var(--chrome,215px)) * 16 / 9))}
+  .monbar{display:flex;align-items:center;gap:9px;padding:0 2px 6px}
+  .monbar .t{font-weight:700;font-size:13px;letter-spacing:.2em;padding:2px 9px;border-radius:3px;color:#09130d}
+  .mon.pgm .monbar .t{background:var(--red);color:#fff;box-shadow:0 0 12px var(--red-glow)}
+  .mon.pvw .monbar .t{background:var(--grn);box-shadow:0 0 12px var(--grn-glow)}
+  .mon.pvw.empty .monbar .t{background:#2a2c30;color:var(--faint);box-shadow:none}
+  .monbar .name{flex:1;min-width:0;font-weight:700;font-size:21px;letter-spacing:.04em;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+  .monbar .src{font-family:var(--mono);font-weight:500;font-size:10.5px;color:var(--faint);letter-spacing:.06em}
+  .screen{position:relative;aspect-ratio:16/9;background:#000;border:4px solid #0b0b0c;border-radius:4px;overflow:hidden;
+    box-shadow:0 0 0 1px #000,inset 0 0 0 1px rgba(255,255,255,.04);transition:border-color .12s,box-shadow .12s}
+  .mon.pgm .screen{border-color:var(--red);box-shadow:0 0 0 1px #000,0 0 24px var(--red-glow)}
+  .mon.pvw .screen{border-color:#1a1c1f}
+  .mon.pvw:not(.empty) .screen{border-color:var(--grn);box-shadow:0 0 0 1px #000,0 0 22px var(--grn-glow)}
+  .screen iframe,.screen img,.screen canvas{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;object-fit:cover}
+  .screen canvas{display:none} body.demo .screen canvas.demo{display:block}
+  body.demo #pgm{display:none} body.demo #pvwImg{display:none}
+  .screen::after{content:"";position:absolute;inset:5%;border:1px dashed rgba(255,255,255,.1);pointer-events:none;border-radius:2px}
+  .screen .ov{position:absolute;z-index:2;font-family:var(--mono);font-weight:600;font-size:10.5px;letter-spacing:.05em;
+    color:var(--ink);background:rgba(8,9,10,.72);padding:3px 8px;border-radius:3px;pointer-events:none}
+  .screen .ov.bl{left:9px;bottom:9px} .screen .ov.br{right:9px;bottom:9px;color:var(--faint)}
+  .screen .ov.tl{left:9px;top:9px;font-family:var(--disp);font-weight:700;font-size:13px;letter-spacing:.2em;color:#fff}
+  .screen .ov.tl.pgmtag{background:var(--red);box-shadow:0 0 12px var(--red-glow)}
+  .screen .ov.tr{right:9px;top:9px;display:none;color:#1a1200;background:var(--amber);font-weight:700}
+  body.demo .screen .ov.tr{display:block}
+  .slate{position:absolute;inset:0;z-index:1;display:none;align-items:center;justify-content:center;flex-direction:column;gap:6px;
+    background:repeating-linear-gradient(135deg,#0a0b0d 0 14px,#0d0e11 14px 28px);color:#3d4552;
+    font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.2em;text-transform:uppercase}
+  .mon.empty .slate{display:flex}
+
+  /* multiview source wall */
+  .wallbox{margin-top:10px;flex:0 0 auto}
+  .wall{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+  .tile{position:relative;background:#050607;border:3px solid #17181b;border-radius:4px;overflow:hidden;
+    aspect-ratio:16/9;cursor:pointer;transition:border-color .1s,box-shadow .1s,transform .05s;box-shadow:0 0 0 1px #000}
+  .tile:hover{border-color:#464b54}
+  .tile:active{transform:translateY(1px)}
+  .tile img,.tile canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;background:#050607}
+  .tile canvas{display:none} body.demo .tile canvas{display:block} body.demo .tile img{display:none}
+  .tile .label{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:6px;padding:10px 6px 3px;
+    font-weight:700;font-size:clamp(11px,.95vw,15px);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+    background:linear-gradient(0deg,rgba(5,6,7,.94),rgba(5,6,7,0));z-index:2}
+  .tile .label .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tile .label .live{width:7px;height:7px;border-radius:50%;background:var(--grn);box-shadow:0 0 6px var(--grn-glow);flex:0 0 auto}
+  .tile .label .num{font-family:var(--mono);font-weight:600;font-size:10px;color:var(--dim)}
+  .tile .tally{position:absolute;top:4px;left:4px;z-index:3;font-weight:700;font-size:11px;letter-spacing:.14em;padding:1px 6px;
+    border-radius:3px;opacity:0;transition:opacity .1s}
+  .tile.pgm{border-color:var(--red);box-shadow:0 0 0 1px #000,0 0 14px var(--red-glow)}
+  .tile.pgm .tally{opacity:1;background:var(--red);color:#fff}
+  .tile.pvw{border-color:var(--grn);box-shadow:0 0 0 1px #000,0 0 14px var(--grn-glow)}
+  .tile.pvw .tally{opacity:1;background:var(--grn);color:#06180e}
+  .tile.nofeed{cursor:not-allowed;opacity:.8}
+  .tile.nofeed .label .live{background:var(--faint);box-shadow:none}
+  .tile.nofeed:hover{border-color:#17181b}
+
+  /* ═══ SIDE COLUMN ═══ */
+  .side{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden}
+  .side .panel{padding:11px 13px 12px}
+  .lcd{display:block;width:100%;font-family:var(--mono);font-weight:600;font-size:13px;color:var(--amber);background:#060705;
+    border:1px solid #000;border-radius:5px;padding:9px 30px 9px 11px;letter-spacing:.02em;appearance:none;-webkit-appearance:none;cursor:pointer;
+    box-shadow:inset 0 2px 6px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.06);text-shadow:0 0 7px rgba(255,180,0,.4);
+    background-image:linear-gradient(45deg,transparent 50%,var(--amber) 50%),linear-gradient(135deg,var(--amber) 50%,transparent 50%);
+    background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+  .lcd option{background:#0b0c0d;color:var(--amber)}
+  .lcd:disabled{opacity:.45;cursor:not-allowed}
+  .note{font-family:var(--mono);font-weight:500;font-size:10px;line-height:1.45;color:var(--faint);margin-top:8px;letter-spacing:.01em}
+  .note b{color:var(--dim);font-weight:600}
+
+  /* audio meters */
+  .meters{display:flex;gap:9px;align-items:stretch;height:clamp(84px,13vh,150px)}
+  .scale{display:flex;flex-direction:column;justify-content:space-between;font-family:var(--mono);font-weight:500;font-size:8.5px;
+    color:var(--faint);text-align:right;padding:1px 0 17px;min-width:18px}
+  .mtr{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+  .mtr .bar{position:relative;flex:1;width:100%;max-width:22px;border-radius:2px;background:linear-gradient(0deg,#17c46c 0 62%,#d9c21a 62% 82%,#e5484d 82% 100%);
+    box-shadow:0 0 0 1px #000;overflow:hidden}
+  .mtr .bar .cov{position:absolute;left:0;right:0;top:0;height:100%;background:#0a0b0c}
+  .mtr .bar .pk{position:absolute;left:0;right:0;height:2px;background:#fff;bottom:0;opacity:.9}
+  .mtr .bar::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(10,11,12,.95) 3px 4.5px)}
+  .mtr span{font-weight:700;font-size:10.5px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;height:13px;line-height:13px;white-space:nowrap}
+  body:not(.demo) .mtr .bar .cov{height:100%!important} body:not(.demo) .mtr .bar .pk{display:none}
+  .nolev{display:none;font-family:var(--mono);font-weight:500;font-size:9px;color:var(--faint);letter-spacing:.06em;margin-top:6px}
+  body:not(.demo) .nolev{display:block}
+
+  .legend{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:8px 8px;align-items:center;font-family:var(--mono);font-weight:500;font-size:10px;color:var(--dim)}
+  .legend i{display:block;width:20px;height:12px;border-radius:2px;box-shadow:0 0 0 1px #000}
+  .legend .r{background:var(--red);box-shadow:0 0 0 1px #000,0 0 9px var(--red-glow)}
+  .legend .g{background:var(--grn);box-shadow:0 0 0 1px #000,0 0 9px var(--grn-glow)}
+  .legend .a{background:var(--amber);box-shadow:0 0 0 1px #000,0 0 9px var(--amber-glow)}
+  .legend .o{background:#3a3d44}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+  /* ═══ PHYSICAL BUTTONS ═══ */
+  .btn{appearance:none;-webkit-appearance:none;cursor:pointer;position:relative;
+    font-weight:700;font-size:15px;letter-spacing:.12em;text-transform:uppercase;line-height:1.05;color:#d3d6dc;
+    background:linear-gradient(180deg,#42454c 0,#2f3237 55%,#292b30 100%);border:1px solid #060607;border-radius:5px;padding:9px 10px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 -2px 0 rgba(0,0,0,.35),0 3px 0 #0a0a0b,0 5px 7px rgba(0,0,0,.45);
+    transition:background .08s,color .08s,box-shadow .08s,transform .05s;text-shadow:0 1px 0 rgba(0,0,0,.6)}
+  .btn:hover{color:#fff;background:linear-gradient(180deg,#4a4d55 0,#35383e 55%,#2e3036 100%)}
+  .btn:active,.btn.press{transform:translateY(3px);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset 0 -1px 0 rgba(0,0,0,.35),0 0 0 #0a0a0b,0 1px 2px rgba(0,0,0,.5)}
+  .btn:disabled{cursor:not-allowed;color:#575c66;background:linear-gradient(180deg,#2c2e33,#232529);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 3px 0 #0a0a0b,0 4px 6px rgba(0,0,0,.35);text-shadow:none}
+  .btn:disabled:active{transform:none}
+  .btn .sub{display:block;font-family:var(--mono);font-weight:500;font-size:9px;letter-spacing:.02em;text-transform:none;margin-top:3px;opacity:.8}
+  /* "selected / option on" = amber */
+  .btn.sel{color:#1c1300;background:linear-gradient(180deg,#ffd45a,var(--amber) 60%,#e29e00);text-shadow:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -2px 0 rgba(0,0,0,.2),0 3px 0 #5b4300,0 0 18px var(--amber-glow)}
+  .btn.redlit{color:#fff;background:linear-gradient(180deg,#ff6c70,var(--red) 55%,#c3282d);text-shadow:0 1px 0 rgba(0,0,0,.35);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -2px 0 rgba(0,0,0,.2),0 3px 0 #5f1316,0 0 20px var(--red-glow)}
+
+  /* ═══ CONSOLE (button buses + keyer + transition) ═══ */
+  .console{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:stretch}
+  .console .panel{padding:10px 14px 12px}
+  .busrow{display:flex;align-items:center;gap:12px}
+  .busrow+.busrow{margin-top:12px}
+  .buslbl{flex:0 0 52px;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+  .buslbl b{font-weight:700;font-size:15px;letter-spacing:.18em;text-transform:uppercase;line-height:1}
+  .buslbl .lamp{width:30px;height:5px;border-radius:2px;background:#141517;box-shadow:inset 0 1px 2px #000,0 1px 0 rgba(255,255,255,.06)}
+  .busrow.pgm .buslbl b{color:#ff9a9d} .busrow.pvw .buslbl b{color:#8ff0bb}
+  .busrow.pgm .buslbl .lamp{background:var(--red);box-shadow:0 0 9px var(--red-glow)}
+  .busrow.pvw .buslbl .lamp{background:var(--grn);box-shadow:0 0 9px var(--grn-glow)}
+  .keys{display:grid;grid-template-columns:repeat(7,var(--key));gap:clamp(5px,.6vw,10px)}
+  .key{appearance:none;-webkit-appearance:none;cursor:pointer;position:relative;width:var(--key);height:var(--key);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0 4px;border-radius:7px;
+    font-weight:700;color:#c4c8cf;text-transform:uppercase;overflow:hidden;
+    background:linear-gradient(180deg,#44474e 0,#30333a 50%,#282a2f 100%);border:1px solid #050506;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -3px 0 rgba(0,0,0,.4),inset 0 0 0 3px rgba(0,0,0,.18),0 4px 0 #09090a,0 6px 9px rgba(0,0,0,.5);
+    transition:background .08s,box-shadow .08s,transform .05s,color .08s;text-shadow:0 1px 0 rgba(0,0,0,.7)}
+  .key .led-bar{position:absolute;top:6px;left:50%;transform:translateX(-50%);width:44%;height:4px;border-radius:2px;background:#15161a;
+    box-shadow:inset 0 1px 1px #000,0 1px 0 rgba(255,255,255,.07)}
+  .key .n{font-family:var(--mono);font-weight:600;font-size:calc(var(--key)*.3);line-height:1;margin-top:calc(var(--key)*.06)}
+  .key .t{font-size:calc(var(--key)*.165);letter-spacing:.07em;line-height:1.12;text-align:center;max-width:100%;padding-bottom:1px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .key:hover{color:#fff;background:linear-gradient(180deg,#4d5058,#373a41 50%,#2e3037)}
+  .key:active,.key.press{transform:translateY(4px);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -1px 0 rgba(0,0,0,.4),inset 0 0 0 3px rgba(0,0,0,.18),0 0 0 #09090a,0 1px 3px rgba(0,0,0,.5)}
+  .key.nofeed{cursor:not-allowed;color:#5e636d;background:linear-gradient(180deg,#2e3035,#25272b)}
+  .key.nofeed::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent 0 7px,rgba(0,0,0,.28) 7px 9px)}
+  .key.nofeed:hover{color:#5e636d}
+  .busrow.pgm .key.lit{color:#fff;background:linear-gradient(180deg,#ff7377 0,var(--red) 50%,#bf262b 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -3px 0 rgba(0,0,0,.22),inset 0 0 0 3px rgba(255,255,255,.07),0 4px 0 #5b1215,0 0 26px var(--red-glow);text-shadow:0 1px 0 rgba(90,0,0,.5)}
+  .busrow.pvw .key.lit{color:#04200f;background:linear-gradient(180deg,#7bf7b1 0,var(--grn) 50%,#14ad5d 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -3px 0 rgba(0,0,0,.2),inset 0 0 0 3px rgba(255,255,255,.1),0 4px 0 #0b4d2a,0 0 26px var(--grn-glow);text-shadow:0 1px 0 rgba(255,255,255,.25)}
+  .key.lit .led-bar{background:#fff;box-shadow:0 0 8px #fff}
+  /* selected / pending (command in flight) = amber */
+  .key.pend{color:#1c1300;background:linear-gradient(180deg,#ffdc72 0,var(--amber) 50%,#d99600 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -3px 0 rgba(0,0,0,.2),inset 0 0 0 3px rgba(255,255,255,.1),0 4px 0 #5b4300,0 0 26px var(--amber-glow);text-shadow:none}
+  .key.pend .led-bar{background:#fff;box-shadow:0 0 8px #fff}
+  .key.shake{animation:shake .25s}
+  @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  .hot{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .hot .btn{padding:6px 10px;font-size:12px}
+  .busnote{font-family:var(--mono);font-weight:500;font-size:9.5px;color:var(--faint);letter-spacing:.02em}
+
+  /* keyer / DSK */
+  .dsk{display:flex;flex-direction:column;min-width:clamp(150px,13vw,210px)}
+  .dskgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px 8px}
+  .dskgrid .btn{padding:11px 4px;font-size:16px}
+  .dskgrid .wide{grid-column:1/-1}
+  .dskstate{margin-top:auto;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-weight:500;font-size:10px;color:var(--faint);padding-top:9px}
+  .dskstate .d{width:9px;height:9px;border-radius:50%;background:#2a2c30;box-shadow:0 0 0 1px #000}
+  .dskstate.on .d{background:var(--red);box-shadow:0 0 9px var(--red-glow)} .dskstate.on{color:var(--ink)}
+
+  /* transition */
+  .trans{display:grid;grid-template-columns:auto auto;gap:14px;min-width:clamp(300px,25vw,420px)}
+  .tcol{display:flex;flex-direction:column;gap:9px;min-width:0}
+  .styles{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+  .styles .btn{padding:8px 4px 7px;font-size:13px;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .gly{display:block;width:26px;height:14px;border-radius:2px;position:relative;overflow:hidden;background:#111214;box-shadow:inset 0 0 0 1px rgba(0,0,0,.6)}
+  .gly::before,.gly::after{content:"";position:absolute;top:0;bottom:0}
+  .gly.mix::before{left:0;width:100%;background:linear-gradient(90deg,#fff,rgba(255,255,255,.08))}
+  .gly.dip::before{left:0;width:100%;background:linear-gradient(90deg,#fff,#000 50%,#fff)}
+  .gly.wipe::before{left:0;width:55%;background:#fff} .gly.wipe::after{left:55%;right:0;background:#555}
+  .btn.sel .gly{box-shadow:inset 0 0 0 1px rgba(0,0,0,.6)}
+  .cutauto{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .big{height:calc(var(--key)*.98);font-size:calc(var(--key)*.3);letter-spacing:.14em;padding:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:7px}
+  .big .sub{font-size:calc(var(--key)*.12);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:0}
+  #take:not(:disabled){color:#15161a;background:linear-gradient(180deg,#fff 0,#e3e6ea 45%,#c0c4cb 100%);text-shadow:0 1px 0 rgba(255,255,255,.6);
+    box-shadow:inset 0 1px 0 #fff,inset 0 -3px 0 rgba(0,0,0,.2),0 4px 0 #6c7077,0 0 22px rgba(255,255,255,.2)}
+  #take:not(:disabled):active{transform:translateY(4px);box-shadow:inset 0 1px 0 #fff,0 0 0 #6c7077}
+  #autoBtn.run{color:#fff;background:linear-gradient(180deg,#ff7377,var(--red) 50%,#bf262b);text-shadow:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 3px 0 #5b1215,0 0 22px var(--red-glow)}
+  .rate{display:flex;align-items:center;gap:8px}
+  .rate label{font-weight:700;font-size:11.5px;letter-spacing:.18em;color:var(--engrave);text-transform:uppercase;text-shadow:0 1px 0 #000}
+  .rate input{width:62px;font-family:var(--mono);font-weight:600;font-size:15px;text-align:center;color:var(--amber);background:#060705;
+    border:1px solid #000;border-radius:4px;padding:5px 2px;box-shadow:inset 0 2px 5px rgba(0,0,0,.9);text-shadow:0 0 7px rgba(255,180,0,.4);-moz-appearance:textfield}
+  .rate .secs{font-family:var(--mono);font-weight:500;font-size:11px;color:var(--dim)}
+  .tbarwrap{display:flex;flex-direction:column;align-items:center;gap:6px;width:62px}
+  .tbar{position:relative;flex:1;min-height:120px;width:44px;cursor:ns-resize;touch-action:none;outline-offset:3px}
+  .tbar .rail{position:absolute;left:50%;top:6px;bottom:6px;width:10px;transform:translateX(-50%);border-radius:5px;
+    background:linear-gradient(90deg,#050506,#14151a 50%,#050506);box-shadow:inset 0 2px 4px #000,0 1px 0 rgba(255,255,255,.08)}
+  .tbar .fillbar{position:absolute;left:50%;top:6px;width:4px;transform:translateX(-50%);border-radius:2px;background:var(--amber);box-shadow:0 0 8px var(--amber-glow);height:0}
+  .tbar .tick{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,.14)}
+  .tbar .handle{position:absolute;left:0;right:0;height:46px;border-radius:6px;transform:translateY(-50%);top:6px;
+    background:linear-gradient(180deg,#5a5e66,#3b3e45 18%,#2a2c31 50%,#3b3e45 82%,#4a4d55);border:1px solid #040405;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 4px 8px rgba(0,0,0,.6)}
+  .tbar .handle::before{content:"";position:absolute;left:8px;right:8px;top:50%;height:16px;transform:translateY(-50%);
+    background:repeating-linear-gradient(180deg,#111214 0 2px,#4c5058 2px 4px);border-radius:2px;opacity:.9}
+  .tbar:focus-visible .handle,.tbar.drag .handle{box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 0 0 2px var(--amber),0 4px 8px rgba(0,0,0,.6)}
+  .tbar.snap .handle,.tbar.snap .fillbar{transition:top .22s ease-out,height .22s ease-out}
+  .tbval{font-family:var(--mono);font-weight:600;font-size:11px;color:var(--amber);background:#060705;border-radius:3px;padding:2px 6px;box-shadow:inset 0 1px 3px #000}
+
+  /* ═══ STATUS BAR ═══ */
+  .statusbar{display:flex;align-items:center;gap:16px;padding:6px 12px;font-family:var(--mono);font-weight:500;font-size:10.5px;color:var(--faint);
+    background:linear-gradient(180deg,#111214,#0c0d0e);border:1px solid #060607;border-radius:6px;box-shadow:inset 0 1px 3px rgba(0,0,0,.8);letter-spacing:.02em;min-height:30px}
+  .msg{flex:1 1 0;min-width:0;color:var(--amber);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .msg.err{color:#ff8f92}
+  .keys-legend{flex:0 0 auto;display:flex;gap:12px;justify-content:center;flex-wrap:nowrap;white-space:nowrap}
+  .keys-legend kbd{font-family:var(--mono);font-weight:600;font-size:9.5px;color:var(--ink);background:#2a2c31;border:1px solid #000;border-bottom-width:2px;border-radius:3px;padding:1px 5px;margin-right:4px}
+  .statusbar .r{white-space:nowrap}
+
+  /* ═══ NARROWER SCREENS: let the page scroll instead of crushing the panel ═══ */
+  @media (max-width:1240px){
+    :root{--key:clamp(52px,7.4vw,86px)}
+    body{overflow:auto}
+    .chassis{height:auto;grid-template-rows:auto auto auto auto}
+    .stage{grid-template-columns:minmax(0,1fr)}
+    .mv{container-type:normal}
+    .mon{width:calc(50% - 6px)}
+    .console{grid-template-columns:auto auto;justify-content:start}
+    .console .buses{grid-column:1/-1}
+    .side{display:grid;grid-template-columns:1fr 1fr;overflow:visible}
+    .keys-legend{display:none}
+    .top{grid-template-columns:1fr auto;grid-template-areas:"b t" "s s";row-gap:10px}
+    .brand{grid-area:b}.stat{grid-area:s;justify-content:flex-start;flex-wrap:wrap}.tc{grid-area:t;justify-self:end}
+    .tcbox{font-size:26px}
+    .meters{height:110px}
+  }
+  @media (max-width:800px){
+    .wall{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .side{grid-template-columns:1fr}
+    .console{grid-template-columns:1fr}
+    .keys{grid-template-columns:repeat(7,minmax(0,1fr))} .key{width:100%}
+    .stat{flex-wrap:wrap}
+  }
+  @media (prefers-reduced-motion:reduce){.onair.on,.led.red.blink .d,.key.shake{animation:none}.tbar.snap .handle,.tbar.snap .fillbar{transition:none}}
+</style>
+</head>
+<body data-facility="MXL Lab">
+<div class="chassis">
+
+  <!-- ═════════ HEADER: facility, timecode, status LEDs, ON AIR ═════════ -->
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><i></i></div>
+      <div class="fac"><span id="facName">MXL Lab</span><small>MXL SWITCHER · <span id="fmtTag">1080p30</span></small></div>
+    </div>
+    <div class="tc" title="Browser wall-clock at the facility frame rate — not an MXL/PTP timecode (mock)">
+      <div class="tcbox" id="tcBox"><span id="tcHMS">00:00:00</span>:<span class="fr" id="tcFr">00</span></div>
+      <div class="tcsub" id="tcSub">LOCAL TIME · TC</div>
+    </div>
+    <div class="stat" role="group" aria-label="System status">
+      <div class="led" id="conn" title="Control API reachability (GET /api/mxl/status)"><span class="d"></span><b id="connText">connecting…</b></div>
+      <div class="led" id="recLed" title="Recorder — no recording API is wired yet (mock)"><span class="d"></span><b>REC</b><span class="v" id="recV"></span></div>
+      <div class="led" id="srcLed" title="Sources currently attached to the selector (status.slots[].live)"><span class="d"></span><b>SRC</b><span class="v" id="srcV">–/–</span></div>
+      <div class="led" id="pgmChipWrap" title="Source on program"><b style="color:var(--faint)">PGM</b><b id="pgmChip">—</b></div>
+      <div class="onair" id="onair" role="status" aria-label="On air indicator"><span class="d"></span>On Air</div>
+    </div>
+  </header>
+
+  <!-- ═════════ STAGE: multiview + side panels ═════════ -->
+  <main class="stage">
+    <section class="panel mv screws" aria-label="Multiview">
+     <div class="mvin">
+      <div class="eng">Multiview <span class="tag wired" id="mvTag" title="PGM = iframe /program/ (WHEP via mediamtx). PVW + tiles = /api/mxl/thumbs/*.jpg">LIVE</span></div>
+      <div class="demostrip" id="demoStrip" role="note">Demo mode — simulated sources &amp; signals · not connected to the facility</div>
+      <div class="monitors">
+        <!-- PREVIEW monitor (left, hardware-switcher convention) -->
+        <figure class="mon pvw empty" id="pvwMon">
+          <div class="monbar"><span class="t">PVW</span><span class="name" id="pvwV">—</span><span class="src" id="pvwSrc"></span></div>
+          <div class="screen">
+            <img id="pvwImg" alt="Preview source" src="">
+            <canvas class="demo" id="pvwCv" width="640" height="360"></canvas>
+            <div class="slate"><span>No preview armed</span><span style="font-size:10px;letter-spacing:.1em;color:#2f3640">select a source on the PREVIEW bus</span></div>
+            <div class="ov bl" id="pvwOv">PREVIEW</div>
+          </div>
+        </figure>
+        <!-- PROGRAM monitor (right) — confidence feed over WHIP/WHEP -->
+        <figure class="mon pgm" id="pgmMon">
+          <div class="monbar"><span class="t">PGM</span><span class="name" id="pgmV">—</span><span class="src">PROGRAM OUT</span></div>
+          <div class="screen">
+            <iframe id="pgm" src="/program/" allow="autoplay" title="Program output"></iframe>
+            <canvas class="demo" id="pgmCv" width="640" height="360"></canvas>
+            <div class="ov tl pgmtag">ON AIR</div>
+            <div class="ov tr">DEMO · SIM</div>
+            <div class="ov bl" id="pgmName">—</div>
+            <div class="ov br" id="pgmRes">1920×1080 · 30</div>
+          </div>
+        </figure>
+      </div>
+      <div class="wallbox">
+        <div class="wall" id="wall" role="group" aria-label="Source multiview — click to arm preview"></div>
+      </div>
+     </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel screws" aria-label="Test generator">
+        <div class="eng">Pattern · Test Gen <span class="tag wired">API</span></div>
+        <select class="lcd" id="patSel" aria-label="Test-generator pattern"><option value="">—</option></select>
+        <div class="note"><b>POST /pattern</b> sets the TG pattern <b>and cuts PGM to the Pattern slot</b> if it isn't already there.</div>
+      </section>
+
+      <section class="panel screws" aria-label="Audio meters">
+        <div class="eng">Audio · Program <span class="tag mock">MOCK</span></div>
+        <div class="meters" id="meters" role="img" aria-label="Audio level meters (simulated)"></div>
+        <div class="nolev">no level API wired — meters idle outside demo mode</div>
+      </section>
+
+      <section class="panel screws" aria-label="Recover">
+        <div class="eng">Recover <span class="tag wired">API</span></div>
+        <div class="row2">
+          <button class="btn" id="primeBtn" title="Prime every source's reader (fallback — cuts already pre-warm their target; use this only if a cut still looks stuck)">Prime sources</button>
+          <button class="btn" id="repairBtn" title="Rebuild the downstream program path (heavier)">Repair program</button>
+        </div>
+      </section>
+
+      <section class="panel screws" aria-label="Tally legend" style="margin-top:auto">
+        <div class="eng">Tally key</div>
+        <div class="legend">
+          <i class="r"></i><span>PGM · on air</span>
+          <i class="g"></i><span>PVW · armed</span>
+          <i class="a"></i><span>Selected / pending</span>
+          <i class="o"></i><span>Available</span>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- ═════════ CONSOLE: button buses · DSK · transition ═════════ -->
+  <section class="console" aria-label="Switcher control surface">
+    <div class="panel screws buses">
+      <div class="eng">Source Buses <span class="tag wired">API</span>
+        <span class="hot">
+          <span class="busnote" id="hotNote">PGM row locked</span>
+          <button class="btn" id="hotBtn" aria-pressed="false" title="Unlock the PROGRAM row for hot-punch cuts (POST /api/mxl/input). Re-locks after 20 s idle.">Hot-punch lock</button>
+        </span>
+      </div>
+      <div class="busrow pgm" role="group" aria-label="Program bus">
+        <div class="buslbl"><b>PGM</b><span class="lamp"></span></div>
+        <div class="keys" id="busPgm"></div>
+      </div>
+      <div class="busrow pvw" role="group" aria-label="Preview bus">
+        <div class="buslbl"><b>PVW</b><span class="lamp"></span></div>
+        <div class="keys" id="busPvw"></div>
+      </div>
+    </div>
+
+    <div class="panel screws dsk" aria-label="Downstream keyer">
+      <div class="eng">DSK 1 <span class="tag wired">API</span></div>
+      <div class="dskgrid">
+        <button class="btn" id="keyOnBtn" title="POST /api/mxl/key {on:true}">Key on</button>
+        <button class="btn" id="keyOffBtn" title="POST /api/mxl/key {on:false}">Key off</button>
+        <button class="btn wide" id="keyBtn" aria-pressed="false" title="Toggle the downstream key (graphics)">Auto</button>
+      </div>
+      <div class="dskstate" id="dskState"><span class="d"></span><span id="dskTxt">KEY OFF · graphics</span></div>
+    </div>
+
+    <div class="panel screws trans" aria-label="Transition">
+      <div class="tcol">
+        <div class="eng" style="margin-bottom:0">Transition <span class="tag mock" title="Backend performs a hard cut (take). Style, rate and T-bar are UI-only.">STYLE · RATE · T-BAR MOCK</span></div>
+        <div class="styles" role="radiogroup" aria-label="Transition style (mock)">
+          <button class="btn sel" data-style="mix" role="radio" aria-checked="true"><span class="gly mix"></span>Mix</button>
+          <button class="btn" data-style="dip" role="radio" aria-checked="false"><span class="gly dip"></span>Dip</button>
+          <button class="btn" data-style="wipe" role="radio" aria-checked="false"><span class="gly wipe"></span>Wipe</button>
+        </div>
+        <div class="rate"><label for="rate">Rate</label><input id="rate" type="number" min="1" max="250" value="30" inputmode="numeric" aria-label="Transition rate in frames"><span class="secs" id="rateSecs">1.00 s</span></div>
+        <div class="cutauto">
+          <button class="btn big" id="take" disabled title="Take — cut PVW to PGM  (Space)">Cut<span class="sub" id="takeSub">arm a source first</span></button>
+          <button class="btn big" id="autoBtn" disabled title="Auto transition — backend performs a cut; T-bar animates  (Enter)">Auto<span class="sub" id="autoSub">cut + t-bar</span></button>
+        </div>
+      </div>
+      <div class="tbarwrap">
+        <div class="tbar" id="tbar" role="slider" tabindex="0" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="T-bar (drag to the end to take)">
+          <div class="rail"></div><div class="fillbar" id="tbFill"></div>
+          <div class="tick" style="top:6px"></div><div class="tick" style="top:50%"></div><div class="tick" style="bottom:6px"></div>
+          <div class="handle" id="tbHandle"></div>
+        </div>
+        <div class="tbval" id="tbVal">0%</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════ STATUS BAR ═════════ -->
+  <footer class="statusbar">
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    <div class="keys-legend" aria-label="Keyboard shortcuts">
+      <span><kbd>1</kbd>–<kbd>7</kbd> preview</span>
+      <span><kbd>Space</kbd> TAKE</span>
+      <span><kbd>Enter</kbd> AUTO</span>
+      <span><kbd>K</kbd> key</span>
+      <span><kbd>L</kbd> unlock</span>
+      <span><kbd>⇧</kbd><kbd>1</kbd>–<kbd>7</kbd> hot-punch</span>
+    </div>
+    <div class="r" id="modeTag">/api/mxl/* · no external services</div>
+  </footer>
+</div>
+
+<script>
+// Optional control token (only needed when the backend sets MXL_CONTROL_TOKEN).
+// Open the page once as  <url>#token=<secret>  — it's kept in this browser's
+// localStorage and sent as X-MXL-Token on POSTs to /api/mxl/*. The fragment never
+// reaches the server and is stripped from the address bar. No token => no change,
+// so this is a no-op on a localhost/LAN deploy that leaves auth off.
+// (Unchanged from web/local.html.)
+(function(){
+  try{
+    var m=/[#&]token=([^&]+)/.exec(location.hash||'');
+    if(m){ localStorage.setItem('mxl_control_token', decodeURIComponent(m[1]));
+      history.replaceState(null,'',location.pathname+location.search); }
+    var tok=localStorage.getItem('mxl_control_token');
+    if(tok && window.fetch){ var _f=window.fetch.bind(window);
+      window.fetch=function(u,o){
+        if(tok && typeof u==='string' && u.indexOf('/api/mxl/')===0 && o && o.method && o.method.toUpperCase()==='POST'){
+          o=Object.assign({},o,{headers:Object.assign({},o.headers||{},{'X-MXL-Token':tok})}); }
+        return _f(u,o); };
+    }
+  }catch(e){}
+})();
+</script>
+<script>
+(function(){
+  "use strict";
+  var $=function(s){return document.querySelector(s);};
+  var body=document.body;
+
+  /* ── tunables ───────────────────────────────────────────────────────────── */
+  var CFG={
+    ALLOW_DEMO_FALLBACK:true,   // boot-time only: if the very first /status fails, show the demo (never mid-session)
+    FPS:30,                     // facility frame rate (config/facility.json) — used for the TC readout + rate field
+    POLL_MS:1500,               // status + thumbnail poll (same as local.html)
+    HOLD_MS:1200,               // keep optimistic bus state this long after a local action (same as local.html)
+    HOT_RELOCK_MS:20000         // PROGRAM-row hot-punch re-locks after this much idle
+  };
+  var qs=new URLSearchParams(location.search);
+  if(qs.get('demo')==='0') CFG.ALLOW_DEMO_FALLBACK=false;
+  var FORCE_DEMO=qs.get('demo')==='1';
+
+  /* ── elements (ids kept from local.html where they exist) ───────────────── */
+  var wall=$('#wall'), conn=$('#conn'), connText=$('#connText'), pgmChip=$('#pgmChip'),
+      pgmName=$('#pgmName'), pgmV=$('#pgmV'), pvwV=$('#pvwV'),
+      takeBtn=$('#take'), takeSub=$('#takeSub'), keyBtn=$('#keyBtn'),
+      patSel=$('#patSel'), repairBtn=$('#repairBtn'), primeBtn=$('#primeBtn'), msg=$('#msg'),
+      pgmFrame=$('#pgm'), pvwImg=$('#pvwImg'), pvwMon=$('#pvwMon'), pvwOv=$('#pvwOv'), pvwSrc=$('#pvwSrc'),
+      busPgm=$('#busPgm'), busPvw=$('#busPvw'), onair=$('#onair'),
+      keyOnBtn=$('#keyOnBtn'), keyOffBtn=$('#keyOffBtn'), dskState=$('#dskState'), dskTxt=$('#dskTxt'),
+      autoBtn=$('#autoBtn'), autoSub=$('#autoSub'), rate=$('#rate'), rateSecs=$('#rateSecs'),
+      tbar=$('#tbar'), tbHandle=$('#tbHandle'), tbFill=$('#tbFill'), tbVal=$('#tbVal'),
+      hotBtn=$('#hotBtn'), hotNote=$('#hotNote'),
+      recLed=$('#recLed'), recV=$('#recV'), srcLed=$('#srcLed'), srcV=$('#srcV'),
+      modeTag=$('#modeTag'), demoStrip=$('#demoStrip');
+
+  $('#facName').textContent=body.getAttribute('data-facility')||'MXL Facility';
+
+  // no-signal slate — same house style as mxl-multiview.html
+  var NOSIG='data:image/svg+xml;utf8,'+encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">'+
+    '<rect width="100%" height="100%" fill="#060910"/>'+
+    '<text x="50%" y="54%" fill="#3c4a70" font-size="15" font-family="monospace" text-anchor="middle">no signal</text></svg>');
+
+  /* ── state ──────────────────────────────────────────────────────────────── */
+  var DEMO=false;
+  var slots=[];        // [{slot, role, label}] from /api/mxl/slots
+  var tiles={};        // slot -> {el, img, cv, tallyEl}
+  var keysP={}, keysV={};   // slot -> bus button
+  var pgm=null, pvw=null, keyOn=false, busy=false, busHoldAt=0, pend=null;
+  var liveMap={};      // slot -> bool
+  var connected=false;
+  var hotOn=false, hotTimer=null, pvwImgSlot=undefined;
+  var tstyle='mix';
+
+  /* ── helpers ────────────────────────────────────────────────────────────── */
+  function setMsg(t,err){ msg.textContent=t||''; msg.classList.toggle('err',!!err); }
+  function setBusy(b,t){ busy=b;
+    [keyBtn,keyOnBtn,keyOffBtn,patSel,repairBtn,primeBtn].forEach(function(el){el.disabled=b;});
+    paintTake();
+    if(t!==undefined){ setMsg(t, /^⚠/.test(t)); }
+  }
+  function post(url,payload){
+    if(DEMO) return mock.post(url,payload||{});
+    return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})})
+      .then(function(r){return r.json();});
+  }
+  function label(slot){ var s=slots.find(function(x){return x.slot===slot;}); return s?s.label:('Input '+(slot+1)); }
+  function roleOf(slot){ var s=slots.find(function(x){return x.slot===slot;}); return s?s.role:''; }
+  function ready(){ return !busy && pvw!==null && pvw!==pgm; }
+  function pad(n){ return (n<10?'0':'')+n; }
+
+  /* ── painting ───────────────────────────────────────────────────────────── */
+  function paintTake(){
+    var l=pgm!==null?label(pgm):'—', v=pvw!==null?label(pvw):'—';
+    pgmV.textContent=l; pvwV.textContent=v; pgmChip.textContent=l; pgmName.textContent=l;
+    pvwSrc.textContent = pvw!==null ? 'SRC '+(pvw+1) : '';
+    pvwMon.classList.toggle('empty', pvw===null);
+    var ok=ready();
+    takeBtn.disabled=!ok; autoBtn.disabled=!ok;
+    var sub = pvw===null ? 'arm a source first' : pvw===pgm ? 'already on air' : label(pvw)+' → PGM';
+    takeSub.textContent=sub; autoSub.textContent = ok ? 'cut + t-bar' : '—';
+    onair.classList.toggle('on', (connected||DEMO) && pgm!==null);
+    if(!DEMO && pvw!==pvwImgSlot){ pvwImgSlot=pvw; refreshPvwImg(); }
+  }
+  function paintBuses(){
+    slots.forEach(function(s){
+      var nofeed = liveMap[s.slot]===false, isP=pgm===s.slot, isV=pvw===s.slot;
+      var t=tiles[s.slot];
+      if(t){
+        t.el.classList.toggle('pgm', isP);
+        t.el.classList.toggle('pvw', isV && !isP);
+        t.el.classList.toggle('nofeed', nofeed);
+        t.tallyEl.textContent = isP ? 'PGM' : (isV ? 'PVW' : '');
+      }
+      var kp=keysP[s.slot], kv=keysV[s.slot];
+      if(kp){ kp.classList.toggle('lit',isP); kp.classList.toggle('nofeed',nofeed); kp.setAttribute('aria-pressed',isP); }
+      if(kv){ kv.classList.toggle('pend', pend===s.slot); kv.classList.toggle('lit', isV && pend!==s.slot);
+        kv.classList.toggle('nofeed',nofeed); kv.setAttribute('aria-pressed',isV); }
+    });
+    paintTake();
+  }
+  function paintKey(){
+    keyBtn.setAttribute('aria-pressed',keyOn);
+    keyOnBtn.classList.toggle('redlit',keyOn); keyOffBtn.classList.toggle('sel',!keyOn);
+    dskState.classList.toggle('on',keyOn);
+    dskTxt.textContent = keyOn ? 'KEY ON · graphics on air' : 'KEY OFF · graphics';
+  }
+  function setConn(kind,text){
+    conn.classList.remove('ok','bad','demo'); if(kind) conn.classList.add(kind);
+    connText.textContent=text;
+    connected = kind==='ok';
+  }
+
+  /* ── actions (same endpoints/payloads as local.html) ────────────────────── */
+  function arm(slot){
+    if(liveMap[slot]===false) return;       // don't arm a dead source
+    pvw=slot; pend=slot; paintBuses();
+    post('/api/mxl/preview',{input:slot}).then(function(j){
+      if(j&&j.error){ setMsg('⚠ '+j.error,true); refresh(); }
+    }).catch(function(){ setMsg('⚠ preview request failed',true); refresh(); })   // preview is facility state
+    .finally(function(){ setTimeout(function(){ if(pend===slot){ pend=null; paintBuses(); } },240); });
+  }
+  function take(){
+    if(busy || pvw===null || pvw===pgm) return;
+    setBusy(true,'taking…');
+    post('/api/mxl/take',{}).then(function(j){
+      if(j.error){ setBusy(false,'⚠ '+j.error); return; }
+      busHoldAt=Date.now(); pgm=j.input; if(j.pvw!=null) pvw=j.pvw;
+      setBusy(false,''); paintBuses(); refresh();
+    }).catch(function(){ setBusy(false,'⚠ request failed'); });
+  }
+  // Hot-punch: cut a source straight to PGM from the PROGRAM row (POST /api/mxl/input).
+  // Locked by default so a stray click can never change what is on air.
+  function setHot(b){
+    hotOn=!!b; hotBtn.classList.toggle('sel',hotOn); hotBtn.setAttribute('aria-pressed',hotOn);
+    hotNote.textContent = hotOn ? 'PGM row ARMED — click = cut to air' : 'PGM row locked';
+    hotNote.style.color = hotOn ? 'var(--amber)' : '';
+    clearTimeout(hotTimer); if(hotOn) hotTimer=setTimeout(function(){ setHot(false); }, CFG.HOT_RELOCK_MS);
+  }
+  function hotPunch(slot){
+    var k=keysP[slot];
+    if(!hotOn){ setMsg('PROGRAM row is locked — press HOT-PUNCH LOCK (or L) to arm it'); if(k){ k.classList.remove('shake'); void k.offsetWidth; k.classList.add('shake'); } return; }
+    if(liveMap[slot]===false || busy || slot===pgm) return;
+    setBusy(true,'cutting '+label(slot)+'…');
+    post('/api/mxl/input',{input:slot}).then(function(j){
+      if(j.error){ setBusy(false,'⚠ '+j.error); return; }
+      busHoldAt=Date.now(); pgm=slot; setBusy(false,''); paintBuses(); refresh(); setHot(true);
+    }).catch(function(){ setBusy(false,'⚠ request failed'); });
+  }
+  function setKey(on){
+    post('/api/mxl/key',{on:!!on}).then(function(j){
+      if(j&&j.error){ setMsg('⚠ '+j.error,true); return; }
+      keyOn=!!on; paintKey(); if(DEMO) demoKeyGoal=keyOn?1:0;
+    }).catch(function(){ setMsg('⚠ key request failed',true); });
+  }
+  function auto(){
+    if(!ready()) return;
+    tbAuto();       // cosmetic: sweep the T-bar over RATE frames
+    take();         // the backend can only hard-cut, so the cut fires immediately
+  }
+
+  /* ── T-bar (UI only — completing the stroke fires the same TAKE) ────────── */
+  var tb={v:0,drag:false};
+  function tbSet(v){
+    tb.v=Math.max(0,Math.min(1,v));
+    var h=Math.max(0,tbar.clientHeight-12), y=6+tb.v*h;
+    tbHandle.style.top=y+'px'; tbFill.style.height=(tb.v*h)+'px';
+    var pc=Math.round(tb.v*100); tbVal.textContent=pc+'%'; tbar.setAttribute('aria-valuenow',pc);
+  }
+  function tbSnapBack(){ tbar.classList.add('snap'); tbSet(0); setTimeout(function(){ tbar.classList.remove('snap'); },260); }
+  function tbCommit(){ tbSet(1); take(); setTimeout(tbSnapBack,90); }
+  function tbEvt(e){ var r=tbar.getBoundingClientRect(); return (e.clientY-r.top-6)/Math.max(1,r.height-12); }
+  tbar.addEventListener('pointerdown',function(e){
+    if(!ready()){ setMsg(pvw===null?'T-bar: arm a source on preview first':'T-bar: preview is already on air'); return; }
+    tb.drag=true; tbar.classList.add('drag'); tbar.classList.remove('snap'); tbar.setPointerCapture(e.pointerId); tbSet(tbEvt(e)); e.preventDefault();
+  });
+  tbar.addEventListener('pointermove',function(e){ if(tb.drag) tbSet(tbEvt(e)); });
+  function tbUp(){ if(!tb.drag) return; tb.drag=false; tbar.classList.remove('drag'); if(tb.v>=.96) tbCommit(); else tbSnapBack(); }
+  tbar.addEventListener('pointerup',tbUp); tbar.addEventListener('pointercancel',tbUp);
+  tbar.addEventListener('keydown',function(e){
+    var k=e.key, d=0;
+    if(k==='ArrowDown'||k==='ArrowRight') d=.1; else if(k==='ArrowUp'||k==='ArrowLeft') d=-.1;
+    else if(k==='PageDown') d=.25; else if(k==='PageUp') d=-.25;
+    else if(k==='Home'){ e.preventDefault(); tbSnapBack(); return; }
+    else if(k==='End'){ e.preventDefault(); if(ready()) tbCommit(); return; }
+    else return;
+    e.preventDefault(); e.stopPropagation();
+    if(!ready()) return;
+    tbSet(tb.v+d); if(tb.v>=.999) tbCommit();
+  });
+  function tbAuto(){
+    var frames=Math.max(1,parseInt(rate.value,10)||30), dur=frames/CFG.FPS*1000, t0=performance.now();
+    autoBtn.classList.add('run'); tbar.classList.remove('snap');
+    (function step(now){
+      var p=Math.min(1,(now-t0)/dur); tbSet(p);
+      if(p<1) requestAnimationFrame(step);
+      else { autoBtn.classList.remove('run'); tbSnapBack(); }
+    })(t0);
+  }
+  rate.addEventListener('input',function(){ var f=Math.max(1,Math.min(250,parseInt(rate.value,10)||1)); rateSecs.textContent=(f/CFG.FPS).toFixed(2)+' s'; });
+  document.querySelectorAll('.styles .btn').forEach(function(b){
+    b.addEventListener('click',function(){
+      tstyle=b.getAttribute('data-style');
+      document.querySelectorAll('.styles .btn').forEach(function(o){ var on=o===b; o.classList.toggle('sel',on); o.setAttribute('aria-checked',on); });
+      if(!DEMO) setMsg('Transition style is a mock — the backend performs a hard cut');
+      b.blur();
+    });
+  });
+
+  /* ── multiview wall + button buses ──────────────────────────────────────── */
+  function mkKey(s,bus){
+    var b=document.createElement('button'); b.type='button'; b.className='key';
+    var led=document.createElement('i'); led.className='led-bar';
+    var n=document.createElement('span'); n.className='n'; n.textContent=s.slot+1;
+    var t=document.createElement('span'); t.className='t'; t.textContent=s.label;
+    b.appendChild(led); b.appendChild(n); b.appendChild(t);
+    b.setAttribute('aria-label',(bus==='pvw'?'Preview: ':'Program: ')+s.label);
+    b.addEventListener('click',function(e){
+      if(bus==='pvw') arm(s.slot); else hotPunch(s.slot);
+      if(e.detail>0) b.blur();       // mouse click: give Space/Enter back to TAKE/AUTO
+    });
+    return b;
+  }
+  function buildWall(){
+    wall.innerHTML=''; busPgm.innerHTML=''; busPvw.innerHTML=''; tiles={}; keysP={}; keysV={};
+    var N=slots.length;
+    if(!N){ var e=document.createElement('div'); e.style.cssText='color:var(--dim);font-family:var(--mono);font-size:11px;grid-column:1/-1;padding:16px';
+      e.textContent='No sources in the facility manifest.'; wall.appendChild(e); return; }
+    var cols = N<=8 ? N : Math.ceil(N/2);
+    wall.style.gridTemplateColumns='repeat('+cols+',minmax(0,1fr))';
+    busPgm.style.gridTemplateColumns=busPvw.style.gridTemplateColumns='repeat('+Math.min(N,10)+',var(--key))';
+    slots.forEach(function(s){
+      var el=document.createElement('div'); el.className='tile'; el.setAttribute('role','button');
+      el.setAttribute('tabindex','0'); el.setAttribute('aria-label','Arm '+s.label+' on preview');
+      var img=document.createElement('img'); img.alt=''; img.src=NOSIG;
+      var cv=document.createElement('canvas'); cv.width=320; cv.height=180;
+      var tally=document.createElement('div'); tally.className='tally';
+      var lab=document.createElement('div'); lab.className='label';
+      lab.innerHTML='<span class="live"></span><span class="name"></span><span class="num"></span>';
+      lab.querySelector('.name').textContent=s.label; lab.querySelector('.num').textContent=s.slot+1;
+      el.appendChild(img); el.appendChild(cv); el.appendChild(tally); el.appendChild(lab);
+      el.addEventListener('click', function(){ arm(s.slot); });
+      el.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); arm(s.slot); } });
+      wall.appendChild(el);
+      tiles[s.slot]={el:el,img:img,cv:cv,tallyEl:tally};
+      keysP[s.slot]=mkKey(s,'pgm'); busPgm.appendChild(keysP[s.slot]);
+      keysV[s.slot]=mkKey(s,'pvw'); busPvw.appendChild(keysV[s.slot]);
+    });
+    paintBuses();
+  }
+
+  /* ── thumbnails (live mode): per-source JPEG probe + swap on 404 ────────── */
+  function refreshThumbs(){
+    if(DEMO) return;
+    slots.forEach(function(s){
+      var t=tiles[s.slot]; if(!t) return;
+      if(liveMap[s.slot]===false){ t.img.src=NOSIG; return; }
+      var probe=new Image();
+      probe.onload=function(){ t.img.src=probe.src; };
+      probe.onerror=function(){ t.img.src=NOSIG; };
+      probe.src='/api/mxl/thumbs/'+encodeURIComponent(s.role)+'.jpg?t='+Date.now();
+    });
+    refreshPvwImg();
+  }
+  // PVW monitor in live mode = the armed source's thumbnail (the API has no preview video stream).
+  function refreshPvwImg(){
+    if(DEMO) return;
+    if(pvw===null){ pvwImg.removeAttribute('src'); return; }
+    if(liveMap[pvw]===false){ pvwImg.src=NOSIG; return; }
+    var role=roleOf(pvw), probe=new Image();
+    probe.onload=function(){ pvwImg.src=probe.src; };
+    probe.onerror=function(){ pvwImg.src=NOSIG; };
+    probe.src='/api/mxl/thumbs/'+encodeURIComponent(role)+'.jpg?t='+Date.now();
+  }
+
+  /* ── status ─────────────────────────────────────────────────────────────── */
+  function paint(st){
+    if(DEMO){ setConn('demo','demo mode'); } else { setConn('ok','connected'); }
+    var hold=Date.now()-busHoldAt<CFG.HOLD_MS;      // status is slightly stale right after a local action
+    if(!hold && st.input!==undefined) pgm=st.input;
+    if(!hold && st.pvw!=null) pvw=st.pvw;
+    if(Array.isArray(st.slots)) st.slots.forEach(function(s){ liveMap[s.slot]=s.live; });
+    if(st.key!==undefined){ keyOn=!!st.key; paintKey(); }
+    if(st.available && patSel.options.length<=1){
+      st.available.forEach(function(p){ var o=document.createElement('option'); o.value=o.textContent=p; patSel.appendChild(o); });
+    }
+    if(st.patterns && st.patterns.tg1 && !busy) patSel.value=st.patterns.tg1;
+    // source-count LED
+    if(slots.length){
+      var n=slots.filter(function(s){return liveMap[s.slot]!==false;}).length;
+      srcV.textContent=n+'/'+slots.length;
+      srcLed.classList.remove('ok','amb','bad'); srcLed.classList.add(n===slots.length?'ok':(n?'amb':'bad'));
+    }
+    paintBuses();
+  }
+  function offline(txt){
+    setConn('bad',txt);
+    srcLed.classList.remove('ok','amb','bad'); onair.classList.remove('on');
+  }
+  function refresh(){
+    if(DEMO){ paint(mock.status()); return; }
+    fetch('/api/mxl/status').then(function(r){return r.json();}).then(function(st){
+      if(st && !st.error){ paint(st); }
+      else offline('no backend');
+    }).catch(function(){ offline('offline'); });
+  }
+
+  /* ── controls ───────────────────────────────────────────────────────────── */
+  takeBtn.addEventListener('click', function(e){ take(); if(e.detail>0) takeBtn.blur(); });
+  autoBtn.addEventListener('click', function(e){ auto(); if(e.detail>0) autoBtn.blur(); });
+  keyBtn.addEventListener('click', function(e){ setKey(!keyOn); if(e.detail>0) keyBtn.blur(); });
+  keyOnBtn.addEventListener('click', function(e){ setKey(true); if(e.detail>0) keyOnBtn.blur(); });
+  keyOffBtn.addEventListener('click', function(e){ setKey(false); if(e.detail>0) keyOffBtn.blur(); });
+  hotBtn.addEventListener('click', function(e){ setHot(!hotOn); if(e.detail>0) hotBtn.blur(); });
+  patSel.addEventListener('change', function(){ if(patSel.value){ post('/api/mxl/pattern',{pattern:patSel.value}).then(function(j){
+    if(j&&j.error) setMsg('⚠ '+j.error,true); else if(j&&j.cut){ busHoldAt=Date.now(); pgm=2; paintBuses(); refresh(); setMsg('Pattern set — PGM cut to Pattern slot'); }
+  }).catch(function(){}); patSel.blur(); } });
+  repairBtn.addEventListener('click', function(){
+    repairBtn.disabled=true; repairBtn.textContent='Repairing…';
+    post('/api/mxl/repair',{}).catch(function(){}).finally(function(){
+      setTimeout(function(){ repairBtn.disabled=false; repairBtn.textContent='Repair program'; }, 2500); });
+  });
+  // Prime: sweep every source's reader so the next cut can't land on a cold one
+  // (the "switch sticks on the old source" fix). Lighter than Repair; takes ~400ms
+  // per attached source. The server restores program to the current PGM slot.
+  primeBtn.addEventListener('click', function(){
+    primeBtn.disabled=true; var was=primeBtn.textContent; primeBtn.textContent='Priming…';
+    post('/api/mxl/warmup',{}).catch(function(){}).finally(function(){
+      setTimeout(function(){ primeBtn.disabled=false; primeBtn.textContent=was; refresh(); }, 600); });
+  });
+
+  // 1–N arm preview · Space = TAKE · Enter = AUTO · K = key · L = hot-punch lock · Shift+1–N = hot-punch cut
+  document.addEventListener('keydown', function(e){
+    if(e.ctrlKey||e.metaKey||e.altKey) return;
+    var t=e.target, tag=t.tagName, role=t.getAttribute&&t.getAttribute('role');
+    if(tag==='SELECT'||tag==='INPUT'||tag==='TEXTAREA') return;
+    var interactive = tag==='BUTTON'||role==='button'||role==='slider'||role==='radio';
+    if(e.key==='Enter'||e.key===' '){
+      if(interactive) return;             // let a keyboard-focused button do its own thing
+      e.preventDefault(); if(e.repeat) return;
+      if(e.key===' ') take(); else auto();
+      return;
+    }
+    var m=/^Digit([1-9])$/.exec(e.code||'');
+    if(m){ var n=parseInt(m[1],10);
+      if(n<=slots.length){ e.preventDefault(); if(e.shiftKey) hotPunch(slots[n-1].slot); else arm(slots[n-1].slot); }
+      return; }
+    if(e.key==='k'||e.key==='K'){ setKey(!keyOn); return; }
+    if(e.key==='l'||e.key==='L'){ setHot(!hotOn); return; }
+  });
+
+  /* ── timecode clock (browser wall-clock at facility fps) ────────────────── */
+  var tcHMS=$('#tcHMS'), tcFr=$('#tcFr');
+  function tick(){
+    var d=new Date();
+    tcHMS.textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    tcFr.textContent=pad(Math.floor(d.getMilliseconds()/1000*CFG.FPS));
+  }
+  setInterval(tick,1000/CFG.FPS); tick();
+
+  /* ── audio meters (MOCK: there is no level API; animate only in demo) ──── */
+  var CH=[{k:'pgml',l:'L'},{k:'pgmr',l:'R'},{k:'tg',l:'TG'},{k:'g1',l:'G1'},{k:'g2',l:'G2'},{k:'vox',l:'VOX'}];
+  var mEl=$('#meters'), lvl={}, pkv={};
+  (function(){
+    var sc=document.createElement('div'); sc.className='scale';
+    ['0','-6','-12','-24','-48'].forEach(function(x){ var s=document.createElement('span'); s.textContent=x; sc.appendChild(s); });
+    mEl.appendChild(sc);
+    CH.forEach(function(c){
+      var w=document.createElement('div'); w.className='mtr';
+      w.innerHTML='<div class="bar"><div class="cov" style="height:100%"></div><div class="pk"></div></div><span></span>';
+      w.querySelector('span').textContent=c.l; mEl.appendChild(w); c.cov=w.querySelector('.cov'); c.pk=w.querySelector('.pk');
+      lvl[c.k]=0; pkv[c.k]=0;
+    });
+  })();
+  function nz(t,s){ return ((Math.sin(t*3.1+s)+Math.sin(t*5.7+s*2.3)+Math.sin(t*11.3+s*.7))/6)+.5; }
+  function meters(T){
+    var tgt={
+      pgml:.5+.3*nz(T,1), pgmr:.5+.3*nz(T,2.2),
+      tg:(pgm===1?.72:.46), g1:(Math.abs(Math.sin(T*1.3+1))>.28?.18+.5*nz(T,5):.06),
+      g2:0, vox:(Math.abs(Math.sin(T*.9+4))>.4?.14+.45*nz(T,8):.05)
+    };
+    CH.forEach(function(c){
+      var v=tgt[c.k]; if(v>lvl[c.k]) lvl[c.k]=v; else lvl[c.k]=Math.max(v,lvl[c.k]-.035);
+      pkv[c.k]=Math.max(lvl[c.k],pkv[c.k]-.006);
+      c.cov.style.height=((1-lvl[c.k])*100)+'%'; c.pk.style.bottom=(pkv[c.k]*100-1)+'%';
+    });
+  }
+
+  /* ═════════════════════════ DEMO MODE (offline mock) ═════════════════════════
+     Everything below only runs when /api/mxl/status could not be reached at page
+     load (or ?demo=1). It replaces fetch() with an in-page fake facility and
+     draws synthetic sources to <canvas>. It never touches the network.        */
+  var DEMO_SLOTS=[
+    {slot:0,role:'cam',label:'Studio Cam 1'},{slot:1,role:'playout',label:'Playout'},{slot:2,role:'pattern',label:'Pattern'},
+    {slot:3,role:'cam2',label:'Studio Cam 2'},{slot:4,role:'guest1',label:'Guest 1'},{slot:5,role:'guest2',label:'Guest 2'},
+    {slot:6,role:'layout',label:'Layout'}];
+  var DEMO_PATTERNS=['100% bars','SMPTE 75%','SMPTE','Snow','Black','White','Red','Green','Blue',
+    'Checkers 1','Checkers 2','Checkers 4','Checkers 8','Circular','Blink','Zone Plate','Gamut',
+    'Chroma Zone Plate','Solid Color','Ball','Bar','Pinwheel','Spokes','Gradient','SMPTE RP-219'];
+  var demoKeyGoal=0, demoKeyAnim=0, demoPattern='100% bars', Tdemo=0;
+  var mock={
+    st:{input:0,pvw:1,key:false,live:[true,true,true,true,true,false,true]},
+    status:function(){
+      var s=mock.st;
+      return {input:s.input,pvw:s.pvw,key:s.key,busy:false,
+        slots:DEMO_SLOTS.map(function(x){return {slot:x.slot,role:x.role,flow:null,live:s.live[x.slot],pgm:s.input===x.slot,pvw:s.pvw===x.slot};}),
+        patterns:{tg1:demoPattern},available:DEMO_PATTERNS};
+    },
+    cut:function(slot){
+      if(!mock.st.live[slot]) return {error:'source "'+DEMO_SLOTS[slot].role+'" is not attached to the selector'};
+      mock.st.input=slot; return null;
+    },
+    handle:function(url,b){
+      var s=mock.st, r;
+      switch(url){
+        case '/api/mxl/preview':
+          if(typeof b.input!=='number'||!DEMO_SLOTS[b.input]) return {error:'unknown input'};
+          s.pvw=b.input; return {ok:true,pvw:s.pvw};
+        case '/api/mxl/take':
+          if(s.pvw===null) return {error:'nothing armed on preview'};
+          if(s.pvw===s.input) return {ok:true,input:s.input,pvw:s.pvw,noop:true};
+          r=mock.cut(s.pvw); if(r) return r; return {ok:true,input:s.input,pvw:s.pvw};
+        case '/api/mxl/input':
+          r=mock.cut(b.input); if(r) return r; return {ok:true,input:s.input};
+        case '/api/mxl/key': s.key=!!b.on; return {ok:true,key:s.key};
+        case '/api/mxl/pattern':
+          if(DEMO_PATTERNS.indexOf(b.pattern)<0) return {error:'unknown pattern'};
+          demoPattern=b.pattern; var cut=false; if(s.input!==2){ s.input=2; cut=true; } return {ok:true,pattern:b.pattern,cut:cut};
+        case '/api/mxl/warmup': return {ok:true,warmed:true,restored:s.input};
+        case '/api/mxl/repair': return {ok:true,slot:s.input};
+      }
+      return {error:'not found'};
+    },
+    post:function(url,b){
+      var d = url==='/api/mxl/warmup' ? 1600 : url==='/api/mxl/repair' ? 2200 : url==='/api/mxl/take'||url==='/api/mxl/input' ? 110 : 45;
+      return new Promise(function(res){ setTimeout(function(){ res(mock.handle(url,b)); }, d); });
+    }
+  };
+
+  /* synthetic sources, drawn in a 320×180 space */
+  function lin(c,a,b){ var g=c.createLinearGradient(0,0,0,180); g.addColorStop(0,a); g.addColorStop(1,b); c.fillStyle=g; c.fillRect(0,0,320,180); }
+  function vignette(c){ var g=c.createRadialGradient(160,90,50,160,90,200); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,.5)'); c.fillStyle=g; c.fillRect(0,0,320,180); }
+  function person(c,x,y,s,skin,shirt,hair,sway){
+    c.save(); c.translate(x+sway,y); c.scale(s,s);
+    c.fillStyle=shirt; c.beginPath(); c.ellipse(0,80,58,44,0,Math.PI,2*Math.PI); c.fill(); c.fillRect(-58,80,116,140);
+    c.fillStyle=skin; c.fillRect(-9,22,18,22); c.beginPath(); c.ellipse(0,0,22,27,0,0,6.2832); c.fill();
+    c.fillStyle=hair; c.beginPath(); c.ellipse(0,-8,23,20,0,Math.PI,2*Math.PI); c.fill();
+    c.restore();
+  }
+  function bokeh(c,T,n,rgb){
+    for(var i=0;i<n;i++){ var x=(i*53+22*Math.sin(T*.3+i))%340-10, y=18+(i*37)%90+8*Math.cos(T*.4+i*2), r=9+(i%4)*5;
+      c.fillStyle='rgba('+rgb+','+(.08+.06*(i%3))+')'; c.beginPath(); c.arc(x,y,r,0,6.2832); c.fill(); }
+  }
+  var BARS=['#fff','#ebeb10','#10ebeb','#10eb10','#eb10eb','#eb1010','#1010eb','#000'];
+  function bars(c,y0,h,n){ var cols=BARS.slice(0,n||8), w=320/cols.length; cols.forEach(function(k,i){ c.fillStyle=k; c.fillRect(i*w,y0,w+1,h); }); }
+  function scenePattern(c,T){
+    var p=demoPattern;
+    if(/^SMPTE/.test(p)||p==='SMPTE RP-219'){
+      bars(c,0,118,7); var rv=['#1010eb','#000','#eb10eb','#000','#10ebeb','#000','#fff'], w=320/7;
+      rv.forEach(function(k,i){ c.fillStyle=k; c.fillRect(i*w,118,w+1,14); });
+      c.fillStyle='#00214c'; c.fillRect(0,132,320/6*1,48); c.fillStyle='#fff'; c.fillRect(320/6,132,320/6,48);
+      c.fillStyle='#32006a'; c.fillRect(320/3,132,320/6,48); c.fillStyle='#000'; c.fillRect(160,132,160,48);
+    }
+    else if(p==='Black'||p==='White'||p==='Red'||p==='Green'||p==='Blue'||p==='Solid Color'){
+      c.fillStyle={Black:'#000',White:'#f0f0f0',Red:'#d01818',Green:'#18c018',Blue:'#1818d0','Solid Color':'#7a4cc8'}[p]; c.fillRect(0,0,320,180); }
+    else if(p==='Snow'){ for(var y=0;y<180;y+=6) for(var x=0;x<320;x+=6){ var g=(Math.random()*255)|0; c.fillStyle='rgb('+g+','+g+','+g+')'; c.fillRect(x,y,6,6);} }
+    else if(/^Checkers/.test(p)){ var sz={'Checkers 1':8,'Checkers 2':16,'Checkers 4':32,'Checkers 8':64}[p]||16;
+      for(var yy=0;yy<180;yy+=sz) for(var xx=0;xx<320;xx+=sz){ c.fillStyle=((xx/sz+yy/sz)&1)?'#111':'#eee'; c.fillRect(xx,yy,sz,sz);} }
+    else if(p==='Circular'||/Zone/.test(p)){ c.fillStyle='#777'; c.fillRect(0,0,320,180);
+      for(var r=4;r<190;r+=5){ var a=.5+.5*Math.sin(r*r*.004+T*3); c.strokeStyle='rgba(0,0,0,'+(.15+.7*a)+')'; c.lineWidth=2.2; c.beginPath(); c.arc(160,90,r,0,6.2832); c.stroke(); } }
+    else if(p==='Gradient'||p==='Gamut'){ var g2=c.createLinearGradient(0,0,320,0); g2.addColorStop(0,'#000'); g2.addColorStop(1,'#fff'); c.fillStyle=g2; c.fillRect(0,0,320,180); }
+    else if(p==='Ball'||p==='Bar'||p==='Pinwheel'||p==='Spokes'||p==='Blink'){ bars(c,0,180,8); c.fillStyle='rgba(0,0,0,.35)'; c.fillRect(0,0,320,180);
+      var bx=160+120*Math.sin(T*1.7), by=90+50*Math.sin(T*2.3); c.fillStyle='#fff'; c.beginPath(); c.arc(bx,by,16,0,6.2832); c.fill();
+      c.fillStyle='#e5484d'; c.beginPath(); c.arc(bx-4,by-4,6,0,6.2832); c.fill(); }
+    else bars(c,0,180,8);
+    c.font='700 11px "IBM Plex Mono",monospace'; c.textAlign='center'; c.fillStyle='rgba(0,0,0,.7)'; c.fillRect(100,157,120,16);
+    c.fillStyle='#fff'; c.fillText('TG · '+p.toUpperCase(),160,168);
+  }
+  function sceneClip(c,T){
+    lin(c,'#17233f','#07090f');
+    for(var k=0;k<4;k++){ c.strokeStyle='rgba('+(k%2?'60,200,255':'255,120,160')+','+(.55-k*.1)+')'; c.lineWidth=3-k*.4; c.beginPath();
+      for(var x=0;x<=320;x+=8){ var y=90+Math.sin(x*.025+T*(1+k*.4)+k)*(24+k*8)*Math.sin(T*.5+k*.8); if(x===0) c.moveTo(x,y); else c.lineTo(x,y); } c.stroke(); }
+    c.fillStyle='rgba(255,255,255,.9)'; c.font='700 15px "Barlow Condensed",sans-serif'; c.textAlign='left'; c.fillText('CLIP LOOP · INTRO_BUMPER_v3',14,160);
+    c.fillStyle='rgba(255,255,255,.2)'; c.fillRect(14,166,292,3); c.fillStyle='#35e0ff'; c.fillRect(14,166,292*((T/12)%1),3);
+  }
+  function sceneCam1(c,T){ lin(c,'#3d6f84','#0e1d26'); bokeh(c,T,8,'255,205,130'); c.fillStyle='#16100b'; c.fillRect(0,150,320,30);
+    c.fillStyle='rgba(255,255,255,.07)'; c.fillRect(22,34,60,76); person(c,165,74,.92,'#d9a581','#28323f','#2b1e15',Math.sin(T*.7)*3); vignette(c); }
+  function sceneCam2(c,T){ lin(c,'#2a3f6b','#0a0f1e'); c.fillStyle='rgba(185,215,255,.16)'; c.fillRect(214,18,84,84);
+    c.fillStyle='rgba(0,0,0,.35)'; c.fillRect(255,18,3,84); c.fillRect(214,58,84,3); bokeh(c,T,5,'160,200,255');
+    c.fillStyle='#10131c'; c.fillRect(0,142,320,38); person(c,98,86,.58,'#c99575','#6a2a35','#1a1410',Math.sin(T*.6)*2);
+    person(c,206,88,.56,'#e2b895','#22456a','#4a3020',Math.sin(T*.8+1)*2); vignette(c); }
+  function sceneG1(c,T){ lin(c,'#51358b','#150c28'); bokeh(c,T,6,'210,170,255'); person(c,160,88,1.08,'#c28b69','#2e2e3a','#101010',Math.sin(T*1.1)*4);
+    c.fillStyle='rgba(0,0,0,.55)'; c.fillRect(10,10,66,16); c.fillStyle='#fff'; c.font='700 10px "IBM Plex Mono",monospace'; c.textAlign='left'; c.fillText('GUEST · SRT',16,22); vignette(c); }
+  function sceneNoSig(c){ c.fillStyle='#060910'; c.fillRect(0,0,320,180); c.strokeStyle='rgba(60,74,112,.25)'; c.lineWidth=1;
+    for(var i=-180;i<320;i+=14){ c.beginPath(); c.moveTo(i,0); c.lineTo(i+180,180); c.stroke(); }
+    c.fillStyle='#3c4a70'; c.font='600 15px "IBM Plex Mono",monospace'; c.textAlign='center'; c.fillText('NO SIGNAL',160,95); }
+  function drawScene(c,slot,T,depth){
+    var role=(DEMO_SLOTS[slot]||{}).role;
+    if(mock.st.live[slot]===false) return sceneNoSig(c);
+    switch(role){
+      case 'cam': return sceneCam1(c,T); case 'cam2': return sceneCam2(c,T); case 'guest1': return sceneG1(c,T);
+      case 'playout': return scenePattern(c,T); case 'pattern': return sceneClip(c,T);
+      case 'layout':
+        c.fillStyle='#07090d'; c.fillRect(0,0,320,180);
+        [[0,3,0],[160,3,3],[0,93,4],[160,93,2]].forEach(function(q){ c.save(); c.translate(q[0]+3,q[1]-3+3); c.scale(.48,.48); c.beginPath(); c.rect(0,0,320,180); c.clip();
+          drawScene(c,q[2],T,1); c.restore(); });
+        return;
+      default: return sceneNoSig(c);
+    }
+  }
+  function lowerThird(c,k){
+    if(k<=0.01) return; var e=1-Math.pow(1-k,3), x=-250*(1-e)+14;
+    c.save(); c.globalAlpha=Math.min(1,k*2);
+    c.fillStyle='#e5484d'; c.fillRect(x,128,5,36);
+    c.fillStyle='rgba(12,13,16,.92)'; c.fillRect(x+5,128,206,36);
+    c.fillStyle='#fff'; c.font='700 17px "Barlow Condensed",sans-serif'; c.textAlign='left'; c.fillText('GUY COCHRAN',x+15,146);
+    c.fillStyle='#35e0ff'; c.font='600 10px "IBM Plex Mono",monospace'; c.fillText('HOST · MXL LAB',x+15,158);
+    c.restore();
+  }
+  function blit(cv,fn,scale){ var c=cv.getContext('2d'); c.save(); c.scale(scale,scale); fn(c); c.restore(); }
+  var lastF=0;
+  function demoFrame(ts){
+    requestAnimationFrame(demoFrame);
+    if(!DEMO||document.hidden||ts-lastF<62) return; lastF=ts; Tdemo=ts/1000;
+    demoKeyAnim += (demoKeyGoal-demoKeyAnim)*.18;
+    slots.forEach(function(s){ var t=tiles[s.slot]; if(t) blit(t.cv,function(c){ drawScene(c,s.slot,Tdemo); },1); });
+    blit($('#pgmCv'),function(c){ if(pgm===null){ c.fillStyle='#000'; c.fillRect(0,0,320,180);} else drawScene(c,pgm,Tdemo); lowerThird(c,demoKeyAnim); },2);
+    blit($('#pvwCv'),function(c){ if(pvw===null){ c.fillStyle='#000'; c.fillRect(0,0,320,180);} else drawScene(c,pvw,Tdemo); },2);
+    meters(Tdemo);
+    var el=Math.floor(Tdemo)+764; recV.textContent=pad(Math.floor(el/3600))+':'+pad(Math.floor(el/60)%60)+':'+pad(el%60);
+  }
+  function startDemo(auto){
+    DEMO=true; body.classList.add('demo'); var mt=$('#mvTag'); mt.textContent='SIM'; mt.className='tag mock'; pgmFrame.removeAttribute('src');
+    slots=DEMO_SLOTS.slice(); slots.forEach(function(s){ liveMap[s.slot]=mock.st.live[s.slot]; });
+    buildWall(); recLed.classList.add('red','blink');
+    modeTag.textContent='DEMO · /api/mxl/* not contacted';
+    setMsg(auto ? 'DEMO — /api/mxl/status unreachable; simulated sources (?demo=0 disables)' : 'DEMO (?demo=1) — simulated facility');
+    demoKeyGoal=demoKeyAnim=0; refresh(); setInterval(refresh,CFG.POLL_MS); requestAnimationFrame(demoFrame);
+    if(auto){ // if the real backend shows up later, switch over cleanly
+      setInterval(function(){ fetch('/api/mxl/status').then(function(r){return r.json();}).then(function(st){ if(st&&!st.error) location.reload(); }).catch(function(){}); },6000);
+    }
+  }
+
+  /* ── live boot ──────────────────────────────────────────────────────────── */
+  function startLive(st){
+    recV.textContent='n/a'; recLed.title='Recorder — no recording API is wired yet (mock)';
+    fetch('/api/mxl/slots').then(function(r){return r.json();}).then(function(d){
+      slots=(d&&d.slots)||[];
+    }).catch(function(){ slots=[]; }).then(function(){
+      if(!slots.length && st && Array.isArray(st.slots)) slots=st.slots.map(function(s){ return {slot:s.slot,role:s.role,label:s.role}; });
+      buildWall(); if(st) paint(st); refreshThumbs(); setInterval(refreshThumbs,CFG.POLL_MS);
+    });
+    refresh(); setInterval(refresh,CFG.POLL_MS);
+  }
+  function boot(){
+    paintKey(); tbSet(0);
+    if(FORCE_DEMO){ startDemo(false); return; }
+    fetch('/api/mxl/status').then(function(r){ if(!r.ok) throw new Error('status '+r.status); return r.json(); }).then(function(st){
+      if(st && !st.error) startLive(st); else throw new Error('status error');
+    }).catch(function(){
+      if(CFG.ALLOW_DEMO_FALLBACK) startDemo(true);
+      else { startLive(null); offline('offline'); }
+    });
+  }
+  window.addEventListener('resize',function(){ tbSet(tb.v); });
+  boot();
+})();
+</script>
+</body>
+</html>
