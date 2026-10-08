@@ -50,7 +50,7 @@ class MXLSwitcherInstance extends InstanceBase {
 				id: 'baseurl',
 				label: 'Switcher base URL',
 				width: 8,
-				default: 'https://prodbots.com',
+				default: 'http://127.0.0.1:3100',
 			},
 			{
 				type: 'textinput',

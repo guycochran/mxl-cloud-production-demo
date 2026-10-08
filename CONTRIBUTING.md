@@ -26,8 +26,9 @@ pip install pytest
 python -m pytest          # fast, no GStreamer/Docker needed (tests/ uses a stubbed gi)
 ```
 
-CI runs the same suite plus `bash -n` on every shell script and a docs-link check
-([.github/workflows/ci.yml](.github/workflows/ci.yml)). These tests exist to protect
+CI runs the same suite plus `node --test tests/js/*.test.js` and `bash -n` on every
+shell script ([.github/workflows/ci.yml](.github/workflows/ci.yml)). There is no
+automated docs-link check yet — if you touch docs, click through the links you changed. These tests exist to protect
 the hard-won media core (the restamp/conform behaviour in
 [`tools/contribution_core.py`](tools/contribution_core.py)) from well-meaning cleanup.
 **If a test fails, re-read the cited FINDINGS section before changing the test** — the

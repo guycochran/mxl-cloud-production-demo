@@ -58,7 +58,10 @@ button:disabled{opacity:.4;cursor:not-allowed}
 (function(){
   // duo booth: ?slot=2 = second commentator (own path, own MXL flow, COM2 fader)
   var SLOT=new URLSearchParams(location.search).get('slot')==='2'?2:1;
-  var WHIP='https://mxl-feed.cochran.cloud/webrtc2mxl'+(SLOT===2?'2':'')+'/whip';
+  // WHIP ingest via the same-origin /mxlfeed/ proxy (the multiview return above uses the
+  // same path). Deliberately NOT overridable from the URL: a crafted link must not be able
+  // to send a commentator's microphone to another host.
+  var WHIP='/mxlfeed/webrtc2mxl'+(SLOT===2?'2':'')+'/whip';
   var MIXKEY=SLOT===2?'voice2':'voice';
   if(SLOT===2){document.title='MXL Switcher — Commentary Booth 2';
     document.querySelector('header .t').innerHTML='<span>MXL</span> Switcher &middot; Commentary Booth &middot; SEAT 2';}

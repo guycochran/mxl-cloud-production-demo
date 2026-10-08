@@ -6,7 +6,7 @@ MXL shared-memory domain (mxlsrc), downscaled to 640x360, composited on the
 CPU into a 1920x1080 v210 canvas at 15fps, and written back to the domain as
 a new "Multiview PGM" flow (mxlsink). No decode of any contribution stream,
 no GPU. mv_encode.py (mxl2webrtc container) encodes this ONE flow for
-browsers — the popout at prodbots.com/mxl-multiview.html.
+browsers — the popout at <backend>/mxl-multiview.html.
 
 Grid (row-major, 640x360 tiles; bottom-right stays black):
     cam     cam2    playout
@@ -33,7 +33,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com').rstrip('/')  # facility backend (docs/CONFIG.md)
+BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100').rstrip('/')  # facility backend (docs/CONFIG.md)
 DST = 'ab900700-aaaa-4bbb-8ccc-000000000001'   # Multiview PGM
 FPS = 15    # PRODUCTION SETTING — do not bump casually. 30fps was tried 9/12:
             # wall alone hit ~2.7 cores, box load reached 14/32 and the PROGRAM

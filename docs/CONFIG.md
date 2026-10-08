@@ -34,8 +34,8 @@ and Node loaders both honour them):
 | `MXL_SSH_KEY` | SSH private key | **required** |
 | `MXL_SITE_IP` | the one source IP the VM's NSG allows (only used in an error message) | `203.0.113.50` (placeholder; set `MXL_SITE_IP`) |
 | `MXL_MAKITO_IP` | CAM 2 Makito X4 encoder (informational) | `192.168.8.177` |
-| `MXL_BACKEND_URL` | facility backend base URL (kiosk page + `/api/mxl/*`); also exported to the VM-side `run-cam*.sh` as `MXL_REPAIR_URL=$MXL_BACKEND_URL/api/mxl/repair` | `https://prodbots.com` |
-| `MXL_FEED_URL` | public WebRTC feed tunnel | `https://mxl-feed.cochran.cloud` |
+| `MXL_BACKEND_URL` | facility backend base URL (kiosk page + `/api/mxl/*`); also exported to the VM-side `run-cam*.sh` as `MXL_REPAIR_URL=$MXL_BACKEND_URL/api/mxl/repair` | `http://127.0.0.1:3100` (the local control plane — set it for a real facility) |
+| `MXL_FEED_URL` | public WebRTC feed tunnel | `http://127.0.0.1:8889` (local mediamtx — set it for a real facility) |
 | `MXL_AZ_RESOURCE_GROUP`, `MXL_AZ_VM_NAME` | `az vm start/deallocate` target | **required** (both) |
 | `MXL_HTML` | path of the deployed kiosk page | `$HOME/prodbots-backend/public/mxl.html` |
 
@@ -43,7 +43,7 @@ and Node loaders both honour them):
 
 | Variable | Used by | Default |
 |---|---|---|
-| `MXL_BACKEND_URL` | `audio_pgm.py`, `layout_pgm.py`, `mxl_multiview.py`, `nmos_node.py` (`--facility`), `selector-doctor.sh`, `guest-leg-doctor.sh` | `https://prodbots.com` |
+| `MXL_BACKEND_URL` | `audio_pgm.py`, `layout_pgm.py`, `mxl_multiview.py`, `selector-doctor.sh`, `guest-leg-doctor.sh`, `nmos_node.py` (`--facility`) | `http://127.0.0.1:3100` (the local control plane). `nmos_node.py` still carries the original facility default for now — set `MXL_BACKEND_URL` / `--facility` explicitly |
 | `TAMS_HOST` | `tams_shipper.py`, `backfill-mini.py` — the TAMS/MinIO box | `203.0.113.140` (placeholder; set `TAMS_HOST`) |
 | `TAMS_URL` | `tams_shipper.py` TAMS API (pre-existing) | `http://$TAMS_HOST:8000` |
 | `TAMS_S3_ENDPOINT` | `tams_shipper.py`, `backfill-mini.py` MinIO endpoint | `http://$TAMS_HOST:9000` |
@@ -74,7 +74,7 @@ report-only and is separate from this watcher.
 | `MXL_CONTROL_REQUIRE_TOKEN` | same — `1` = answer 503 if no token configured (fail closed) | unset |
 | `MXL_REPAIR_RATE_MAX`, `MXL_REPAIR_RATE_WINDOW_S` | same — `/repair` calls per window per client (`0` = no limit) | `10`, `60` |
 | `MXL_AUTH_FAIL_MAX`, `MXL_AUTH_FAIL_WINDOW_S` | `backend/mxl-auth.js` — failed-auth attempts per client before a `429` lockout (throttles brute-forcing the shared token; `0` = no limit) | `20`, `60` |
-| `MXL_TRUST_PROXY_HEADERS` | `backend/mxl-auth.js` — use `CF-Connecting-IP` / `X-Forwarded-For` as the rate-limit client key (so visitors behind the tunnel get separate buckets, not the tunnel's one IP). Set `0` only if the server is exposed directly, not behind a trusted proxy | `1` (on) |
+| `MXL_TRUST_PROXY` (alias `MXL_TRUST_PROXY_HEADERS`) | `backend/mxl-auth.js` — `1` = use `CF-Connecting-IP` / `X-Forwarded-For` as the rate-limit / failed-auth client key (so visitors behind a tunnel get separate buckets, not the tunnel's one IP). Set it **only** when every request arrives through a trusted proxy (e.g. a cloudflared tunnel to a localhost-bound backend): on a directly exposed server those headers are client-controlled and would let a caller dodge the throttles | unset (off) |
 | `MXL_GUEST1_SRT_PASSPHRASE`, `MXL_GUEST2_SRT_PASSPHRASE`, `MXL_GUEST_SRT_PASSPHRASE` | `scripts/quickstart.sh` — require an SRT passphrase to publish on a guest slot | unset = open |
 | `MXL_GRAPHICS_BIND` | `scripts/quickstart.sh` — bind address of the `:8085` graphics server | docker bridge gateway (e.g. `172.17.0.1`); `0.0.0.0` = old behaviour |
 
@@ -97,6 +97,13 @@ and therefore must present the token once the backend enforces it. Each of them 
 ## Not (yet) configurable
 
 Intentionally left as literals — flagged for a follow-up, not changed here: the `/home/guy/...`
-paths in `guest-leg-doctor.sh`, the static web pages' own hostnames (`web/*.html`:
-`mxl-feed.cochran.cloud`, `mxlinfo.cochran.cloud`, canonical/og URLs), the exported Companion
-page (`*.companionconfig`) and the Companion module's editable default host.
+paths in `guest-leg-doctor.sh`, the backend host in `web/lower-third.html` (it runs inside the
+keyer, not same-origin with the backend), canonical/og URLs in the static pages, and the
+exported Companion page (`*.companionconfig`).
+
+Web pages: `web/commentary.html` posts WHIP to the same-origin `/mxlfeed/` proxy (make
+sure your reverse proxy forwards WHIP `POST`/`PATCH`/`DELETE` there); the kiosk's DOMAIN
+link in `web/mxl.html` points at the serving host on `:9608`; its Larix QR codes come
+live from `GET /api/mxl/ingest/qr/guestN.png` (hidden if the backend doesn't serve it).
+Neither page takes a host override from the URL, by design.
+The Companion module's editable base URL defaults to `http://127.0.0.1:3100`.

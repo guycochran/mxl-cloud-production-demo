@@ -11,7 +11,7 @@
 VM1_IP=${MXL_VM1_IP:-10.0.0.4}            # fabric target host
 VM2_IP=${MXL_VM2_IP:-10.0.0.5}            # this box's fabric address
 VM1_USER=${MXL_VM1_SSH_USER:-guy}
-BACKEND_URL=${MXL_BACKEND_URL:-https://prodbots.com}; BACKEND_URL=${BACKEND_URL%/}
+BACKEND_URL=${MXL_BACKEND_URL:-http://127.0.0.1:3100}; BACKEND_URL=${BACKEND_URL%/}
 TOKEN=$(grep -oP '^EASY_MXL_TOKEN=\K.*' /etc/default/easy-mxl)
 SSH_VM1="ssh -i /home/guy/.ssh/id_ed25519 -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/home/guy/.ssh/known_hosts $VM1_USER@$VM1_IP"
 declare -A cooldown
