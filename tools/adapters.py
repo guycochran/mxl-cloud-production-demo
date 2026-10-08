@@ -7,6 +7,8 @@ new contribution transport = adding one class here, nothing in the core.
 
 See docs/CONTRIBUTION-SEAM.md.
 """
+import re
+
 from contribution_core import SourceAdapter
 
 
@@ -100,6 +102,23 @@ class SrtGuestVideoAdapter(SourceAdapter):
                 f'! queue max-size-buffers=8 ')
 
 
+# SRT passphrase for a PUBLIC srt-listen listener (MXL_GUEST_SRT_PASSPHRASE). libsrt wants
+# 10-79 chars; we also restrict it to URL-unreserved characters so it survives a GStreamer
+# launch string / gst-launch argv AND a caller's `srt://...&passphrase=` URL unescaped
+# (ffmpeg URL-decodes '%', '+' etc., which silently yields a different key).
+# With a passphrase set, srtsrc rejects unencrypted and wrong-key callers at handshake.
+SRT_PASSPHRASE_RE = re.compile(r'^[A-Za-z0-9._~-]{10,79}$')
+
+
+def srt_listen_passphrase(value):
+    """Validate an srt-listen passphrase. '' / None -> '' (listener stays open)."""
+    value = (value or '').strip()
+    if value and not SRT_PASSPHRASE_RE.match(value):
+        raise ValueError('SRT passphrase must be 10-79 chars of A-Z a-z 0-9 . _ ~ - '
+                         '(e.g. `openssl rand -hex 16`)')
+    return value
+
+
 class SrtListenerGuestAdapter(SourceAdapter):
     """Guest VIDEO via SRT-DIRECT-LISTEN: the ingest IS the SRT listener — the
     contributor's SRT caller lands straight on srtsrc, no mediamtx in the contribution
@@ -116,11 +135,13 @@ class SrtListenerGuestAdapter(SourceAdapter):
     One listener owns one UDP port, so each guest slot binds its own SRT port
     (8890 + slot offset). The contributor's deep-link/QR points straight here."""
     def __init__(self, path: str, flow_id: str, label: str, latency_ms: int = 300,
-                 listen_port: int = 8890, listen_host: str = '0.0.0.0'):
+                 listen_port: int = 8890, listen_host: str = '0.0.0.0', passphrase: str = ''):
         self.path = path
         self.flow_id = flow_id
         self.label = label
         self.latency_ms = latency_ms
+        # Optional SRT encryption on the listener (validated; never put in the description).
+        self._passphrase = srt_listen_passphrase(passphrase)
         # Default binds all interfaces so the public caller reaches us (one port per
         # guest). The A/V fan-out (guest_av_listen) binds 127.0.0.1 instead: there the
         # public listener is the fan-out, and this leg only reads the local split.
@@ -144,7 +165,8 @@ class SrtListenerGuestAdapter(SourceAdapter):
         # oldest decoded frame instead of back-pressuring the network leg, so srtsrc keeps
         # draining the socket and never trips -5. Sized by time (400ms) so it tolerates a
         # conform hiccup without unbounded latency. (Diagnosed on HW Oct 6 2026.)
-        return (f'srtsrc uri="{self._uri}" ! tsdemux name=d d. '
+        pp = f' passphrase="{self._passphrase}"' if self._passphrase else ''
+        return (f'srtsrc uri="{self._uri}"{pp} ! tsdemux name=d d. '
                 f'! h264parse ! avdec_h264 max-threads=4 thread-type=frame '
                 f'! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 '
                 f'max-size-bytes=0 ')

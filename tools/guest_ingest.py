@@ -54,10 +54,24 @@ if TRANSPORT == 'rtsp':
     adapter = SrtGuestAdapter(path=PATH, flow_id=DST, label=LABEL,
                               latency_ms=JITTER_MS, rtsp_host=HOST)
 elif TRANSPORT == 'srt-listen':
-    from adapters import SrtListenerGuestAdapter  # direct: srtsrc mode=listener
+    from adapters import SrtListenerGuestAdapter, srt_listen_passphrase  # srtsrc mode=listener
+    # Optional SRT encryption for a PUBLIC listener: MXL_GUEST_SRT_PASSPHRASE (the same
+    # variable srt-direct uses). Unset = open listener (previous behaviour). Behind the
+    # A/V fan-out (127.0.0.1 leg) the fan-out enforces it on the public port instead.
+    try:
+        PASSPHRASE = srt_listen_passphrase(os.environ.get('MXL_GUEST_SRT_PASSPHRASE', ''))
+    except ValueError as e:
+        sys.exit(f'guest_ingest: MXL_GUEST_SRT_PASSPHRASE invalid: {e}')
+    if PASSPHRASE:
+        print(f'guest_ingest: SRT passphrase REQUIRED on {LISTEN_HOST}:{LISTEN_PORT}',
+              file=sys.stderr, flush=True)
+    elif LISTEN_HOST not in ('127.0.0.1', 'localhost', '::1'):
+        print(f'guest_ingest: WARNING srt-listen on {LISTEN_HOST}:{LISTEN_PORT} is OPEN '
+              '(no MXL_GUEST_SRT_PASSPHRASE) - anyone who reaches the port can publish',
+              file=sys.stderr, flush=True)
     adapter = SrtListenerGuestAdapter(path=PATH, flow_id=DST, label=LABEL,
                                       latency_ms=JITTER_MS, listen_port=LISTEN_PORT,
-                                      listen_host=LISTEN_HOST)
+                                      listen_host=LISTEN_HOST, passphrase=PASSPHRASE)
 else:
     from adapters import SrtGuestVideoAdapter  # default: srtsrc ! tsdemux (via mediamtx)
     adapter = SrtGuestVideoAdapter(path=PATH, flow_id=DST, label=LABEL,
