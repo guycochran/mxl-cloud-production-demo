@@ -35,7 +35,6 @@ ALLOW = {
     "tools/audio_pgm.py": {"prodbots.com"},                       # MXL_BACKEND_URL default
     "tools/layout_pgm.py": {"prodbots.com"},                      # MXL_BACKEND_URL default
     "tools/mxl_multiview.py": {"prodbots.com"},                   # MXL_BACKEND_URL default (+ docstring)
-    "tools/nmos_node.py": {"prodbots.com"},                       # MXL_BACKEND_URL default (+ usage)
     "tools/contribution_core.py": {"prodbots.com"},               # comment example for MXL_REPAIR_URL
     "tools/mv_encode.py": {"10.0.0.4", "cochran.cloud"},           # MXL_VM1_IP default (+ docstring)
     "tools/guest-leg-doctor.sh": {"10.0.0.4", "10.0.0.5", "prodbots.com"},  # MXL_VM1_IP/VM2_IP/BACKEND defaults
