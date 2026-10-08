@@ -44,6 +44,12 @@ from gi.repository import Gst, GLib
 # --- canonical cadence constants (FINDINGS §1/§6 — load-bearing, do not tune blindly) ---
 MARGIN_NS = 66_000_000      # 2 grains @30fps. Bigger => reader starvation ("too late" wedges).
 FRAME_NS = 33_333_333       # 1 grain @30fps — fallback grain step when caps carry no framerate.
+# Gross-discontinuity threshold: if the flow is already more than this far AHEAD of wall-clock,
+# the grid re-anchors (continues from last_mapped) instead of drop-guarding — distinguishes a
+# reconnect/clock-step (seconds ahead → re-anchor, don't stall) from a jitter-buffer burst
+# (sub-second ahead → drop to stay real-time). 2s is above the 1000ms SRT jitter burst and
+# below a real leg-rebuild gap.
+RELOCK_GAP_NS = 2_000_000_000
 # (The restamp drives a local wall-clock grid + drop-ahead-of-realtime; it does NOT use a
 #  proportional slew or a hard-relock escape hatch — those were earlier designs the grid
 #  replaced on HW Oct-8. See _restamp. The SLEW_* constants that lived here are gone.)
@@ -507,13 +513,22 @@ class ContributionCore:
         last_mapped = s.get('last_mapped')        # not in the initial state dict (HW Oct-8 KeyError)
         if last_mapped is None:
             mapped = target
+        elif last_mapped - target > RELOCK_GAP_NS:
+            # GROSS discontinuity, not a burst: the flow is already far (> RELOCK_GAP_NS) ahead
+            # of wall-clock. This happens on a persistent-flow leg rebuild (10s of flow written,
+            # the new leg's clock starts near 0) or a wall-clock step. If we treated this as a
+            # burst we'd DROP every frame until `now` crawled up to last_mapped — a multi-second
+            # stall on reconnect (regression caught by test_restamp_relock_never_rewinds). Instead
+            # CONTINUE the grid from where the flow already is: one grain past last_mapped. The
+            # flow stays monotonic (never rewinds past the committed head) and resumes immediately.
+            mapped = last_mapped + grain_ns
         else:
             nxt = last_mapped + grain_ns
-            # DROP ahead-of-realtime arrivals: if the next grid slot is already more than one
-            # grain beyond where wall-clock wants it, this buffer is a burst/catch-up frame
-            # (e.g. the 1000ms SRT jitter buffer flushing). Stamping it would march `mapped`
-            # ahead of `now` unbounded (the Oct-8 -30ms/frame runaway). Drop it; the grid stays
-            # locked to wall-clock and the flow keeps exactly real-time cadence.
+            # DROP ahead-of-realtime arrivals: next grid slot is up to one grain beyond where
+            # wall-clock wants it — a burst/catch-up frame (e.g. the 1000ms SRT jitter buffer
+            # flushing). Stamping it would march `mapped` ahead of `now` unbounded (the Oct-8
+            # -30ms/frame runaway). Drop it; the grid stays locked to wall-clock. (Only reached
+            # when the flow is NOT grossly ahead — i.e. a genuine burst, not a reconnect.)
             if nxt > target + grain_ns:
                 s['dropped'] = s.get('dropped', 0) + 1
                 return Gst.PadProbeReturn.DROP

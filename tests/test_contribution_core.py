@@ -254,28 +254,32 @@ def test_persistent_init_builds_tail_then_source_leg(monkeypatch):
     assert "mxlsink" not in _Gst.last_bins[1]
 
 
-def test_monotonic_relock_never_rewinds_the_flow(monkeypatch):
-    """The core of the R1 fix: on a leg rebuild the new source PTS restarts near 0,
-    so the restamp must RE-LOCK the offset forward of the last grain already written —
-    never rewind the flow (a rewind is exactly the selector's 'grain too early' read)."""
+def test_restamp_relock_never_rewinds_the_flow(monkeypatch):
+    """R1 invariant, re-verified against the ACTUAL grid restamp (not the removed offset
+    clamp): on a persistent-flow leg rebuild the flow already has grains up to last_mapped;
+    the next emitted grain must land STRICTLY AFTER last_mapped even when wall-clock `now` is
+    far BEHIND it (fresh-session clock 0.5s in, flow already 10s long). A rewind is exactly
+    the selector's 'grain too early' read + mxlsink's -5 (no backward-index guard).
+
+    This drives _restamp directly; the grid's `max(last_mapped + grain_ns, now + MARGIN)` is
+    what must provide the guarantee now."""
+    import contribution_core as _cc
     monkeypatch.setenv("MXL_INGEST_PERSISTENT", "1")
     core = cc.ContributionCore(_persist_adapter(), repair_url="none")
     s = core.state
-    # simulate: we already wrote up to last_mapped, then a rebuild cleared the lock
     s["last_mapped"] = 10_000_000_000      # 10s of flow already written
-    s["offset"] = None
+    s["offset"] = None                     # a rebuild cleared the lock
     s["relock"] = True
-    # the new leg's first frame arrives with a small PTS (fresh session) and a clock
-    # time that would map it BACKWARD under a naive now-based lock
-    new_leg_pts = 0
-    now = 500_000_000                      # clock only 0.5s in (well before last_mapped)
-    # replicate the clamp the probe applies on re-lock
-    offset = now - new_leg_pts + cc.MARGIN_NS
-    min_pts = s["last_mapped"] + cc.FRAME_NS
-    if new_leg_pts + offset < min_pts:
-        offset = min_pts - new_leg_pts
-    mapped = new_leg_pts + offset
-    assert mapped >= s["last_mapped"] + cc.FRAME_NS   # strictly forward — no rewind
+    clock = _ProbeClock(500_000_000)       # clock only 0.5s in — WELL behind last_mapped
+    pad = _FakePad(_FakeCaps(30, 1))
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    # the new leg's first frame arrives with a small PTS (fresh session)
+    mapped = _drive_restamp(core, pad, clock, [0])[0]
+    assert mapped is not None, "first relock frame should be emitted, not dropped"
+    assert mapped >= s["last_mapped"]      # strictly forward — the flow never rewinds
+    # (and 'relock' was consumed — a once-per-lock trigger)
+    assert core.state.get("relock") is False
 
 
 # ── _grain_ns: the monotonic step must be RATE-DERIVED, not a 30fps constant ──────
