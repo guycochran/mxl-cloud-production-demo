@@ -28,7 +28,7 @@ cut (logged). Mutating the facility is gated the same way the facility gates it
 Usage:
   nmos_node.py [--port 8021] [--href http://THIS_HOST:8021/]
                [--registry http://registry:8010]   # enables registration+heartbeat
-               [--facility https://prodbots.com]    # POST /api/mxl/input for IS-05 activation
+               [--facility http://127.0.0.1:3100]   # POST /api/mxl/input for IS-05 activation
 
 stdlib only. Peer-to-peer queryable without a registry:
   curl :8021/x-nmos/node/v1.3/senders/
@@ -490,7 +490,10 @@ def main():
     ap.add_argument('--port', type=int, default=8021)
     ap.add_argument('--href', default=None)
     ap.add_argument('--registry', default=None)
-    ap.add_argument('--facility', default=os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com'))
+    # Portable default: the LOCAL control plane, not any specific facility (adopter PR #38's
+    # sweep — a cloned core must not point at someone else's backend). Override with --facility
+    # or MXL_BACKEND_URL for a real deployment.
+    ap.add_argument('--facility', default=os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100'))
     args = ap.parse_args()
     if not args.href:
         args.href = f'http://{socket.gethostbyname(socket.gethostname())}:{args.port}/'
