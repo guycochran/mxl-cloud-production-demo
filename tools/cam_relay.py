@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """MXL latency normalizer: re-publish the PTZ cam flow with PTS shifted forward
 so its grain index aligns with locally-generated flows (makes it selector-cuttable).
 Usage: cam_relay.py [offset_ns]"""

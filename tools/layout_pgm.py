@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Program layout compositor for the MXL demo switcher (Tier 3: 2-up / PiP / 4-up).
 
 Writes a "Layout PGM" flow that composites up to FOUR of the six switcher

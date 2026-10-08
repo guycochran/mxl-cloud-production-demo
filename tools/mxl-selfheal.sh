@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # mxl-selfheal.sh — a portable self-healer for the quickstart MXL switcher.
 #
 # Opt-in. quickstart.sh does NOT start this by default. Set MXL_SELFHEAL=1 when

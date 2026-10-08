@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for the report-only multi-plane desired-state drift stub.
 
 No docker, no heal, no live facility — fixture JSON only.

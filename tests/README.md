@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Tests
 
 Fast, hardware-free guards for the hard-won media core. They run in CI (`.github/workflows/ci.yml`) and locally with:

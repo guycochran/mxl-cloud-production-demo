@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The local control plane (backend/local-server.js + web/local.html) is the
 self-contained switcher UI an adopter gets from the open repo — no prodbots, no
 external services. These checks keep that promise without needing Node: they scan

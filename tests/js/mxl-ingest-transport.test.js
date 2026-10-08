@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Verifies the "Add your camera" ingest builders produce the right SRT URL / streamid
 // / Larix deep-link for each guest transport: srt-direct (one shared port + streamid)
 // vs srt-listen (per-guest port, no streamid). Tests the pure backend/ingest-info.js

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # CLAUDE.md — mxl-switcher
 
 Guidance for Claude Code working in this repo.

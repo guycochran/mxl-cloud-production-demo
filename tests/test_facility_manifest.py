@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The facility manifest (config/facility.json) is the single source of truth for
 flow UUIDs and control ports. Tools still carry a baked-in fallback map so they
 run if the manifest goes missing — but those fallbacks MUST agree with the

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # MXL Switcher — Review Handoff
 
 **For an independent reviewer.** This documents what was built, deployed, and claimed,

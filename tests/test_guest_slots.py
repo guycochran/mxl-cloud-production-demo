@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Stable guest-slot semantics for guest_slot_watcher.
 
 The bug this guards: when guests were appended only if present, an absent Guest 1 made

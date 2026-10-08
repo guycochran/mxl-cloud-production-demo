@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tripwire: no NEW hardcoded IPs / site hostnames in code.
 
 Site-specific endpoints (VM IPs, the TAMS/MinIO host, the facility backend URL, the

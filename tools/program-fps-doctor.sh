@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # program-fps-doctor v2 — detects the repeat-wedged ENCODER reader.
 # v1 used mpdecimate (similarity) and would FALSE-TRIGGER on static night
 # scenes. v2 counts BYTE-IDENTICAL decoded frames (YDIF==0): x264 emits

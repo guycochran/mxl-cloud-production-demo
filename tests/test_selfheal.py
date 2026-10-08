@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """R7 self-healer tests. The healer (tools/mxl-selfheal.sh) is a bash script that
 polls local control ports and recovers the two drift failures we hit all session
 (selector down, relay waiting-for-audio). We test its DECISION logic without a real

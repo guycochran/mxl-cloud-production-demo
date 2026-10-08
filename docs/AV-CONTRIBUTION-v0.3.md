@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # A/V Contribution — v0.3
 
 **Status: IMPLEMENTED / hardware validation in progress.** Capability state:

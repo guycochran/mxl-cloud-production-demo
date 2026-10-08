@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # ensure-single-writers.sh — make each single-instance hls2mxl pipeline have
 # EXACTLY ONE supervisor+child. Fixes the duplicate-writer hazard that the
 # pipelines section's self-matching `pkill -f run-camN.sh` can create when

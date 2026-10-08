@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Quickstart: your own MXL switcher in minutes
 
 *Cold-clone verified Oct 2026 on fresh VMs across three clouds — git clone →

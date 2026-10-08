@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Integration-ish test of backend/mxl-routes.js wiring using a fake Express app and a
 // mocked global fetch — no express, no network, no MXL VM.
 const test = require('node:test');

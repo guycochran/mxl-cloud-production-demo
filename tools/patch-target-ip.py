@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Patch an mxl-fabrics-demo target.json for NAT/non-routed networks.
 
 TargetInfo embeds the target's LOCAL bind sockaddr inside the base64

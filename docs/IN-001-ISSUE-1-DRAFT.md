@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Draft GitHub Issue for AMWA-TV/in-001 — review before posting
 
 **Where to post:** https://github.com/AMWA-TV/in-001/issues → "New issue"

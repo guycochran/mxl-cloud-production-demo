@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+name: DCO
+
+# Every commit in a PR must carry a Signed-off-by trailer matching its author
+# (Developer Certificate of Origin 1.1 — see CONTRIBUTING.md). No CLA.
+# Lightweight on purpose: no third-party action, just git + scripts/check-dco.sh.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check Signed-off-by on every PR commit
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-dco.sh "origin/$BASE_REF" "$HEAD_SHA"

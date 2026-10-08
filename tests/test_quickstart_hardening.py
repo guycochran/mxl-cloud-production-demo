@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Hardening guards for scripts/quickstart.sh and the browser pages.
 
 Hardware-free: extracts the small, self-contained pieces (graphics server, guest SRT

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Run with:  node --test tests/js/*.test.js  (Node >= 18, no npm deps)
 const test = require('node:test');
 const assert = require('node:assert');

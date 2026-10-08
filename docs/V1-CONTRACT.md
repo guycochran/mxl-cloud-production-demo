@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # The `/api/mxl/v1` contract (minimal first slice — SKETCH)
 
 **Status:** DRAFT sketch for discussion. Schemas live in `contracts/v1/`. No handlers

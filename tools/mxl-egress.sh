@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # mxl-egress.sh — OUTPUT NODE for the MXL demo (the "distribute" pillar, akin to
 # a Grass Valley AMPP output node). Pulls the finished PROGRAM that mediamtx
 # already carries (path mxl2webrtc) and pushes it to an RTMP/SRT destination.

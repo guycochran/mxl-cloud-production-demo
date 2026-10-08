@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Docs-link sanity: every relative Markdown link to a repo file must resolve.
 
 An adoptable reference implementation's docs are a promise; a 404 relative link is a

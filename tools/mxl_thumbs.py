@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Multiview thumbnails for the MXL demo switcher (Tier 1).
 
 One persistent low-rate pipeline per selector input: mxlsrc -> 1 frame every

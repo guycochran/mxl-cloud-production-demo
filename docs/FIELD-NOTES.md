@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Field Notes: what an MXL v1.1.0 production deployment actually takes
 
 This facility ran a public, operator-driven cloud switcher on MXL for IBC

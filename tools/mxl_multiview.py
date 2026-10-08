@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """MXL-native multiview compositor (Tier 1.5): 8 domain flows -> one 3x3 wall.
 
 All seven switcher inputs plus the Keyer PGM are read straight out of the

@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # selector-doctor.sh — auto-heal the wedge where the input-selector container's
 # CONTROL API goes dead (times out) while the container spins ~100% CPU.
 # This is the 2026-09-11 14:02 incident class: the selector API is what every

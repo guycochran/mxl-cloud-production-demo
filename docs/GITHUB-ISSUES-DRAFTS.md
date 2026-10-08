@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Starter GitHub issues — drafts
 
 Deliberately approachable entry points so a prospective contributor has somewhere to

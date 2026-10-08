@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Guest-ingest: what to test when the VMs come back up
 
 > **HW RUN — Oct 6 2026 (cold-clone on mxl-lab):**

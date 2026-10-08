@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Live WebRTC viewer counter + 24h traffic record for the MXL health board.
 
 mediamtx's API is disabled (enabling = container recreate = viewer blip), but

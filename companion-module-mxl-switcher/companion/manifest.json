@@ -4,7 +4,7 @@
   "shortname": "mxl",
   "description": "MXL switcher (github.com/guycochran/mxl-switcher): cuts, SuperSource layouts, keyer, warm-up, PGM tally",
   "version": "0.1.0",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": "https://github.com/guycochran/mxl-switcher",
   "bugs": "https://github.com/guycochran/mxl-switcher/issues",
   "maintainers": [{ "name": "Guy Cochran" }],

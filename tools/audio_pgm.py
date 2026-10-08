@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Program AUDIO MIXER for the MXL demo (v2 — replaces audio-follow-video).
 
 Writes the "PGM Audio" flow the encoder already consumes, but as a live MIX:

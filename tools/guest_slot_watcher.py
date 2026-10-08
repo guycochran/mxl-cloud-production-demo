@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """guest_slot_watcher — backend-free selector re-attach for the quickstart tier.
 
 The live demo re-attaches the selector via the Express backend's /api/mxl/repair

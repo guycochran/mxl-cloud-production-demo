@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # For testers — fire it up in ~3 minutes
 
 Hand-this-to-a-tester guide. Full detail is in [QUICKSTART.md](QUICKSTART.md);

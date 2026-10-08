@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Participant — one contributor, both essences (v0.3 Phase 3).
 
 A guest contributes VIDEO and AUDIO together, but each essence runs in its OWN

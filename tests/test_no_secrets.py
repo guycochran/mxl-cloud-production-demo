@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Guard against committing secrets to this public repo.
 
 Not a replacement for a real scanner (CI also runs one), but a fast, dependency-free

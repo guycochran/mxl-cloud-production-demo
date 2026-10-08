@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Multiview encoder leg: the ONE browser encoder for the whole wall.
 
 Reads the "Multiview PGM" flow (written by mxl_multiview.py in the hls2mxl

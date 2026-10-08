@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Desired-State Controller v0.1 — design sketch (report-only)
 
 **Status:** DRAFT design / sketch. Not built against a live facility.

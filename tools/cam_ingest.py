@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Camera 1 (studio PTZ, H.264 over RTSP) ingest — thin adapter.
 
 Low-latency cam -> canonical v210 -> "CAM Live" (selector slot 0), with the

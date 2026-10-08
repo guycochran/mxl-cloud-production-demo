@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Unit tests for the /v1 shim's pure logic (backend/mxl-routes-v1.js). The route wiring
 // is integration-tested live on HW; here we lock the id derivation, kind inference,
 // health mapping, and error-code translation — the parts a refactor could silently break.

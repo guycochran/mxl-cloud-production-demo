@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # MXL Contribution Seam — spec (ZoomISO-ready, prove with SRT today)
 
 **Status:** IMPLEMENTED 2026-10-02 (commit `0e98a2c`, refined same day). The core + the

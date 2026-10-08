@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Adoption Gaps — cold-clone findings + roadmap
 
 **What this is:** the output of an *adoptability* test — can someone who isn't Guy clone this

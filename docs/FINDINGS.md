@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Field Findings — running MXL as a real remote production
 
 Notes from building this demo (September 2026, MXL SDK v1.1 era, stock

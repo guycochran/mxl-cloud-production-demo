@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Flow stabilizer — the first-principles fix for the reader-wedge class.
 
 A real switcher's Super Source never has a dead pane because its crossbar

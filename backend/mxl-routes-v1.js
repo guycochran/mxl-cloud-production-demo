@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // /api/mxl/v1 — the versioned contract (contracts/v1/*, docs/V1-CONTRACT.md).
 //
 // Thin wrappers over the existing handlers in mxl-routes.js. The media behaviour is

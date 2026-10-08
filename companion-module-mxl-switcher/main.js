@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // companion-module-mxl-switcher — Bitfocus Companion module for the MXL
 // cloud switcher (this repo). Physical Stream Deck buttons with REAL
 // program tally: buttons glow red when their source is on air, dim when

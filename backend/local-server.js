@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
 // local-server.js — the self-contained control plane for an MXL quickstart box.
 //
 // Mounts the portable mxl-routes.js (cut / key / pattern / status / repair) and

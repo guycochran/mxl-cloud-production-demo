@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # AMWA IN-001 Gap Analysis — field data from a live MXL switcher
 
 **Source spec:** [AMWA-TV/in-001](https://github.com/AMWA-TV/in-001) — *API Requirements – Control of the Media eXchange Layer (MXL) v1.0* (Draft Increment, public review open).

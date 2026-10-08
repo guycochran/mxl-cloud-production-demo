@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Building the MXL Cloud Production Demo on AWS
 
 **Goal:** run the facility we proved on Azure for IBC 2026 — uncompressed

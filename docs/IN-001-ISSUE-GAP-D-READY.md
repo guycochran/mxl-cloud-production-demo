@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # IN-001 §6.2 issue — READY TO POST (Gap D: liveness)
 
 > ✅ **POSTED Oct 1 2026 — AMWA-TV/in-001 issue #6: https://github.com/AMWA-TV/in-001/issues/6**

@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Local control plane — scope
 
 **Status: BUILT (v1 — news-grade switcher).** A self-contained, broadcast-grade

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 # One-time: build ~/tams-mini/<m>.jpg from the last-12h sprite sheets already in
 # MinIO, so overview_pass produces a full 12h strip immediately (instead of
 # filling 1 tile/min over 12h). Additive; reads sprites/, writes local minis.

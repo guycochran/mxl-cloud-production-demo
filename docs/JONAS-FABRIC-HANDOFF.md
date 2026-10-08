@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Receive our live program as raw MXL grains — fabric handoff
 
 **The offer:** your easy-mxl is already orchestrating our whole production

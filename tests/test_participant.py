@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Participant pairs a guest's video+audio legs (v0.3 Phase 3).
 
 The whole point of Participant is that it composes the TWO per-essence legs from the

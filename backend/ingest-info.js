@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Pure, dependency-free builders for the "Add your camera" guest-ingest info:
 // the per-guest SRT URL, streamid, and Larix deep-link. Extracted from
 // local-server.js so it can be unit-tested WITHOUT express / npm deps (CI runs

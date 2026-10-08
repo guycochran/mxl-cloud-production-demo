@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 (() => {
   const descriptions = {
     live: "A seven-input selector, live layout compositor, program audio mixer and HTML5 keyer operate against flows in a single shared-memory domain.",

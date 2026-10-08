@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Load the facility manifest (config/facility.json) — the single source of truth
 // for domain, network, control ports, and flow UUIDs. JS counterpart to
 // tools/facility.py so the backend and the Python tools read the SAME file.

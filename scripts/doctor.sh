@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # doctor.sh — one-glance health check for an MXL switcher lab.
 #
 # Answers the question every MXL experimenter eventually asks: "is it actually
