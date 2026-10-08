@@ -34,7 +34,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com').rstrip('/')  # facility backend (docs/CONFIG.md)
+BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100').rstrip('/')  # facility backend (docs/CONFIG.md)
 CMD_URL = BACKEND_URL + '/api/mxl/layout-state'
 INPUT_URL = BACKEND_URL + '/api/mxl/input'      # fade choreography cuts
 DONE_URL = BACKEND_URL + '/api/mxl/fade-done'

@@ -31,9 +31,9 @@ VM_USER=${MXL_VM_SSH_USER:-guy}                   # SSH user on the VM
 SSH_KEY=$MXL_SSH_KEY
 SITE_IP=${MXL_SITE_IP:-203.0.113.50}              # placeholder (RFC 5737); your NSG-allowed source IP — set MXL_SITE_IP
 MAKITO_IP=${MXL_MAKITO_IP:-192.168.8.177}         # CAM 2 Makito X4 encoder (informational)
-BACKEND_URL=${MXL_BACKEND_URL:-https://prodbots.com}   # facility backend (kiosk + /api/mxl/*)
+BACKEND_URL=${MXL_BACKEND_URL:-http://127.0.0.1:3100}   # facility backend (kiosk + /api/mxl/*) — set MXL_BACKEND_URL for a real facility
 BACKEND_URL=${BACKEND_URL%/}
-FEED_URL=${MXL_FEED_URL:-https://mxl-feed.cochran.cloud}  # public WebRTC feed tunnel
+FEED_URL=${MXL_FEED_URL:-http://127.0.0.1:8889}  # public WebRTC feed (tunnel) — set MXL_FEED_URL for a real facility
 AZ_RG=$MXL_AZ_RESOURCE_GROUP
 AZ_VM=$MXL_AZ_VM_NAME
 SSH="ssh -i $SSH_KEY -o BatchMode=yes -o ConnectTimeout=8 $VM_USER@$VM_IP"
@@ -99,7 +99,7 @@ for p in 9600 9601 9602 9603 9604 9605; do  # 9606 = parked TG2, don't wait on i
   for i in $(seq 1 30); do curl -s -m 2 -o /dev/null http://127.0.0.1:$p/pipeline/status && break; sleep 2; done
 done
 # mxl-info-gui needs a domain_def.json to recognize the domain; /dev/shm is
-# volatile so recreate it every bring-up (2026-09-13; GUI at mxlinfo.cochran.cloud)
+# volatile so recreate it every bring-up (2026-09-13; GUI on :9608)
 echo '{"id":"domain_1"}' | sudo tee /dev/shm/mxl/domain_1/domain_def.json >/dev/null
 # hands-on extras (mxl-info-gui :9608, spx-server :5660, webrtc2mxl :9609)
 # are restart-unless-stopped docker containers — nothing to relaunch here
@@ -175,7 +175,7 @@ post 9603/pipeline/stop '{}'
 # The live OHG facility opts INTO the ProdBots repair announce explicitly — the
 # contribution core now defaults to NO announce (open-core boundary), so this env
 # var is what keeps the selector auto-reattaching the cam here. (See contribution_core.py.)
-sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=%s/api/mxl/repair\nwhile :; do python3 /tmp/cam_ingest.py >> /tmp/cam-ingest.log 2>&1; echo RESTART >> /tmp/cam-ingest.log; sleep 2; done\n" "$0" > /tmp/run-cam1.sh && chmod +x /tmp/run-cam1.sh' "${MXL_BACKEND_URL:-https://prodbots.com}"
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=%s/api/mxl/repair\nwhile :; do python3 /tmp/cam_ingest.py >> /tmp/cam-ingest.log 2>&1; echo RESTART >> /tmp/cam-ingest.log; sleep 2; done\n" "$0" > /tmp/run-cam1.sh && chmod +x /tmp/run-cam1.sh' "$BACKEND_URL"
 sudo docker exec -d hls2mxl /tmp/run-cam1.sh
 sleep 6
 
@@ -188,7 +188,7 @@ sleep 6
 # (slices=4 broke mediamtx's TS parsing). Runner keeps cmdline pkill-safe.
 sudo docker cp /srv/mxl-tools/cam2_ingest.py hls2mxl:/tmp/cam2_ingest.py
 sudo docker exec hls2mxl sh -c 'pkill -f run-cam2.sh; pkill -f cam2_ingest.py; true'
-sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=%s/api/mxl/repair\nwhile :; do nice -n 10 python3 /tmp/cam2_ingest.py >> /tmp/cam2-ingest.log 2>&1; echo RESTART >> /tmp/cam2-ingest.log; sleep 2; done\n" "$0" > /tmp/run-cam2.sh && chmod +x /tmp/run-cam2.sh' "${MXL_BACKEND_URL:-https://prodbots.com}"
+sudo docker exec hls2mxl sh -c 'printf "#!/bin/sh\nexport MXL_REPAIR_URL=%s/api/mxl/repair\nwhile :; do nice -n 10 python3 /tmp/cam2_ingest.py >> /tmp/cam2-ingest.log 2>&1; echo RESTART >> /tmp/cam2-ingest.log; sleep 2; done\n" "$0" > /tmp/run-cam2.sh && chmod +x /tmp/run-cam2.sh' "$BACKEND_URL"
 sudo docker exec -d hls2mxl /tmp/run-cam2.sh
 sleep 6
 
@@ -227,7 +227,7 @@ pgrep -f "http.server 8086" >/dev/null || \
 # Layout compositor (2-up / PiP, selector slot 6, added 2026-09-10): always-on,
 # all six sources behind two internal selectors -> compositor; layout changes
 # are live pad-property flips (no flow recreation -> no slot-6 wedges). Polls
-# prodbots.com/api/mxl/layout-state for desired state (browser-UA header —
+# $MXL_BACKEND_URL/api/mxl/layout-state for desired state (browser-UA header —
 # the CF zone 403s python-urllib).
 sudo docker cp /srv/mxl-tools/layout_pgm.py hls2mxl:/tmp/layout_pgm.py
 sudo docker exec hls2mxl sh -c 'pkill -9 -f run-layout.sh; pkill -9 -f layout_pgm.py; true'
@@ -306,7 +306,7 @@ $SSH 'for u in ca111e00:Cam1 ca222e00:Cam2 1a900700:Layout; do uuid=${u%%:*}; nm
 step "Fresh layout output lock"
 $SSH 'sudo docker exec hls2mxl sh -c "pkill -9 -f \"[r]un-layout\"; pkill -9 -f \"[l]ayout_pgm.py\"; sleep 2"; sudo docker exec -d hls2mxl /tmp/run-layout.sh; echo "  ✓ layout respawned"'
 
-# ── 4. Feed tunnel (named: mxl-feed.cochran.cloud, systemd on the VM) ────────
+# ── 4. Feed tunnel (named tunnel serving $MXL_FEED_URL, systemd on the VM) ────
 # Tunnel UUID e5ec74db-8e99-4232-b5a4-4e240f88572b; config /etc/cloudflared/mxl-feed.yml.
 # systemd auto-starts it on boot — this just makes sure and verifies.
 step "Ensuring mxl-feed named tunnel on VM"

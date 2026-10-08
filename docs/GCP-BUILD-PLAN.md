@@ -180,7 +180,7 @@ worth knowing before you try):
   `/dev/shm`. Pulled a full clean 1080p frame from the domain flow
   (`gcp-real-ptz-on-gcp.jpg`).
 - **Makito X4 Cam 2 (192.168.8.177)** repointed Azure→GCP via its REST API
-  (`PUT /apis/streams/2`, address→34.83.212.72, latency 200) — held **13+ min
+  (`PUT /apis/streams/2`, address→203.0.113.10, latency 200) — held **13+ min
   stable, 12.7 Mbps, 1 reconnection**. (Stream 1 "Extra Hours SRT"=YouTube, untouched.)
 - **SRT latency for WAN:** the Azure 20ms (tuned for ~6ms studio↔VM LAN) was too
   tight for the studio→GCP-Oregon internet hop; **200ms** made both feeds hold.

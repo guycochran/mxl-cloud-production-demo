@@ -1,5 +1,7 @@
-"""Env-var configuration: defaults == the historical production values (except the four
-required bring-up-mxl.sh site vars, which have no default), overrides work, and every variable is documented in docs/CONFIG.md."""
+"""Env-var configuration: defaults are portable (backend/feed URLs default to the local
+control plane / local mediamtx, never a specific facility; the four site vars in
+bring-up-mxl.sh are required with no default), overrides work, and every variable is
+documented in docs/CONFIG.md."""
 import json
 import os
 import re
@@ -73,8 +75,8 @@ def test_bring_up_required_vars_and_overrides():
     r = _run_bring_up(**BRING_UP_REQUIRED)
     assert r.returncode == 0, r.stderr
     d = r.stdout.strip().split("|")
-    assert d[:8] == ["203.0.113.9", "guy", "203.0.113.50", "192.168.8.177", "https://prodbots.com",
-                     "https://mxl-feed.cochran.cloud", "rg-test", "vm-test"]
+    assert d[:8] == ["203.0.113.9", "guy", "203.0.113.50", "192.168.8.177", "http://127.0.0.1:3100",
+                     "http://127.0.0.1:8889", "rg-test", "vm-test"]
     assert d[8] == "ssh -i /h/.ssh/test-key -o BatchMode=yes -o ConnectTimeout=8 guy@203.0.113.9"
     o = _run_bring_up(**{**BRING_UP_REQUIRED, "MXL_VM_IP": "198.51.100.7", "MXL_VM_SSH_USER": "ops",
                          "MXL_BACKEND_URL": "https://example.test/"})
@@ -110,22 +112,22 @@ def test_bring_up_required_vars_have_no_defaults():
                                "f'http://{TAMS_HOST}:9000'", "os.environ.get('TAMS_S3_USER', 'tams')"]),
     ("tools/backfill-mini.py", ["os.environ.get('TAMS_HOST','203.0.113.140')", "f'http://{_host}:9000'",
                                 "os.environ.get('TAMS_S3_USER','tams')"]),
-    ("tools/audio_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
-    ("tools/layout_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
-    ("tools/mxl_multiview.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
+    ("tools/audio_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100')"]),
+    ("tools/layout_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100')"]),
+    ("tools/mxl_multiview.py", ["os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100')"]),
     ("tools/mv_encode.py", ["os.environ.get('MXL_VM1_IP', '10.0.0.4')"]),
 ])
 def test_tool_defaults_preserved(rel, needles):
     src = (ROOT / rel).read_text()
     for n in needles:
         assert n in src, f"{rel}: expected {n!r}"
-    assert "'https://prodbots.com/api" not in src, f"{rel}: backend URL literal crept back in"
+    assert "prodbots.com" not in src and "cochran.cloud" not in src, f"{rel}: facility host crept back in"
 
 
 def test_layout_pgm_urls_resolve_to_same_endpoints():
     """BACKEND_URL + '/api/...' must reproduce the exact historical URLs."""
     src = (ROOT / "tools" / "layout_pgm.py").read_text()
-    base = "https://prodbots.com"
+    base = "http://127.0.0.1:3100"
     paths = re.findall(r"BACKEND_URL \+ '(/api/mxl/[a-z-]+)'", src)
     assert {"/api/mxl/layout-state", "/api/mxl/input", "/api/mxl/fade-done",
             "/api/mxl/status", "/api/mxl/repair"} <= set(paths)
@@ -140,7 +142,7 @@ NEW_VARS = [
     "MXL_MV_SRT_URL", "MXL_CONTROL_TOKEN", "MXL_CONTROL_REQUIRE_TOKEN", "MXL_REPAIR_RATE_MAX",
     "MXL_REPAIR_RATE_WINDOW_S", "MXL_GUEST1_SRT_PASSPHRASE", "MXL_GUEST2_SRT_PASSPHRASE",
     "MXL_GUEST_SRT_PASSPHRASE", "MXL_GRAPHICS_BIND",
-    "MXL_SELFHEAL", "MXL_SELFHEAL_INTERVAL",
+    "MXL_SELFHEAL", "MXL_SELFHEAL_INTERVAL", "MXL_TRUST_PROXY", "MXL_TRUST_PROXY_HEADERS",
 ]
 
 

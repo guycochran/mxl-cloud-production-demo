@@ -99,21 +99,39 @@ test('rate limiter: max=0 disables; env parsing falls back to defaults', () => {
 // ── R6a: real-client keying behind a proxy (CF-Connecting-IP / X-Forwarded-For) ──
 const { clientKeyFactory } = require(path.join(__dirname, '..', '..', 'backend', 'mxl-auth.js'));
 
-test('R6a: clientKey prefers CF-Connecting-IP, then XFF, then req.ip', () => {
-  const key = clientKeyFactory({});
+test('R6a: clientKey (proxy trust ON) prefers CF-Connecting-IP, then XFF, then req.ip', () => {
+  const key = clientKeyFactory({ MXL_TRUST_PROXY: '1' });
   assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.9' } }), '203.0.113.9');
   assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'x-forwarded-for': '198.51.100.7, 10.0.0.1' } }), '198.51.100.7');
   assert.strictEqual(key({ ip: '10.0.0.1', headers: {} }), '10.0.0.1');
 });
 
-test('R6a: MXL_TRUST_PROXY_HEADERS=0 ignores the headers (direct-exposure case)', () => {
-  const key = clientKeyFactory({ MXL_TRUST_PROXY_HEADERS: '0' });
+test('proxy headers are IGNORED by default (direct exposure: XFF is client-controlled)', () => {
+  const key = clientKeyFactory({});
   assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.9' } }), '10.0.0.1');
+  assert.strictEqual(key({ ip: '10.0.0.1', headers: { 'x-forwarded-for': '198.51.100.7' } }), '10.0.0.1');
+});
+
+test('MXL_TRUST_PROXY_HEADERS=0 / unset keeps headers ignored; =1 is an alias for MXL_TRUST_PROXY=1', () => {
+  const req = { ip: '10.0.0.1', headers: { 'cf-connecting-ip': '203.0.113.9' } };
+  assert.strictEqual(clientKeyFactory({ MXL_TRUST_PROXY_HEADERS: '0' })(req), '10.0.0.1');
+  assert.strictEqual(clientKeyFactory({ MXL_TRUST_PROXY: '0' })(req), '10.0.0.1');
+  assert.strictEqual(clientKeyFactory({ MXL_TRUST_PROXY_HEADERS: '1' })(req), '203.0.113.9');
+  assert.strictEqual(clientKeyFactory({ MXL_TRUST_PROXY: 'true' })(req), '203.0.113.9');
+});
+
+test('default (no proxy trust): rotating X-Forwarded-For cannot dodge the failed-auth lockout', () => {
+  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '3' }, quiet());
+  let last;
+  for (let i = 0; i < 5; i++) {
+    last = run(middleware, { ip: '192.0.2.10', headers: { 'x-forwarded-for': `198.51.100.${i}`, 'x-mxl-token': 'wrong' } });
+  }
+  assert.strictEqual(last.res.code, 429);
 });
 
 test('R6a: the /repair limiter buckets per REAL client, not the shared tunnel IP', () => {
   // two clients behind the same tunnel (same req.ip) but different CF-Connecting-IP
-  const limit = rateLimiterFromEnv({ MXL_REPAIR_RATE_MAX: '2' });
+  const limit = rateLimiterFromEnv({ MXL_REPAIR_RATE_MAX: '2', MXL_TRUST_PROXY: '1' });
   const mk = (cf) => ({ ip: '172.17.0.1', headers: { 'cf-connecting-ip': cf } });
   // client A: 2 ok then 429
   assert.ok(run(limit, mk('1.1.1.1')).nexted);
@@ -152,8 +170,8 @@ test('R6b: MXL_AUTH_FAIL_MAX=0 disables the throttle (always 401, never 429)', (
   for (let i = 0; i < 30; i++) assert.strictEqual(run(middleware, bad).res.code, 401);
 });
 
-test('R6b: failed-auth throttle is per-client (CF-IP), so one attacker can\'t lock out others', () => {
-  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '2' }, quiet());
+test('R6b: failed-auth throttle is per-client (CF-IP, proxy trust ON), so one attacker can\'t lock out others', () => {
+  const { middleware } = createAuth({ MXL_CONTROL_TOKEN: TOK, MXL_AUTH_FAIL_MAX: '2', MXL_TRUST_PROXY: '1' }, quiet());
   const attacker = { ip: '172.17.0.1', headers: { 'cf-connecting-ip': '6.6.6.6', 'x-mxl-token': 'wrong' } };
   run(middleware, attacker); run(middleware, attacker);
   assert.strictEqual(run(middleware, attacker).res.code, 429); // attacker locked

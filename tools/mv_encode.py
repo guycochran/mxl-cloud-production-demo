@@ -4,7 +4,7 @@
 Reads the "Multiview PGM" flow (written by mxl_multiview.py in the hls2mxl
 container) out of the MXL domain and publishes it to VM1 mediamtx over SRT
 as `publish:multiview` — the same contribution path guests use — so the wall
-is viewable at mxl-feed.cochran.cloud/multiview/ (WebRTC) and the popout's
+is viewable at <feed-host>/multiview/ (WebRTC) and the popout's
 /mxlfeed/multiview/ proxy. Runs in the mxl2webrtc container (the only one
 with x264enc). One encoder for 8 sources — that's the point of compositing
 in the domain first.

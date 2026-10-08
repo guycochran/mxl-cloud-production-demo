@@ -23,7 +23,7 @@ You get a cuttable, keyed, browser-watchable MXL switcher:
 - ✓ Test-pattern source + file playout
 - ✓ HTML5 lower-third graphics keyer
 - ✓ WebRTC program output (watch in any browser)
-- ✓ **Two SRT contribution slots** — point Larix / OBS / vMix at `srt://YOUR-IP:8890`
+- ✓ **Two SRT contribution slots** — point Larix / OBS / vMix at `srt://YOUR-IP:8890` (Guest 1) or `srt://YOUR-IP:8891` (Guest 2), Caller mode, no stream ID
 - ✓ **A browser switcher** — preview/program with TAKE + a live multiview of every source
 
 Then check it's healthy and cut between sources:

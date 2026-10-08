@@ -33,14 +33,20 @@ function tokenFromRequest(req) {
 }
 
 // Identify the real client. Behind cloudflared (or most CDNs) req.ip is the tunnel's
-// address, so every visitor would share one rate-limit bucket (Review R6a). Prefer the
-// CDN's real-client header when present: CF-Connecting-IP (Cloudflare) or the first hop
-// of X-Forwarded-For. These are only trustworthy when the request genuinely comes
-// through your proxy — which is the intended deployment (the control UI sits behind the
-// tunnel) — so this is opt-out via MXL_TRUST_PROXY_HEADERS=0 for a direct-exposure case.
+// address, so every visitor would share one rate-limit bucket (Review R6a). When the
+// server sits behind a TRUSTED proxy, opt in to the CDN's real-client header:
+// CF-Connecting-IP (Cloudflare) or the first hop of X-Forwarded-For.
+//
+// DEFAULT OFF: those headers are client-controlled. On a directly exposed server an
+// attacker could send a fresh X-Forwarded-For on every request, get a new bucket each
+// time, and sidestep both the /repair limiter and the failed-auth lockout. Opt in with
+// MXL_TRUST_PROXY=1 (alias: MXL_TRUST_PROXY_HEADERS=1) ONLY when every request really
+// arrives through your proxy (e.g. a cloudflared tunnel to a localhost-bound backend).
+function _truthy(v) {
+  return ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
+}
 function clientKeyFactory(env = process.env) {
-  const trustHeaders = String(env.MXL_TRUST_PROXY_HEADERS ?? '1').toLowerCase() !== '0'
-    && String(env.MXL_TRUST_PROXY_HEADERS ?? '1') !== 'false';
+  const trustHeaders = _truthy(env.MXL_TRUST_PROXY) || _truthy(env.MXL_TRUST_PROXY_HEADERS);
   return function _clientKey(req) {
     const h = req.headers || {};
     if (trustHeaders) {

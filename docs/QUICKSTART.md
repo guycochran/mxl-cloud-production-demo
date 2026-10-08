@@ -25,8 +25,10 @@ upstream with `MXL_BLEEDING_EDGE=1`).
   (the CEF-based keyer alone is 3.3 GB), so the image pull dominates the run
   time.
 - **Cloud firewall / NSG open:** `8889/tcp` (WebRTC page + signaling),
-  `8189/udp` (WebRTC media), and `8890/udp` (SRT guest contribution — the phone
-  slots are now part of the quickstart, so open this too). The unauthenticated
+  `8189/udp` (WebRTC media), and **both** `8890/udp` + `8891/udp` (SRT guest
+  contribution — one listener port per guest in the default `srt-listen` transport:
+  8890 = Guest 1, 8891 = Guest 2). Only `8890/udp` is needed if you opt into
+  `MXL_GUEST_TRANSPORT=srt-direct`. The unauthenticated
   media-function **control APIs (`9600`–`9605`) bind to `127.0.0.1` only** — drive
   them from the box (`curl 127.0.0.1:…`) or over an SSH tunnel; never expose them.
 
@@ -107,8 +109,15 @@ The quickstart arms two SRT guest slots. Point any SRT encoder — the free
 **Larix Broadcaster** app, OBS, or vMix — at the publish point from the banner:
 
 ```
-srt://<your-ip>:8890    streamid:  publish:guest1   (or publish:guest2)
+srt://<your-ip>:8890    (Guest 1)        srt://<your-ip>:8891    (Guest 2)
+Mode: Caller   ·   Stream ID: leave blank — the port picks the guest
 ```
+
+That's the default `srt-listen` transport (the ingest itself is the SRT listener, one
+UDP port per guest — open both in your firewall). If you opted into
+`MXL_GUEST_TRANSPORT=srt-direct`, both guests share one port and are told apart by
+stream id instead: `srt://<your-ip>:8890` with streamid `publish:guest1` (or
+`publish:guest2`).
 
 The watcher attaches the slot automatically the moment the stream connects; then
 cut to it:
@@ -118,8 +127,9 @@ cut to it:
 curl -X POST -H 'Content-Type: application/json' -d '{"slot":2}' http://127.0.0.1:9604/pipeline/active-input
 ```
 
-Larix note: free Larix needs the stream id as its dedicated `srtstreamid` field
-(not baked in the URL). The banner prints a scannable QR with the exact scheme.
+Larix note (srt-direct only): free Larix needs the stream id as its dedicated
+`srtstreamid` field (not baked in the URL). In either mode the browser UI's
+**Add your camera** button shows a scannable QR for this box with the exact scheme.
 
 **Slot numbers are stable.** Guest 1 is always slot 2 and Guest 2 always slot 3 —
 whether or not the other is streaming. An absent guest's slot is held by a safe
