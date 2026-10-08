@@ -28,6 +28,8 @@
 #   streamid) | rtsp (legacy). srt-listen is HW-proven and avoids the mediamtx
 #   read-back restart-loop on jittery sources; it carries A/V (a per-guest fan-out
 #   splits the one SRT stream into a video + an audio flow; MXL_GUEST_AUDIO=0 skips audio).
+#   Set MXL_GUEST_SRT_PASSPHRASE (or MXL_GUEST1_/MXL_GUEST2_SRT_PASSPHRASE) to require an
+#   SRT passphrase in EVERY transport; without one the guest listeners are OPEN (warned).
 #
 # Idempotent: safe to re-run. Teardown: sudo scripts/quickstart.sh --down
 set -euo pipefail
@@ -272,17 +274,38 @@ render_mediamtx_guest_conf(){ # prints YAML on stdout; empty output = no auth co
   [ -n "$out" ] && printf 'paths:\n%s  all_others:\n' "$out"
   return 0
 }
+_srt_pass_listen_ok(){ # srt-listen: gst-launch argv word + caller URL → URL-unreserved chars only
+  _srt_pass_ok "$1" || return 1
+  case "$1" in *[!A-Za-z0-9._~-]*) return 1;; esac
+  return 0
+}
+srt_listen_pass_check(){ # validate + report; sets SRT_LISTEN_REQUIRED / SRT_LISTEN_OPEN
+  local i p
+  SRT_LISTEN_REQUIRED=""; SRT_LISTEN_OPEN=""
+  for i in 1 2; do
+    p=$(_srt_pass_for "$i")
+    if [ -z "$p" ]; then SRT_LISTEN_OPEN+="guest$i "; continue; fi
+    _srt_pass_listen_ok "$p" || { echo "✗ guest $i SRT passphrase (srt-listen) must be 10-79 chars of A-Z a-z 0-9 . _ ~ - (e.g. openssl rand -hex 16)" >&2; return 1; }
+    SRT_LISTEN_REQUIRED+="guest$i "
+  done
+  if [ -n "$SRT_LISTEN_REQUIRED" ]; then
+    echo "  ✓ SRT passphrase REQUIRED (srt-listen, AES) for: $SRT_LISTEN_REQUIRED"
+  fi
+  if [ -n "$SRT_LISTEN_OPEN" ]; then
+    echo "  ⚠⚠ WARNING: guest SRT listener(s) OPEN for: ${SRT_LISTEN_OPEN}— anyone who reaches the UDP port can publish into your program."
+    echo "     Set MXL_GUEST_SRT_PASSPHRASE (or MXL_GUEST1_/MXL_GUEST2_SRT_PASSPHRASE) to require one, and restrict the port in your cloud firewall."
+  fi
+  return 0
+}
 # --- END guest-srt-conf ---
 MTX_CONF_ARGS=()
+SRT_LISTEN_REQUIRED=""; SRT_LISTEN_OPEN=""
 GUEST_CONF=$(render_mediamtx_guest_conf) || exit 1
 if [ "$GUEST_TRANSPORT" = srt-listen ]; then
-  # mediamtx's SRT server is disabled in listen mode, so its publish passphrase can't
-  # apply — the contributor connects to the ingest's srtsrc listener, not mediamtx.
-  if [ -n "$GUEST_CONF" ]; then
-    echo "  ⚠ MXL_GUEST_*_SRT_PASSPHRASE is ignored in srt-listen mode (mediamtx SRT is off); gate the listener with the SRT passphrase on the publisher side, or restrict the port in your firewall"
-  else
-    echo "  ⚠ guest SRT slots are OPEN (srt-listen: any caller reaching the port). Restrict the UDP port in your cloud firewall to limit who can publish"
-  fi
+  # mediamtx's SRT server is disabled in listen mode, so the passphrase is enforced by
+  # each guest's PUBLIC listener instead (the A/V fan-out, tools/guest_av_listen.sh):
+  # unencrypted / wrong-key callers are rejected at the SRT handshake.
+  srt_listen_pass_check || exit 1
 elif [ -n "$GUEST_CONF" ]; then
   umask 077; printf '%s\n' "$GUEST_CONF" > "$BASE/mediamtx.guest-auth.yml"; umask 022
   MTX_CONF_ARGS=(-v "$BASE/mediamtx.guest-auth.yml":/mediamtx.yml:ro)
@@ -420,9 +443,14 @@ if [ -n "$GUEST_IMAGE" ]; then
   }
   # A/V fan-out (srt-listen only): one public SRT listener splits the contributor's TS to
   # the local video + audio leg listeners. See tools/guest_av_listen.sh.
-  run_guest_fanout(){ # name public-port video-leg-port audio-leg-port
+  # The public listener enforces the slot's SRT passphrase (if set). It is handed over by
+  # env INHERITANCE (`-e NAME`, no value) so it never appears in the docker command line;
+  # empty = open listener. The 127.0.0.1 legs stay unencrypted (loopback only).
+  run_guest_fanout(){ # name public-port video-leg-port audio-leg-port slot(1|2)
     docker rm -f "$1-fanout" >/dev/null 2>&1 || true
-    docker run -d --name "$1-fanout" --network host --entrypoint sh \
+    local pass; pass=$(_srt_pass_for "$5")
+    MXL_GUEST_SRT_PASSPHRASE="$pass" docker run -d --name "$1-fanout" --network host \
+      -e MXL_GUEST_SRT_PASSPHRASE --entrypoint sh \
       "$GUEST_IMAGE" -c "exec sh guest_av_listen.sh \"\$0\" \"\$1\" \"\$2\" 300" \
       "$2" "$3" "$4" >/dev/null
   }
@@ -440,8 +468,8 @@ if [ -n "$GUEST_IMAGE" ]; then
       run_guest_audio guest1 guest1 "$GUEST1_AUDIO_FLOW" "Guest 1 Audio" "$_g1a" 127.0.0.1
       run_guest_audio guest2 guest2 "$GUEST2_AUDIO_FLOW" "Guest 2 Audio" "$_g2a" 127.0.0.1
     fi
-    run_guest_fanout guest1 "$_g1pub" "$_g1v" "$_g1a"
-    run_guest_fanout guest2 "$_g2pub" "$_g2v" "$_g2a"
+    run_guest_fanout guest1 "$_g1pub" "$_g1v" "$_g1a" 1
+    run_guest_fanout guest2 "$_g2pub" "$_g2v" "$_g2a" 2
   else
     # srt-direct/rtsp: all guests multiplex on mediamtx:8890 (the port args are ignored).
     run_guest guest1 guest1 "$GUEST1_FLOW" "Guest 1"
@@ -564,6 +592,13 @@ fi
 sleep 4
 GUEST_PASS_NOTE=""
 [ -n "$GUEST_CONF" ] && [ "$GUEST_TRANSPORT" != srt-listen ] && GUEST_PASS_NOTE="         Passphrase: the SRT passphrase you configured for that slot (encryption AES, required)"
+if [ "$GUEST_TRANSPORT" = srt-listen ]; then
+  [ -n "$SRT_LISTEN_REQUIRED" ] && GUEST_PASS_NOTE="         Passphrase: the SRT passphrase you configured (required for: ${SRT_LISTEN_REQUIRED% }; Larix: Passphrase field · ffmpeg/OBS: &passphrase=...)"
+  if [ -n "$SRT_LISTEN_OPEN" ]; then
+    GUEST_PASS_NOTE="${GUEST_PASS_NOTE:+$GUEST_PASS_NOTE
+}         ⚠ OPEN (no passphrase): ${SRT_LISTEN_OPEN% } — anyone reaching the port can publish. Set MXL_GUEST_SRT_PASSPHRASE."
+  fi
+fi
 # Transport-aware "put your face on air" help: srt-listen has per-guest ports + no
 # streamid; srt-direct/rtsp share 8890 with a publish:guestN streamid.
 if [ "$GUEST_TRANSPORT" = srt-listen ]; then

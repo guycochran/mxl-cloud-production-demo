@@ -76,6 +76,21 @@ The quickstart gives you a pattern + clip. To add your own feed:
 No hand-built QR, no stale IP — the running box generates everything for the
 machine it's actually on.
 
+**Lock the guest slots (recommended on any public VM).** Without a passphrase the
+guest SRT ports are open: anyone who can reach them can publish into your program
+(the quickstart prints a loud warning). Set a passphrase before running:
+
+```bash
+sudo MXL_GUEST_SRT_PASSPHRASE="$(openssl rand -hex 16)" scripts/quickstart.sh
+# or one per slot: MXL_GUEST1_SRT_PASSPHRASE=... MXL_GUEST2_SRT_PASSPHRASE=...
+# (the quickstart prints which slots require it, never the value — note it down)
+```
+
+10–79 characters of `A-Z a-z 0-9 . _ ~ -` (so it pastes into an SRT URL
+unescaped; `openssl rand -hex 16` is a good choice). Callers without it, or with the wrong one, are rejected at the SRT
+handshake. Enter it in Larix's **Passphrase** field, or add `&passphrase=...` to
+the SRT URL in OBS/ffmpeg. The QR code does not carry the passphrase — type it in.
+
 ## 6. Tear down
 
 ```bash
