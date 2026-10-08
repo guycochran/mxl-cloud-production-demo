@@ -574,21 +574,36 @@ class ContributionCore:
             return Gst.PadProbeReturn.OK
         now = clock.get_time() - self.pipe.get_base_time()
         s = self.state
-        if s.get('next_pts') is None or abs(now + MARGIN_NS - s['next_pts']) > 500_000_000:
-            s['next_pts'] = now + MARGIN_NS
-            # Monotonic re-anchor on a persistent-flow leg rebuild: never place the new
-            # leg's audio before the last sample we already wrote (same rule as video).
-            if s.get('relock') and s.get('last_mapped') is not None:
-                s['next_pts'] = max(s['next_pts'], s['last_mapped'] + FRAME_NS)
-                print(f'audio cadence RE-ANCHORED (monotonic): {s["next_pts"]/1e6:.0f}ms', flush=True)
-                s['relock'] = False
+        target = now + MARGIN_NS
+        last = s.get('last_mapped')
+        # Re-anchor when we have no anchor yet, OR we've drifted far from wall-clock. The OLD
+        # code re-anchored to `now + MARGIN` UNCONDITIONALLY on a >500ms gap — but on bursty
+        # fan-out delivery `next_pts` races AHEAD (it advances by buf.duration per buffer), so
+        # the re-anchor JUMPED next_pts BACKWARD to now+MARGIN → non-monotonic PTS into mxlsink
+        # (no backward-index guard) → "streaming stopped, reason error (-5)" → restart loop
+        # (HW Oct-8, reproduced with a live camera's AAC through the A/V fan-out). FIX: the
+        # anchor floors at last_mapped + one audio quantum, so a re-anchor can only ever nudge
+        # FORWARD — never rewind the flow. (Mirrors the video grid's monotonic guarantee.)
+        if s.get('next_pts') is None or abs(target - s['next_pts']) > 500_000_000:
+            new_anchor = target
+            if last is not None:
+                # never place audio at/behind the last sample already written (one buffer's
+                # worth of headroom; buf.duration is this buffer's span)
+                quantum = buf.duration if buf.duration != Gst.CLOCK_TIME_NONE else FRAME_NS
+                new_anchor = max(new_anchor, last + quantum)
+            relock = bool(s.get('relock') and last is not None)
+            s['relock'] = False
+            s['next_pts'] = new_anchor
             if s['offset'] is None:   # first lock -> announce if asked (parity w/ video)
-                s['offset'] = s['next_pts']
-                print(f'audio cadence anchored: {s["next_pts"]/1e6:.0f}ms', flush=True)
+                s['offset'] = new_anchor
+                print(f'audio cadence anchored: {new_anchor/1e6:.0f}ms', flush=True)
                 if self.a.announce_on_lock and self.repair_url:
                     threading.Thread(target=self._announce, daemon=True).start()
                 elif self.a.announce_on_lock:
                     print('announce skipped (no repair_url) — mixer tolerates absent flows', flush=True)
+            else:
+                print(f'audio cadence {"RE-ANCHORED" if relock else "re-anchored"} (monotonic): '
+                      f'{new_anchor/1e6:.0f}ms', flush=True)
         buf.pts = s['next_pts']
         s['last_mapped'] = s['next_pts']   # for a monotonic re-anchor on the next rebuild
         if buf.duration != Gst.CLOCK_TIME_NONE:

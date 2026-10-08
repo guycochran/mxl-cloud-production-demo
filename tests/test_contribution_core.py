@@ -480,3 +480,48 @@ def test_restamp_probe_drops_ahead_of_realtime_burst(monkeypatch):
         # clock does NOT advance — simulates a burst faster than realtime
     assert burst_dropped >= 1, "burst frames should be dropped, not stamped ahead of now"
     assert core.state.get("dropped", 0) >= 1
+
+
+# ── _restamp_audio: monotonic PTS guard (HW Oct-8: audio -5 restart loop) ─────────
+# The bug: next_pts advances by buf.duration per buffer; on bursty fan-out delivery it races
+# ahead, then the >500ms re-anchor jumped it BACK to now+MARGIN → non-monotonic PTS → mxlsink
+# -5 → restart loop. The fix floors the re-anchor at last_mapped+quantum (never rewind).
+def _drive_audio(core, pad, clock, buffers):
+    """Feed (pts_ignored, duration_ns) audio buffers through _restamp_audio; return mapped PTS.
+    The caller advances clock.t between buffers to simulate burst vs realtime."""
+    out = []
+    for dur in buffers:
+        b = _ProbeBuf(0)
+        b.duration = dur
+
+        class _Info:
+            def get_buffer(_s):
+                return b
+        core._restamp_audio(pad, _Info())
+        out.append(b.pts)
+    return out
+
+
+def test_restamp_audio_pts_strictly_monotonic_through_burst_and_reanchor(monkeypatch):
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    clock = _ProbeClock(10_000_000_000)
+    pad = _FakePad(_FakeCaps(48000, 1))          # audio caps (framerate irrelevant for audio path)
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    AAC = 21_333_333     # ~1024 samples @48k ≈ 21.3ms per AAC frame
+
+    out = []
+    # 1) BURST: 60 AAC frames arrive with the clock FROZEN (jitter-buffer flush) → next_pts
+    #    races ~1.28s ahead of `now`. (Exactly the HW case: the fan-out flushes a burst.)
+    out += _drive_audio(core, pad, clock, [AAC] * 60)
+    # 2) resume realtime pacing: the clock now advances ~one AAC frame per buffer. Because
+    #    next_pts raced ahead, |now+MARGIN - next_pts| > 500ms on the NEXT frame → the OLD code
+    #    re-anchored next_pts BACK to now+MARGIN (a REWIND → mxlsink -5). The fix floors it.
+    for _ in range(8):
+        clock.t += AAC
+        out += _drive_audio(core, pad, clock, [AAC])
+
+    assert all(x is not None for x in out)
+    # THE invariant the -5 violated: PTS must be strictly non-decreasing throughout.
+    for a, b in zip(out, out[1:]):
+        assert b >= a, f"audio PTS rewound {a} -> {b} (would be mxlsink -5)"
