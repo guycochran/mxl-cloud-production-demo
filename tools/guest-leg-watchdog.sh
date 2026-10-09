@@ -13,18 +13,28 @@
 # guest1 audio leg :9090 dead — both silently blocking joins.
 #
 # This watchdog polls every guest's three ports; if a chain is incomplete (public up but
-# a leg missing, or vice versa) it restarts that chain in order (audio → core → fanout)
-# and logs it. A chain with ALL ports down is treated as "not provisioned" and skipped
-# (guest4-6 may legitimately not exist on a smaller deployment).
+# a leg missing, or vice versa) PERSISTENTLY it restarts that chain in order
+# (audio → core → fanout) and logs it. A chain with ALL ports down is treated as "not
+# provisioned" and skipped (guest4-6 may legitimately not exist on a smaller deployment).
+#
+# IMPORTANT — don't fight the idle cycle: when a guest has NO publisher, its audio/video
+# core wrapper loops (`while :; do python3 guest_*.py ...; sleep 3; done`) and the SRT
+# source exits "not-linked (-1)" each cycle, so the leg listener briefly unbinds between
+# cycles. That's NORMAL for an idle slot — NOT a wedge. So we only heal a leg that stays
+# down across STRIKES consecutive polls; a one-poll blip (the idle cycle) is ignored.
 #
 # Config (env-overridable; defaults match the box):
 #   GUEST_PORTS   per-guest "name:pub:vleg:aleg" specs, comma-separated
 #   POLL_SECONDS  default 20
-#   COOLDOWN_SECONDS  min seconds between restarts of the SAME chain (default 60)
+#   STRIKES       consecutive degraded polls before healing (default 3 → ~60s of
+#                 persistent degrade, well past any idle-cycle blip)
+#   COOLDOWN_SECONDS  min seconds between restarts of the SAME chain (default 90)
 set -u
 
 POLL_SECONDS=${POLL_SECONDS:-20}
-COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-60}
+STRIKES=${STRIKES:-3}
+COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-90}
+declare -A strike
 
 # name:public:video-leg:audio-leg  (the box's scheme; guest1/2 contiguous, 3-6 bolt-ons)
 GUEST_PORTS=${GUEST_PORTS:-"guest1:8890:8990:9090,guest2:8891:8991:9091,guest3:8895:8995:9095,guest4:8896:8996:9096,guest5:8897:8997:9097,guest6:8898:8998:9098"}
@@ -60,11 +70,19 @@ while :; do
     bound "$vleg" && up=$((up+1))
     bound "$aleg" && up=$((up+1))
 
-    # 0 up = container exists but nothing bound (starting up) → give it a cycle, don't thrash
-    # 3 up = healthy. 1 or 2 up = a leg wedged → heal.
+    # 0 up = container exists but nothing bound (starting up / idle between cycles) → not
+    #         a wedge; reset strikes. 3 up = healthy; reset. 1-2 up = PARTIAL — count a
+    #         strike, and only heal once it's been partial for STRIKES consecutive polls
+    #         (so the normal idle-cycle unbind, which clears within a poll, never heals).
     if [ "$up" -eq 1 ] || [ "$up" -eq 2 ]; then
-      logger -t guest-leg-watchdog "$name degraded: pub=$(bound "$pub" && echo up || echo DOWN) vleg=$(bound "$vleg" && echo up || echo DOWN) aleg=$(bound "$aleg" && echo up || echo DOWN)"
-      heal_chain "$name"
+      strike[$name]=$(( ${strike[$name]:-0} + 1 ))
+      logger -t guest-leg-watchdog "$name degraded (${strike[$name]}/${STRIKES}): pub=$(bound "$pub" && echo up || echo DOWN) vleg=$(bound "$vleg" && echo up || echo DOWN) aleg=$(bound "$aleg" && echo up || echo DOWN)"
+      if [ "${strike[$name]}" -ge "$STRIKES" ]; then
+        heal_chain "$name"
+        strike[$name]=0
+      fi
+    else
+      strike[$name]=0
     fi
   done
   sleep "$POLL_SECONDS"
