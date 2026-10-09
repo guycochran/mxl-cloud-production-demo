@@ -45,7 +45,7 @@
     </ul>
 
     <h2><span class="n">Oct 2026</span>Correcting the record on EFA — it was the hardware, not the proxy</h2>
-    <p>Earlier we reported that RDMA-over-EFA fabric transport failed in the cloud. Jonas Ohland (Riedel) pointed out the real cause: our test instance was <strong>AWS Nitro v3</strong> (no remote-write RDMA). Re-running on a <strong>Nitro v4</strong> instance with EFA-direct, the RDMA target ran clean — no errors. The earlier "EFA failed" finding was an instance-type mismatch, not a bug in the proxy. The TCP fabric path remains the portable default; EFA is a real option on the right hardware.</p>
+    <p>Earlier we reported that RDMA-over-EFA fabric transport failed in the cloud. The real cause turned out to be the instance type: our test ran on <strong>AWS Nitro v3</strong> (no remote-write RDMA). Re-running on a <strong>Nitro v4</strong> instance with EFA-direct, the RDMA target ran clean — no errors. The earlier "EFA failed" finding was an instance-type mismatch, not a bug in the proxy. The TCP fabric path remains the portable default; EFA is a real option on the right hardware.</p>
 
     <h2><span class="n">Oct 2026</span>AMWA publishes IN-001 — a control model for MXL</h2>
     <p>AMWA published <strong>IN-001, "API Requirements – Control of the Media eXchange Layer (MXL)"</strong> — the draft that starts defining how an external controller manages MXL readers and writers (MXL itself defines media exchange, not control). It's an open Increment soliciting public review. We wrote up what it is and mapped our own switcher's operations against it. <a href="/control.html">Read it →</a></p>
