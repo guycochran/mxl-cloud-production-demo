@@ -87,7 +87,8 @@
 <script>
 // Pull the live health from the running switcher. Read-only, public, no secrets.
 (function(){
-  var API='https://mxl-skin.cochran.cloud/api/mxl/health';
+  // Point this at your switcher's public health endpoint (same box that serves /welcome).
+  var API=(window.MXL_HEALTH_API||'https://YOUR-SWITCHER-HOST/api/mxl/health');
   function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   function pretty(name){
     var m={pattern:'Test pattern',playout:'Playback clip',guest1:'Camera / encoder',guest2:'PTZ camera',guest3:'Phone guest',layout:'Picture-in-picture',cam:'Camera 1',cam2:'Camera 2'};
