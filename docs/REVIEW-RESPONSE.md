@@ -47,3 +47,15 @@ Thanks for the thorough pass. Guy made the five calls; here they are, with what'
 - On **#40**, do you want the passphrase to also gate the **multiview visibility** (right now
   the public multiview shows every guest tile), or is passphrase-to-publish enough and
   everyone-can-see is fine for the demo? Not decided yet — flagging it per your note.
+
+## Oct 9 (later) — two more decisions from Guy
+
+- **Multiview visibility (#40 sub-question)** — `decided`: **passphrase-to-publish is enough;
+  everyone-can-see is fine.** The public multiview showing every guest tile is acceptable for
+  the demo. No visibility gating needed.
+- **Core-vs-Skin leak sweep** — `fixed` (new PR #42): Guy's principle is that the Core is for
+  everyone and OUR deployment specifics belong in a Skin or stay private. The runnable Core
+  (backend/scripts/tools) was defaulting env vars to our hosts (prodbots.com, *.cochran.cloud).
+  PR #42 neutralizes those defaults (localhost / YOUR-*-HOST placeholders), still overridable
+  via MXL_* env. `docs/` (the mxlswitcher.com site) keeps its OHG bylines — that's our own
+  publication, correctly ours. Suggest merging #42 early (small, master-based, no conflicts).
