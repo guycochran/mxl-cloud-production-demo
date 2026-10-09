@@ -295,8 +295,11 @@ fi
 # mediamtx keeps serving WebRTC (8889/8189), which the program monitor still needs.
 MTX_SRT_ARGS=()
 [ "$GUEST_TRANSPORT" = srt-listen ] && MTX_SRT_ARGS=(-e MTX_SRT=no)
+# Enable mediamtx's control API (localhost:9997, --network host) so the Core can read
+# the REAL viewer count — the WHIP encoder only publishes, it never sees the WebRTC
+# clients, which connect to mediamtx directly. GET /v3/webrtcsessions/list is the truth.
 docker run -d --name mediamtx --network host --restart unless-stopped "${MTX_CONF_ARGS[@]}" \
-  "${MTX_SRT_ARGS[@]}" -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" "$IMG_MEDIAMTX" >/dev/null
+  "${MTX_SRT_ARGS[@]}" -e MTX_API=yes -e MTX_WEBRTCADDITIONALHOSTS="$PUBLIC_IP" "$IMG_MEDIAMTX" >/dev/null
 run_mf(){ # name hostport image extra...
   local name=$1 port=$2 image=$3; shift 3
   # Control APIs bind 127.0.0.1 ONLY (least privilege): these are unauthenticated

@@ -187,14 +187,34 @@ function fetchJson(port, apiPath, timeoutMs = 3000) {
     .catch(() => null); // unreachable port -> null; shapePipelines marks it so
 }
 
+// The REAL viewer count: WebRTC clients connect to mediamtx, not to the WHIP encoder
+// (which always self-reports 0). mediamtx's API (MTX_API=yes, :9997) lists live sessions.
+// We count readers on the program path. Null if the API isn't enabled/reachable.
+const MTX_API_URL = process.env.MXL_MEDIAMTX_API || 'http://127.0.0.1:9997';
+const PROGRAM_PATH_NAME = process.env.MXL_PROGRAM_PATH || 'mxl2webrtc';
+function fetchViewerCount(timeoutMs = 2500) {
+  return fetch(`${MTX_API_URL}/v3/webrtcsessions/list`, { signal: AbortSignal.timeout(timeoutMs) })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d || !Array.isArray(d.items)) return null;
+      // count only READ sessions on the program path (ignore the WHIP publisher itself)
+      const readers = d.items.filter((s) =>
+        (s.state === 'read' || s.state === 'playing' || !s.state) &&
+        (!s.path || s.path === PROGRAM_PATH_NAME));
+      return readers.length;
+    })
+    .catch(() => null);
+}
+
 let _prevCpu = health.readProcStat();
 let _healthCache = { at: 0, payload: null };
 
 async function buildHealth() {
-  const [selector, keyer, encoder] = await Promise.all([
+  const [selector, keyer, encoder, mtxViewers] = await Promise.all([
     fetchJson(9604, '/pipeline/status'),
     fetchJson(9605, '/pipeline/status'),
     fetchJson(9601, '/pipeline/status'),
+    fetchViewerCount(),
   ]);
   // Prefer the already-running thumbs health.json; fall back to grain_probe's grains.json.
   const thumbs = await readSnapshot('health.json', THUMBS_HEALTH_PATH);
@@ -216,10 +236,13 @@ async function buildHealth() {
     cpus: (probeSystem && probeSystem.cpus) || health.cpuCount(),
     mem: (probeSystem && probeSystem.mem) || health.readMem(),
     load: (probeSystem && probeSystem.load) || health.readLoad(),
-    viewers: probeSystem ? probeSystem.viewers : null,
+    // Prefer mediamtx's live session count (the truth); fall back to the probe file.
+    viewers: mtxViewers != null ? mtxViewers : (probeSystem ? probeSystem.viewers : null),
   };
   _prevCpu = curCpu;
   const pipelines = health.shapePipelines({ selector, keyer, encoder });
+  // Surface the real count on the encoder card too (it self-reports 0 — see above).
+  if (mtxViewers != null && pipelines.encoder) pipelines.encoder.viewers = mtxViewers;
   return health.composeHealth({ ts: Date.now() / 1000, system, grains, pipelines });
 }
 
