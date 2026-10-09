@@ -8,8 +8,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 HTML = REPO / "web" / "local.html"
+HEALTH_HTML = REPO / "web" / "health.html"
 SERVER = REPO / "backend" / "local-server.js"
 ROUTES = REPO / "backend" / "mxl-routes.js"
+HEALTH_INFO = REPO / "backend" / "health-info.js"
 PKG = REPO / "backend" / "package.json"
 FONTS = REPO / "web" / "fonts"
 
@@ -110,3 +112,51 @@ def test_package_pins_express():
     import json
     pkg = json.loads(PKG.read_text())
     assert "express" in pkg.get("dependencies", {}), "express not pinned in package.json"
+
+
+# ── Health Skin (read-only monitor, separate page from the control Skin) ──────
+
+def test_health_skin_exists_and_is_separate():
+    """The grain/system monitor is its own page + its own read-only endpoint — it
+    must NOT leak control into the Core Skin (local.html drives only control
+    routes). Keeping health separate is the whole point of 'Core vs Skin'."""
+    assert HEALTH_HTML.is_file(), "web/health.html missing"
+    assert HEALTH_INFO.is_file(), "backend/health-info.js missing"
+    # the control Skin must not start calling /api/mxl/health — health is its own page
+    assert "/api/mxl/health" not in HTML.read_text(), \
+        "the control Skin (local.html) should not poll health — keep it separate"
+
+
+def test_health_skin_is_self_contained():
+    """Same air-gap promise as the control Skin: no external hosts, self-hosted
+    fonts only, no CDN."""
+    html = HEALTH_HTML.read_text()
+    urls = re.findall(r"https?://[a-z0-9.\-]+", html, re.I)
+    external = [u for u in urls if not re.search(r"(127\.0\.0\.1|localhost|w3\.org)", u)]
+    assert not external, f"health.html references external hosts: {external}"
+    assert "cdn" not in html.lower(), "health.html pulls from a CDN"
+    woff2 = list(FONTS.glob("*.woff2"))
+    for f in woff2:
+        assert f.name in html, f"health.html doesn't @font-face {f.name}"
+
+
+def test_health_endpoint_is_read_only():
+    """The health endpoint + page must be GET-only — a monitor never mutates the
+    facility. No POST/PUT/DELETE handlers touch the health surface."""
+    src = SERVER.read_text()
+    assert "app.get('/api/mxl/health'" in src, "local-server missing GET /api/mxl/health"
+    assert "app.get('/health'" in src, "local-server doesn't serve /health page"
+    # no mutating verb on the health paths
+    for verb in ("post", "put", "delete", "patch"):
+        assert f"app.{verb}('/api/mxl/health'" not in src, \
+            f"health endpoint must not expose {verb.upper()}"
+
+
+def test_health_reuses_grain_probe_snapshot():
+    """Cost control: the expensive grain measurement is grain_probe.py's job. The
+    endpoint must READ its snapshot (grains.json), not spawn its own probes."""
+    src = SERVER.read_text()
+    assert "grains.json" in src, "health endpoint doesn't read the grain-probe snapshot"
+    # must cache so N viewers collapse to one scrape
+    assert "HEALTH_TTL" in src or "_healthCache" in src, \
+        "health endpoint has no server-side cache (N viewers would each scrape)"

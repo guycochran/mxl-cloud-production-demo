@@ -137,6 +137,70 @@ app.get('/api/mxl/ingest/qr/:slot.png', (req, res) => {
   });
 });
 
+// ── Health Skin (read-only) ──────────────────────────────────────────────────
+// A SEPARATE page from the control Skin: System (CPU/mem/load), Grain flow (bps +
+// unique-fps per flow, catching repeat-wedges), per-source fps and pipeline-writer
+// state. Nothing here mutates the facility — the Core stays lean and on-air-focused.
+//
+// The grain measurement is already done by tools/grain_probe.py (writes
+// <thumbs>/grains.json every 3s, with its own load guards). We only read that file
+// + /proc + the three pipeline/status endpoints, and cache the aggregate for a
+// couple seconds so N open Health tabs collapse to one scrape.
+const health = require('./health-info');
+const GRAINS_PATH = process.env.MXL_GRAINS_PATH || path.join(THUMBS_DIR, 'grains.json');
+const HEALTH_RATE = parseInt(process.env.MXL_GRAIN_RATE || '30', 10);
+const HEALTH_TTL_MS = parseInt(process.env.MXL_HEALTH_TTL_MS || '2000', 10);
+// Resolve the MXL control-API base the same way mxl-routes does, so the pipeline
+// status probes hit the same VM the cuts do.
+const HEALTH_MXL_VM = process.env.MXL_VM_URL
+  || (process.env.MXL_VM_FROM_MANIFEST === '1' && facility && facility.network && `http://${facility.network.mxl_vm}`)
+  || 'http://127.0.0.1';
+
+function fetchJson(port, apiPath, timeoutMs = 3000) {
+  return fetch(`${HEALTH_MXL_VM}:${port}${apiPath}`, { signal: AbortSignal.timeout(timeoutMs) })
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null); // unreachable port -> null; shapePipelines marks it so
+}
+
+let _prevCpu = health.readProcStat();
+let _healthCache = { at: 0, payload: null };
+
+async function buildHealth() {
+  const [selector, keyer, encoder] = await Promise.all([
+    fetchJson(9604, '/pipeline/status'),
+    fetchJson(9605, '/pipeline/status'),
+    fetchJson(9601, '/pipeline/status'),
+  ]);
+  const curCpu = health.readProcStat();
+  const system = {
+    cpu_pct: health.cpuPercent(_prevCpu, curCpu),
+    cpus: health.cpuCount(),
+    mem: health.readMem(),
+    load: health.readLoad(),
+  };
+  _prevCpu = curCpu;
+  const grains = health.classifyGrains(
+    health.readGrainsSnapshot(GRAINS_PATH), { expectedRate: HEALTH_RATE });
+  const pipelines = health.shapePipelines({ selector, keyer, encoder });
+  return health.composeHealth({ ts: Date.now() / 1000, system, grains, pipelines });
+}
+
+app.get('/api/mxl/health', async (req, res) => {
+  try {
+    const now = Date.now();
+    if (!_healthCache.payload || now - _healthCache.at > HEALTH_TTL_MS) {
+      _healthCache = { at: now, payload: await buildHealth() };
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(_healthCache.payload);
+  } catch (e) {
+    res.status(500).json({ error: String((e && e.message) || e) });
+  }
+});
+
+// The Health Skin page (read-only). Separate URL from the control Skin.
+app.get('/health', (req, res) => res.sendFile(path.join(WEB_DIR, 'health.html')));
+
 // Serve the operator UI + its static assets.
 app.get('/', (req, res) => res.sendFile(path.join(WEB_DIR, 'local.html')));
 app.use(express.static(WEB_DIR));
