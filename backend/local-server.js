@@ -116,8 +116,26 @@ const INGEST_CFG = ingestConfig({
 // The set of valid guest slots for the QR route — derived from the config, not hardcoded.
 const INGEST_SLOTS = new Set((INGEST_CFG.guests || []).map((g) => g.slot));
 
-app.get('/api/mxl/ingest', (req, res) => {
-  res.json(ingestInfo(INGEST_CFG));
+app.get('/api/mxl/ingest', async (req, res) => {
+  const info = ingestInfo(INGEST_CFG);
+  // Annotate each guest slot as free/occupied so the /join page can auto-assign the
+  // first FREE slot (two visitors must not be sent to the same busy listener — SRT
+  // listen mode is one-publisher-per-port, so a taken slot rejects the next phone).
+  // We derive "occupied" from the probe snapshot (a flow advancing = someone's on it).
+  try {
+    const snap = await readSnapshot('health.json', THUMBS_HEALTH_PATH);
+    const flows = (snap && snap.slots) || {};
+    info.guests = info.guests.map((g) => {
+      const f = flows[g.slot];
+      // occupied = the slot's source is delivering fresh frames (age present + small)
+      const occupied = !!(f && f.age != null && f.age < 5);
+      return { ...g, occupied, free: !occupied };
+    });
+    const firstFree = info.guests.find((g) => g.free);
+    info.suggested_slot = firstFree ? firstFree.slot : null;
+  } catch { /* no snapshot — leave slots unannotated */ }
+  res.set('Access-Control-Allow-Origin', process.env.MXL_HEALTH_CORS || '*');
+  res.json(info);
 });
 
 // Server-rendered QR PNG for a guest slot. Uses python3 + segno (pure-python,

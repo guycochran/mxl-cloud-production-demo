@@ -69,6 +69,19 @@
   .status{margin-top:10px;font-size:13px;color:var(--dim)}
   .status b{color:var(--grn)}
   .status.waiting b{color:var(--amber)}
+  /* multiview return grid */
+  .mv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  @media(max-width:520px){.mv{grid-template-columns:repeat(2,1fr)}}
+  .mvtile{position:relative;background:#000;border:1px solid var(--line);border-radius:9px;overflow:hidden;aspect-ratio:16/9}
+  .mvtile img{width:100%;height:100%;object-fit:cover;display:block}
+  .mvtile .lbl{position:absolute;bottom:0;left:0;right:0;font-size:10px;padding:3px 6px;background:linear-gradient(transparent,rgba(0,0,0,.8));color:var(--ink);font-weight:600;letter-spacing:.5px}
+  .mvtile .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--faint)}
+  .mvtile.live .dot{background:var(--grn);box-shadow:0 0 8px rgba(35,217,124,.6)}
+  .mvtile.dead{opacity:.4}
+  .mvtile.you{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan),0 0 18px rgba(53,224,255,.5)}
+  .mvtile.you .lbl{background:var(--cyan);color:#05070c}
+  .mvtile .me{position:absolute;top:6px;left:6px;font-size:9px;background:var(--cyan);color:#05070c;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:.5px;display:none}
+  .mvtile.you .me{display:block}
   .footer{margin-top:30px;color:var(--faint);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
 </style>
 </head>
@@ -126,12 +139,17 @@
       </div>
 
       <div class="preview">
-        <h2>Program — you'll appear here</h2>
+        <h2>Can we see you? <span style="color:var(--faint);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">— your tile lights up when you're live</span></h2>
+        <div class="mv" id="mvGrid"><!-- source tiles injected --></div>
+        <div class="status waiting" id="status"><b>Waiting for a source…</b> go live in Larix and watch your tile appear below.</div>
+      </div>
+
+      <div class="preview" style="margin-top:18px">
+        <h2>Program output <span style="color:var(--faint);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">— what's on air</span></h2>
         <div class="pgmwrap">
           <span class="live-badge">● LIVE</span>
           <iframe id="pgm" src="/program/" allow="autoplay" title="Program output"></iframe>
         </div>
-        <div class="status waiting" id="status"><b>Waiting for a source…</b> once you go live, ask the director to cut to you — or watch the sources count rise.</div>
       </div>
     </div>
   </div>
@@ -144,46 +162,95 @@
 <script>
 (function(){
   var $=function(id){return document.getElementById(id);};
-  var slot=(location.hash.match(/slot=(guest\d+)/)||[])[1]||null;  // optional #slot=guest3
+  var forced=(location.hash.match(/slot=(guest\d+)/)||[])[1]||null;  // optional #slot=guestN
+  var mySlot=null;  // the slot THIS visitor was assigned (highlight it in the grid)
 
   function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function pretty(name){
+    var m={pattern:'Pattern',playout:'Playout',guest1:'Guest 1',guest2:'Guest 2',guest3:'Guest 3',layout:'PiP',cam:'Cam 1',cam2:'Cam 2'};
+    return m[name]||name;
+  }
 
+  // 1) QR + settings — use the FIRST FREE slot the server suggests, so two people
+  //    scanning don't collide on the same busy listener.
   fetch('/api/mxl/ingest',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     var guests=d.guests||[];
-    // pick the requested slot, else the LAST guest (usually the phone slot), else first
-    var g = (slot && guests.filter(function(x){return x.slot===slot;})[0]) || guests[guests.length-1] || null;
+    var pick = forced || d.suggested_slot;   // server-chosen free slot
+    var g = (pick && guests.filter(function(x){return x.slot===pick;})[0])
+            || guests.filter(function(x){return x.free!==false;})[0]
+            || guests[guests.length-1] || null;
     if(!g || !d.public_ip){
-      $('qrcard').style.display='none'; $('qrmissing').style.display='block';
-      $('qrslot').textContent='';
-    } else {
-      if(g.qr){ $('qrimg').src=g.qr; } else { $('qrcard').style.display='none'; $('qrmissing').style.display='block'; }
-      $('qrslot').textContent=g.label+' · '+(g.srt_url? g.srt_url.replace(/^srt:\/\//,'') : '');
-      $('mSrt').textContent=g.srt_url||'—';
-      $('copyBtn').onclick=function(){
-        if(g.srt_url){ navigator.clipboard.writeText(g.srt_url).then(function(){ $('copyBtn').textContent='Copied ✓'; setTimeout(function(){$('copyBtn').textContent='Copy SRT URL';},1500); }); }
-      };
+      $('qrcard').style.display='none'; $('qrmissing').style.display='block'; $('qrslot').textContent='';
+      return;
     }
+    mySlot=g.slot;
+    if(g.qr){ $('qrimg').src=g.qr+'?t='+Date.now(); } else { $('qrcard').style.display='none'; $('qrmissing').style.display='block'; }
+    var allFull = guests.length && guests.every(function(x){return x.free===false;});
+    $('qrslot').innerHTML = allFull
+      ? '<span style="color:#c0392b">All slots busy — ask the director to free one</span>'
+      : esc(g.label)+' · '+(g.srt_url? esc(g.srt_url.replace(/^srt:\/\//,'')) : '');
+    $('mSrt').textContent=g.srt_url||'—';
+    $('copyBtn').onclick=function(){
+      if(g.srt_url){ navigator.clipboard.writeText(g.srt_url).then(function(){ $('copyBtn').textContent='Copied ✓'; setTimeout(function(){$('copyBtn').textContent='Copy SRT URL';},1500); }); }
+    };
   }).catch(function(){
     $('qrcard').style.display='none'; $('qrmissing').style.display='block';
   });
 
-  // Live source/viewer status from the health endpoint (read-only, public).
+  // 2) Multiview return grid — the "we see you" feedback. Live thumbnails of every
+  //    source; the visitor's OWN slot is ringed cyan + "YOU". Near-zero cost (the
+  //    thumbnails are already generated for the switcher's multiview).
+  var SOURCES=['cam','cam2','guest1','guest2','guest3','playout','pattern','layout'];
+  var builtGrid=false;
+  function buildGrid(flows){
+    var g=$('mvGrid');
+    var names=SOURCES.filter(function(n){return flows[n]!==undefined;});
+    if(!names.length) names=Object.keys(flows);
+    g.innerHTML=names.map(function(n){
+      return '<div class="mvtile" data-slot="'+n+'">'+
+        '<img alt="'+esc(pretty(n))+'" src="/api/mxl/thumbs/'+n+'.jpg">'+
+        '<span class="dot"></span><span class="me">YOU</span>'+
+        '<span class="lbl">'+esc(pretty(n))+'</span></div>';
+    }).join('');
+    builtGrid=true;
+  }
+  function refreshThumbs(){
+    Array.prototype.forEach.call(document.querySelectorAll('.mvtile img'),function(img){
+      var base=img.getAttribute('src').split('?')[0];
+      img.src=base+'?t='+Date.now();
+    });
+  }
+
   function pollHealth(){
     fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
       var flows=(d.grains&&d.grains.flows)||{};
+      if(!builtGrid) buildGrid(flows);
+      // update per-tile live/dead + "you" highlight
+      Array.prototype.forEach.call(document.querySelectorAll('.mvtile'),function(t){
+        var n=t.getAttribute('slot')||t.getAttribute('data-slot');
+        var f=flows[n]; var live=f&&f.state==='ok';
+        t.classList.toggle('live',!!live);
+        t.classList.toggle('dead',!!(f&&f.state==='dead'));
+        t.classList.toggle('you', n===mySlot);
+      });
+      refreshThumbs();
       var live=Object.keys(flows).filter(function(k){return flows[k].state==='ok';}).length;
       var viewers=(d.system&&d.system.viewers!=null)?d.system.viewers:null;
+      var mine=mySlot&&flows[mySlot]&&flows[mySlot].state==='ok';
       var s=$('status');
-      if(live>0){
+      if(mine){
         s.className='status';
-        s.innerHTML='<b>'+live+' live source'+(live===1?'':'s')+'</b> on the switcher'+(viewers!=null?(' · '+viewers+' watching'):'')+'. Go live and you\'re next.';
+        s.innerHTML='<b>You\'re LIVE 🎥</b> — your tile is ringed in cyan above. Ask the director to cut you to program.';
+      } else if(live>0){
+        s.className='status';
+        s.innerHTML='<b>'+live+' live source'+(live===1?'':'s')+'</b> on the switcher'+(viewers!=null?(' · '+viewers+' watching'):'')+'. Go live in Larix and your tile lights up.';
       } else {
         s.className='status waiting';
         s.innerHTML='<b>Waiting for a source…</b> be the first — scan and go live.';
       }
     }).catch(function(){});
   }
-  pollHealth(); setInterval(pollHealth,4000);
+  pollHealth(); setInterval(pollHealth,3000);
 })();
 </script>
 </body>
