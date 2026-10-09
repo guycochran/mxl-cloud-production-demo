@@ -146,7 +146,7 @@ class ContributionCore:
         # An adopter who clones this repo and runs an ingest must never unknowingly
         # call someone else's backend — so with nothing configured there is no announce
         # target at all. A deployment opts IN explicitly:
-        #     MXL_REPAIR_URL=https://prodbots.com/api/mxl/repair python3 cam_ingest.py
+        #     MXL_REPAIR_URL=http://localhost:3013/api/mxl/repair python3 cam_ingest.py
         # (the OHG live bring-up sets exactly that; see scripts/bring-up-mxl.sh). The
         # quickstart tier pre-wires guest slots into the selector, so it needs no
         # announce — it leaves MXL_REPAIR_URL unset (or ="none") and stays self-contained.

@@ -73,8 +73,10 @@ def test_bring_up_required_vars_and_overrides():
     r = _run_bring_up(**BRING_UP_REQUIRED)
     assert r.returncode == 0, r.stderr
     d = r.stdout.strip().split("|")
-    assert d[:8] == ["203.0.113.9", "guy", "203.0.113.50", "192.168.8.177", "https://prodbots.com",
-                     "https://mxl-feed.cochran.cloud", "rg-test", "vm-test"]
+    # Core-defaults neutralized Oct 9: MXL_BACKEND_URL / MXL_FEED_URL default to neutral
+    # local values (not our prodbots/cochran hosts), still overridable via env.
+    assert d[:8] == ["203.0.113.9", "guy", "203.0.113.50", "192.168.8.177", "http://localhost:3013",
+                     "http://localhost:8889", "rg-test", "vm-test"]
     assert d[8] == "ssh -i /h/.ssh/test-key -o BatchMode=yes -o ConnectTimeout=8 guy@203.0.113.9"
     o = _run_bring_up(**{**BRING_UP_REQUIRED, "MXL_VM_IP": "198.51.100.7", "MXL_VM_SSH_USER": "ops",
                          "MXL_BACKEND_URL": "https://example.test/"})
@@ -110,16 +112,18 @@ def test_bring_up_required_vars_have_no_defaults():
                                "f'http://{TAMS_HOST}:9000'", "os.environ.get('TAMS_S3_USER', 'tams')"]),
     ("tools/backfill-mini.py", ["os.environ.get('TAMS_HOST','203.0.113.140')", "f'http://{_host}:9000'",
                                 "os.environ.get('TAMS_S3_USER','tams')"]),
-    ("tools/audio_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
-    ("tools/layout_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
-    ("tools/mxl_multiview.py", ["os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com')"]),
+    # Core-defaults neutralized Oct 9: MXL_BACKEND_URL defaults to a neutral localhost, not
+    # our prodbots.com — still overridable via env (adopters set MXL_BACKEND_URL).
+    ("tools/audio_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'http://localhost:3013')"]),
+    ("tools/layout_pgm.py", ["os.environ.get('MXL_BACKEND_URL', 'http://localhost:3013')"]),
+    ("tools/mxl_multiview.py", ["os.environ.get('MXL_BACKEND_URL', 'http://localhost:3013')"]),
     ("tools/mv_encode.py", ["os.environ.get('MXL_VM1_IP', '10.0.0.4')"]),
 ])
 def test_tool_defaults_preserved(rel, needles):
     src = (ROOT / rel).read_text()
     for n in needles:
         assert n in src, f"{rel}: expected {n!r}"
-    assert "'https://prodbots.com/api" not in src, f"{rel}: backend URL literal crept back in"
+    assert "prodbots.com" not in src, f"{rel}: our backend host crept back in (Core must stay neutral)"
 
 
 def test_layout_pgm_urls_resolve_to_same_endpoints():

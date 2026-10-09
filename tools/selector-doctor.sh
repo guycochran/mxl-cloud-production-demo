@@ -12,7 +12,7 @@
 # Runs as a systemd service on VM1 (host bash). Reads nothing; pure poller.
 set -u
 API=http://127.0.0.1:9604/pipeline/status
-BACKEND="${MXL_BACKEND_URL:-https://prodbots.com}"; BACKEND="${BACKEND%/}/api/mxl/repair"   # UA header dodges CF bot rule (MXL_BACKEND_URL: docs/CONFIG.md)
+BACKEND="${MXL_BACKEND_URL:-http://localhost:3013}"; BACKEND="${BACKEND%/}/api/mxl/repair"   # UA header dodges CF bot rule (MXL_BACKEND_URL: docs/CONFIG.md)
 UA='mxl-selector-doctor/1.0'
 FAILS=0
 FAIL_LIMIT=3          # ~3 x (timeout+interval) ≈ 20s wedged before acting

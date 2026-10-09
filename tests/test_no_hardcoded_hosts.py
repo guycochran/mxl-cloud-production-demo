@@ -29,17 +29,14 @@ UNIVERSAL_OK = {"127.0.0.1", "0.0.0.0", "172.17.0.1"}
 # file -> literals permitted there (default values behind env vars, docs-in-comments, ...)
 ALLOW = {
     "config/facility.json": {"10.0.0.5"},  # manifest defaults; MXL_VM_IP etc. override
-    "scripts/bring-up-mxl.sh": {"203.0.113.50", "192.168.8.177", "prodbots.com", "cochran.cloud"},  # env defaults (MXL_*); site IP is an RFC 5737 placeholder
-    "scripts/mxl-doctor": {"10.0.0.4", "prodbots.com"},          # comment only
+    # Core-defaults neutralized Oct 9: the runnable Core no longer defaults to OUR hosts
+    # (prodbots.com / *.cochran.cloud) — defaults are now neutral (localhost / YOUR-*-HOST),
+    # overridable via MXL_* env vars. Only private-range IP defaults remain allowlisted.
+    "scripts/bring-up-mxl.sh": {"203.0.113.50", "192.168.8.177"},  # env defaults; site IP is an RFC 5737 placeholder
+    "scripts/mxl-doctor": {"10.0.0.4"},                           # comment only
     "tools/adapters.py": {"10.0.0.5"},                            # default rtsp_host arg (pinned by launch-parity test)
-    "tools/audio_pgm.py": {"prodbots.com"},                       # MXL_BACKEND_URL default
-    "tools/layout_pgm.py": {"prodbots.com"},                      # MXL_BACKEND_URL default
-    "tools/mxl_multiview.py": {"prodbots.com"},                   # MXL_BACKEND_URL default (+ docstring)
-    "tools/nmos_node.py": {"prodbots.com"},                       # MXL_BACKEND_URL default (+ usage)
-    "tools/contribution_core.py": {"prodbots.com"},               # comment example for MXL_REPAIR_URL
-    "tools/mv_encode.py": {"10.0.0.4", "cochran.cloud"},           # MXL_VM1_IP default (+ docstring)
-    "tools/guest-leg-doctor.sh": {"10.0.0.4", "10.0.0.5", "prodbots.com"},  # MXL_VM1_IP/VM2_IP/BACKEND defaults
-    "tools/selector-doctor.sh": {"prodbots.com"},                 # MXL_BACKEND_URL default
+    "tools/mv_encode.py": {"10.0.0.4"},                           # MXL_VM1_IP default
+    "tools/guest-leg-doctor.sh": {"10.0.0.4", "10.0.0.5"},        # MXL_VM1_IP/VM2_IP defaults
     "scripts/quickstart.sh": {"mxlswitcher.com"},                 # comment only
     "tools/start-jonas-leg.sh": {"10.0.0.4"},                     # MXL_VM1_IP default
     "tools/tams_shipper.py": {"203.0.113.140"},                   # TAMS_HOST default (RFC 5737 placeholder)
