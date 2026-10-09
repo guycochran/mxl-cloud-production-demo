@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="What is a 'grain' in MXL? A plain-English explainer: grains are single video frames or audio blocks shared in memory — with live data from a real switcher running on one $400 computer.">
+<title>What's a grain? MXL in plain English — with live data · Switcher Lab for MXL™</title>
+<link rel="canonical" href="https://mxlswitcher.com/what-are-grains.html">
+<meta property="og:type" content="article">
+<meta property="og:title" content="What's a grain? MXL in plain English">
+<meta property="og:description" content="Grains are single frames of video shared in memory. See it explained simply — with live numbers from a real switcher running on one $400 computer.">
+<meta property="og:url" content="https://mxlswitcher.com/what-are-grains.html">
+<meta property="og:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<meta property="og:site_name" content="Switcher Lab for MXL">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="What's a grain? MXL in plain English">
+<meta name="twitter:description" content="Grains explained simply, with live data from a $400 switcher.">
+<meta name="twitter:image" content="https://mxlswitcher.com/images/switcher-hero-clean.png">
+<link rel="stylesheet" href="article.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"What is a grain in MXL?","acceptedAnswer":{"@type":"Answer","text":"A grain is a single timestamped unit of media — one frame of video, or a short block of audio. It is the smallest piece MXL moves around. A 1080p30 camera produces 30 video grains per second."}},
+{"@type":"Question","name":"What is a flow?","acceptedAnswer":{"@type":"Answer","text":"A flow is a continuous stream of grains of one kind — for example, all the frames coming from camera 1. Each source on the switcher is a flow."}},
+{"@type":"Question","name":"Why does measuring grains matter?","acceptedAnswer":{"@type":"Answer","text":"Counting grains per second tells you a source is alive and on time. Counting UNIQUE frames per second catches a subtler failure: a feed that keeps delivering frames at full rate but shows the same frozen picture. Grains can tick while the image is stuck."}},
+{"@type":"Question","name":"Can a software switcher run on cheap hardware?","acceptedAnswer":{"@type":"Answer","text":"Yes. The reference switcher here runs its entire control room — multiple cameras, a phone guest, playout, the cut, the encoder and the web control — on a single second-hand computer bought for about $400, with CPU headroom to spare."}}
+]}
+</script>
+</head>
+<body>
+<header class="abar">
+  <a class="home" href="/"><span class="mark"></span><span><b>Switcher Lab</b> <small>FOR MXL™</small></span></a>
+  <nav>
+    <a href="/findings.html">Findings</a>
+    <a href="/glossary.html">Glossary</a>
+    <a href="/learn.html">Learn MXL</a>
+    <a href="/future.html">The future</a>
+  </nav>
+</header>
+
+<div class="doc">
+  <article class="prose">
+    <p class="eyebrow">MXL in plain English</p>
+    <h1>What's a "grain"? And what is a $400 computer actually doing?</h1>
+    <p class="lede">The whole system is built out of one tiny idea. Once you get it, everything else — the cut, the multiview, the health numbers below — follows. No broadcast background needed.</p>
+    <p class="byline"><span>Office Hours Global</span><span>Live data from a running facility</span></p>
+
+    <h2>A grain is one frame</h2>
+    <p>Think of an old film reel: a long strip of still pictures. Play them fast enough — 30 a second — and your eye sees smooth motion. <strong>A "grain" is one of those pictures.</strong> One frame of video. (Audio works the same way: a grain is a short block of sound.)</p>
+    <p>So a normal 1080p camera running at 30 frames a second is producing <strong>30 video grains every second</strong>, forever, as long as it's on.</p>
+
+    <h2>A flow is one source</h2>
+    <p>String all the grains from one camera together in order and you have a <strong>flow</strong> — the continuous stream of frames coming from that camera. Camera 1 is a flow. The playback clip is a flow. The guest on their phone is a flow. Your switcher is really just a room full of flows.</p>
+
+    <div class="note">
+      <strong>The clever part (MXL's whole reason to exist):</strong> normally, to send one camera to five different places you'd make five copies of the video — expensive. MXL instead puts each flow in <strong>shared memory</strong> — one copy that everything on the computer can read at once, like a whiteboard everyone in the room can see. The fifth reader costs almost nothing. That's why a cheap computer can do so much: it isn't copying video over and over.
+    </div>
+
+    <h2>Why we count grains — and <em>unique</em> grains</h2>
+    <p>If you want to know a camera is healthy, you count its grains per second. Seeing a steady 30/s means frames are arriving on time. Simple.</p>
+    <p>But there's a sneakier failure. Sometimes a feed keeps delivering 30 grains a second while showing the <strong>same frozen picture</strong> — the counter ticks, but nothing moves. So we also measure how many of those frames are actually <em>different</em>. When "frames arriving" stays high but "frames actually changing" drops to near zero, we know the picture is frozen even though the plumbing looks fine. That single trick catches a whole class of live-TV disasters before anyone on air notices.</p>
+
+    <h2 id="live">Live right now: one $400 computer, running a show</h2>
+    <p>This isn't a diagram. Below is the <strong>actual health readout</strong> from the reference switcher — a second-hand dual-Xeon machine bought for about <strong>$400</strong> — pulled live as you loaded this page. It's running several real sources at once and serving the program to browsers.</p>
+
+    <div class="tablewrap">
+      <table id="liveGrid">
+        <thead><tr><th>Source (flow)</th><th>Status</th><th>Frames arriving</th></tr></thead>
+        <tbody id="liveRows"><tr><td colspan="3" style="opacity:.6">reading the live facility…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note" id="liveSys" style="margin-top:10px">Reading system load from the box…</p>
+    <p style="font-size:13px;opacity:.7">Source: the switcher's own <code>/api/mxl/health</code> endpoint, same data an engineer watching the rack sees. "Dead" rows are simply sources that aren't connected at the moment (e.g. no phone guest joined).</p>
+
+    <h2>The point, for the skeptics</h2>
+    <p>Broadcast infrastructure has always meant specialized, expensive hardware. The numbers above are the argument against that: an entire live production control room — ingest, switching, graphics, encoding and remote control — fits on a computer that costs less than a single pro SDI cable run, <strong>with CPU to spare</strong>. The grains flow through shared memory, nothing is needlessly copied, and commodity silicon keeps up.</p>
+    <p>That's the Dynamic Media Facility idea, made concrete. <a href="/findings.html">Read the field findings →</a> · <a href="/glossary.html">See the full glossary →</a></p>
+
+    <div class="disclaim">MXL is a trademark of LF Projects, LLC. This is an independent explainer. Live figures come from a real reference facility and vary moment to moment. Not affiliated with or endorsed by LF Projects, EBU, AMWA or any vendor.</div>
+  </article>
+</div>
+
+<footer class="afoot">
+  <span>Office Hours Global · Switcher Lab for MXL™</span>
+  <span><a href="/">← Front door</a> · <a href="/learn.html">Learn MXL</a></span>
+</footer>
+
+<script>
+// Pull the live health from the running switcher. Read-only, public, no secrets.
+(function(){
+  var API='https://mxl-skin.cochran.cloud/api/mxl/health';
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function pretty(name){
+    var m={pattern:'Test pattern',playout:'Playback clip',guest1:'Camera / encoder',guest2:'PTZ camera',guest3:'Phone guest',layout:'Picture-in-picture',cam:'Camera 1',cam2:'Camera 2'};
+    return m[name]||name;
+  }
+  function render(d){
+    var rows=document.getElementById('liveRows');
+    var flows=(d.grains&&d.grains.flows)||{};
+    var names=Object.keys(flows);
+    if(!names.length){ rows.innerHTML='<tr><td colspan="3" style="opacity:.6">no sources reported</td></tr>'; return; }
+    rows.innerHTML=names.map(function(n){
+      var f=flows[n], live=(f.state==='ok');
+      var statusText = f.state==='ok'?'🟢 Live, moving':(f.state==='frozen'?'🟠 Frozen (picture stuck)':(f.state==='dead'?'⚪ Not connected':'🟠 Slow'));
+      var arriving = (f.age!=null)?'fresh ('+f.age+'s ago)':(f.bps!=null?f.bps+'/s':'—');
+      return '<tr><td><strong>'+esc(pretty(n))+'</strong></td><td>'+statusText+'</td><td>'+arriving+'</td></tr>';
+    }).join('');
+    var s=d.system||{}, sys=document.getElementById('liveSys');
+    if(s.load){
+      var cores=s.cpus?(' across <strong>'+s.cpus+' CPU cores</strong>'):'';
+      var cpu=(s.cpu_pct!=null)?(', CPU about <strong>'+s.cpu_pct+'%</strong>'):'';
+      var mem=(s.mem?(', memory '+s.mem.used_pct+'% ('+(s.mem.used_mb/1024).toFixed(1)+' of '+(s.mem.total_mb/1024).toFixed(0)+' GB)'):'');
+      sys.innerHTML='<strong>The $400 box right now:</strong> system load '+s.load.load1.toFixed(1)+cores+cpu+mem+'. Doing a full live production — with headroom.';
+    }
+  }
+  function tick(){
+    fetch(API,{cache:'no-store'}).then(function(r){return r.json();}).then(render).catch(function(){
+      document.getElementById('liveSys').textContent='(The live facility is offline right now — the explanation above still holds.)';
+    });
+  }
+  tick(); setInterval(tick,5000);
+})();
+</script>
+</body>
+</html>
