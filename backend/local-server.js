@@ -157,6 +157,24 @@ const THUMBS_HEALTH_PATH = process.env.MXL_THUMBS_HEALTH_PATH || path.join(THUMB
 const GRAINS_PATH = process.env.MXL_GRAINS_PATH || path.join(THUMBS_DIR, 'grains.json');
 const HEALTH_RATE = parseInt(process.env.MXL_GRAIN_RATE || '30', 10);
 const HEALTH_TTL_MS = parseInt(process.env.MXL_HEALTH_TTL_MS || '2000', 10);
+// The probe snapshots live wherever the thumbnails do. In file mode we read
+// <THUMBS_DIR>/*.json; in proxy mode (MXL_THUMBS_ORIGIN set — e.g. the domain is only
+// mounted in a container and a tiny http server exposes it) we fetch the same JSON over
+// HTTP, exactly like the /api/mxl/thumbs route. This keeps the Core off the Docker
+// socket and portable to either layout.
+const THUMBS_SNAP_ORIGIN = THUMBS_ORIGIN; // e.g. http://127.0.0.1:8086/thumbs
+
+async function readSnapshot(fileName, filePath) {
+  if (THUMBS_SNAP_ORIGIN) {
+    try {
+      const base = THUMBS_SNAP_ORIGIN.replace(/\/$/, '');
+      const r = await fetch(`${base}/${fileName}`, { signal: AbortSignal.timeout(3000) });
+      return r.ok ? await r.json() : null;
+    } catch { return null; }
+  }
+  return health.readGrainsSnapshot(filePath); // file mode (sync read, cheap)
+}
+
 // Resolve the MXL control-API base the same way mxl-routes does, so the pipeline
 // status probes hit the same VM the cuts do.
 const HEALTH_MXL_VM = process.env.MXL_VM_URL
@@ -179,14 +197,15 @@ async function buildHealth() {
     fetchJson(9601, '/pipeline/status'),
   ]);
   // Prefer the already-running thumbs health.json; fall back to grain_probe's grains.json.
-  const thumbs = health.readGrainsSnapshot(THUMBS_HEALTH_PATH);
+  const thumbs = await readSnapshot('health.json', THUMBS_HEALTH_PATH);
   let grains, probeSystem = null;
   if (thumbs && thumbs.slots) {
     const t = health.classifyThumbsHealth(thumbs, {});
     grains = { stale: t.stale, age_s: t.age_s, flows: t.flows, source: 'thumbs' };
     probeSystem = t.system;      // load/mem/viewers measured where the probe runs (the box)
   } else {
-    grains = health.classifyGrains(health.readGrainsSnapshot(GRAINS_PATH), { expectedRate: HEALTH_RATE });
+    const gr = await readSnapshot('grains.json', GRAINS_PATH);
+    grains = health.classifyGrains(gr, { expectedRate: HEALTH_RATE });
     grains.source = 'grains';
   }
   // System: use the probe's host-true numbers when available (Core may run off-box);
