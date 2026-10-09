@@ -10,6 +10,7 @@ If one of these fails, do NOT "fix the test" — re-read the cited finding first
 """
 import contribution_core as cc
 from adapters import (
+    CaptionFileAdapter,
     MakitoAdapter,
     RtspCamAdapter,
     SrtGuestAdapter,
@@ -26,10 +27,13 @@ def test_margin_is_exactly_two_grains():
     assert abs(cc.MARGIN_NS - 2 * one_grain_ns) < 1_000_000  # ~2 grains, rounding slack
 
 
-def test_resync_requires_sustained_drift():
-    # A momentary hiccup must NOT yank the offset — re-sync only after N consecutive.
-    assert cc.RESYNC_COUNT >= 2
-    assert cc.RESYNC_NS > cc.MARGIN_NS
+def test_no_dead_slew_servo_constants():
+    # The restamp is a local wall-clock grid + drop-ahead-of-realtime (HW Oct-8), NOT a slew
+    # servo. The old SLEW_GAIN/SLEW_MAX_NS/HARD_RELOCK_NS constants were removed when the grid
+    # replaced the servo; guard against them creeping back as dead config that misleads tuning.
+    for dead in ("SLEW_GAIN", "SLEW_MAX_NS", "HARD_RELOCK_NS"):
+        assert not hasattr(cc, dead), f"{dead} is dead after the grid rewrite — remove it"
+    assert cc.FRAME_NS == 33_333_333   # still the grain-step fallback (30fps)
 
 
 def test_canon_caps_are_v210_1080p30_progressive():
@@ -250,25 +254,274 @@ def test_persistent_init_builds_tail_then_source_leg(monkeypatch):
     assert "mxlsink" not in _Gst.last_bins[1]
 
 
-def test_monotonic_relock_never_rewinds_the_flow(monkeypatch):
-    """The core of the R1 fix: on a leg rebuild the new source PTS restarts near 0,
-    so the restamp must RE-LOCK the offset forward of the last grain already written —
-    never rewind the flow (a rewind is exactly the selector's 'grain too early' read)."""
+def test_restamp_relock_never_rewinds_the_flow(monkeypatch):
+    """R1 invariant, re-verified against the ACTUAL grid restamp (not the removed offset
+    clamp): on a persistent-flow leg rebuild the flow already has grains up to last_mapped;
+    the next emitted grain must land STRICTLY AFTER last_mapped even when wall-clock `now` is
+    far BEHIND it (fresh-session clock 0.5s in, flow already 10s long). A rewind is exactly
+    the selector's 'grain too early' read + mxlsink's -5 (no backward-index guard).
+
+    This drives _restamp directly; the grid's `max(last_mapped + grain_ns, now + MARGIN)` is
+    what must provide the guarantee now."""
+    import contribution_core as _cc
     monkeypatch.setenv("MXL_INGEST_PERSISTENT", "1")
     core = cc.ContributionCore(_persist_adapter(), repair_url="none")
     s = core.state
-    # simulate: we already wrote up to last_mapped, then a rebuild cleared the lock
     s["last_mapped"] = 10_000_000_000      # 10s of flow already written
-    s["offset"] = None
+    s["offset"] = None                     # a rebuild cleared the lock
     s["relock"] = True
-    # the new leg's first frame arrives with a small PTS (fresh session) and a clock
-    # time that would map it BACKWARD under a naive now-based lock
-    new_leg_pts = 0
-    now = 500_000_000                      # clock only 0.5s in (well before last_mapped)
-    # replicate the clamp the probe applies on re-lock
-    offset = now - new_leg_pts + cc.MARGIN_NS
-    min_pts = s["last_mapped"] + cc.FRAME_NS
-    if new_leg_pts + offset < min_pts:
-        offset = min_pts - new_leg_pts
-    mapped = new_leg_pts + offset
-    assert mapped >= s["last_mapped"] + cc.FRAME_NS   # strictly forward — no rewind
+    clock = _ProbeClock(500_000_000)       # clock only 0.5s in — WELL behind last_mapped
+    pad = _FakePad(_FakeCaps(30, 1))
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    # the new leg's first frame arrives with a small PTS (fresh session)
+    mapped = _drive_restamp(core, pad, clock, [0])[0]
+    assert mapped is not None, "first relock frame should be emitted, not dropped"
+    assert mapped >= s["last_mapped"]      # strictly forward — the flow never rewinds
+    # (and 'relock' was consumed — a once-per-lock trigger)
+    assert core.state.get("relock") is False
+
+
+# ── _grain_ns: the monotonic step must be RATE-DERIVED, not a 30fps constant ──────
+# Oct 7 2026 fix: a 60fps source's floor was using FRAME_NS (33.3ms), a step 2x too
+# large, which surfaced as the Oct-6 `err=-41s / fps=173`. The step must come from the
+# pad's NEGOTIATED framerate. These use duck-typed caps/pad — no real GStreamer needed.
+class _FakeStructure:
+    def __init__(self, num, den):
+        self._fr = (num, den)
+
+    def get_fraction(self, name):
+        assert name == "framerate"
+        if self._fr is None:
+            return (False, 0, 0)
+        return (True, self._fr[0], self._fr[1])
+
+
+class _FakeCaps:
+    def __init__(self, num=None, den=1):
+        self._st = _FakeStructure(num, den) if num is not None else None
+
+    def get_size(self):
+        return 1 if self._st is not None else 0
+
+    def get_structure(self, i):
+        return self._st
+
+    def to_string(self):
+        if self._st is None:
+            return "video/x-raw"
+        n, d = self._st._fr
+        return f"video/x-raw, format=(string)v210, framerate=(fraction){n}/{d}"
+
+
+class _FakePad:
+    def __init__(self, caps):
+        self._caps = caps
+
+    def get_current_caps(self):
+        return self._caps
+
+
+def test_grain_ns_is_rate_derived():
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    # 30fps (the canonical conform rate) == FRAME_NS
+    assert core._grain_ns(_FakePad(_FakeCaps(30, 1))) == cc.FRAME_NS
+    # 60fps => half the step (the exact bug: floor was 2x too large)
+    assert core._grain_ns(_FakePad(_FakeCaps(60, 1))) == round(1_000_000_000 / 60)
+    # 59.94 (60000/1001) => correct fractional grain
+    assert core._grain_ns(_FakePad(_FakeCaps(60000, 1001))) == round(1001 * 1_000_000_000 / 60000)
+    # 50fps (EU) => 20ms
+    assert core._grain_ns(_FakePad(_FakeCaps(50, 1))) == 20_000_000
+
+
+def test_grain_ns_falls_back_to_frame_ns_without_framerate():
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert core._grain_ns(_FakePad(_FakeCaps(None))) == cc.FRAME_NS     # empty caps
+    assert core._grain_ns(_FakePad(None)) == cc.FRAME_NS                # no caps yet
+
+
+# ── IN-005 ingress registry: the restamp must leave a TRACEABLE per-flow record ───
+def test_ingress_record_captures_provenance_and_timing(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("MXL_INGRESS_DIR", str(tmp_path))
+    monkeypatch.setenv("MXL_GUEST_TRANSPORT", "srt-listen")
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    core.state["offset"] = 66_000_000
+    core.state["n"] = 1200
+    core._write_ingress_record(_FakePad(_FakeCaps(30, 1)), event="diag",
+                               err_ns=-4_700_000, grain_ns=cc.FRAME_NS)
+    files = list(tmp_path.glob("*.json"))
+    assert len(files) == 1
+    rec = json.loads(files[0].read_text())
+    # provenance (IN-005: identify the signal + its source timing)
+    assert rec["transport"] == "srt-listen"
+    assert rec["source_caps"] and "framerate=(fraction)30/1" in rec["source_caps"]
+    assert rec["essence"] == "video"
+    # timing adjustments (IN-005: traceable offsets)
+    assert rec["offset_ms"] == 66.0
+    assert rec["err_ms"] == -4.7
+    assert rec["grain_ns"] == cc.FRAME_NS
+    assert rec["event"] == "diag" and rec["frames"] == 1200
+
+
+def test_ingress_record_disabled_by_empty_dir(tmp_path, monkeypatch):
+    # An adopter can opt OUT (no file written) by clearing MXL_INGRESS_DIR.
+    monkeypatch.setenv("MXL_INGRESS_DIR", "")
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    assert core._ingress_path is None
+    core._write_ingress_record(_FakePad(_FakeCaps(30, 1)), event="locked")  # must not raise
+    assert list(tmp_path.glob("*.json")) == []
+
+
+# ── Data essence: ANC / closed-caption (video/smpte291) data flow (Tier 3.1) ──────
+def test_caption_adapter_is_data_essence_and_preserve():
+    a = CaptionFileAdapter(srt_file="show.srt", flow_id="d" * 36, label="Captions")
+    assert a.essence == "data"
+    assert a.timing_policy == "preserve"          # ST-2038 grains are frame-aligned; no restamp
+    assert a.group_hint == "Captions:Data"        # group_hint knows the data essence
+
+
+def test_caption_adapter_source_fragment_is_the_st2038_chain():
+    a = CaptionFileAdapter(srt_file="show.srt", flow_id="d" * 36)
+    frag = a.source_fragment()
+    # mirrors the gst-mxl-rs v1.1.0 README producer chain
+    for tok in ("filesrc location=show.srt", "subparse", "tttocea608",
+                "ccconverter", "closedcaption/x-cea-608", "cctost2038anc",
+                "meta/x-st-2038"):
+        assert tok in frag, frag
+    assert "30000/1001" in frag                   # README default / NTSC 608 framerate
+
+
+def test_data_launch_is_st2038_to_mxlsink_no_video_conform():
+    a = CaptionFileAdapter(srt_file="show.srt", flow_id="d" * 36, label="CC")
+    launch = _core(a).pipe._launch
+    assert "meta/x-st-2038,alignment=frame" in launch   # canonical data caps enforced
+    assert "mxlsink" in launch
+    # a data flow must NOT get the video conform transforms
+    assert "videorate" not in launch
+    assert "videoconvert" not in launch
+    assert "format=v210" not in launch
+    assert "audioconvert" not in launch
+
+
+# ── _restamp probe: drive it directly (HW Oct-8 caught a KeyError the launch-string ──
+# tests never would — the state dict had no 'last_mapped' key). These fake a pad/buffer/
+# clock and call the probe, asserting: no crash, monotonic PTS on the local grid, and
+# that ahead-of-realtime burst frames are DROPPED rather than marching PTS forward.
+class _ProbeBuf:
+    def __init__(self, pts):
+        self.pts = pts
+        self.duration = 0
+    def get_buffer(self):
+        return self
+
+
+class _ProbeClock:
+    def __init__(self, t=0):
+        self.t = t
+    def get_time(self):
+        return self.t
+
+
+def _drive_restamp(core, pad, clock, pts_list):
+    """Feed a sequence of source PTS through _restamp; return the mapped PTS list
+    (None where the buffer was dropped). Advances the clock one grain per CALL."""
+    import contribution_core as _cc
+    out = []
+    for pts in pts_list:
+        buf = _ProbeBuf(pts)
+
+        class _Info:
+            def get_buffer(_s):
+                return buf
+        ret = core._restamp(pad, _Info())
+        out.append(None if ret == _cc.Gst.PadProbeReturn.DROP else buf.pts)
+        clock.t += _cc.FRAME_NS   # wall-clock advances one grain per frame (realtime 30fps)
+    return out
+
+
+def test_restamp_probe_no_keyerror_and_monotonic(monkeypatch):
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    clock = _ProbeClock(10_000_000_000)              # arbitrary non-zero "now"
+    pad = _FakePad(_FakeCaps(30, 1))                 # 30fps negotiated caps (post-videorate)
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    # realtime-paced source: PTS advances one grain per frame
+    pts = [i * cc.FRAME_NS for i in range(10)]
+    mapped = _drive_restamp(core, pad, clock, pts)
+    kept = [m for m in mapped if m is not None]
+    assert kept, "all frames dropped — grid never emitted"
+    # strictly monotonic, one grain apart (the local grid)
+    for a, b in zip(kept, kept[1:]):
+        assert b > a, (a, b)
+        assert b - a == cc.FRAME_NS
+
+
+def test_restamp_probe_drops_ahead_of_realtime_burst(monkeypatch):
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    clock = _ProbeClock(10_000_000_000)
+    pad = _FakePad(_FakeCaps(30, 1))
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    import contribution_core as _cc
+
+    # lock on the first frame
+    _drive_restamp(core, pad, clock, [0])
+    # now a BURST: 5 buffers arrive with NO wall-clock advance (freeze the clock)
+    burst_dropped = 0
+    for i in range(1, 6):
+        buf = _ProbeBuf(i * cc.FRAME_NS)
+
+        class _Info:
+            def get_buffer(_s):
+                return buf
+        if core._restamp(pad, _Info()) == _cc.Gst.PadProbeReturn.DROP:
+            burst_dropped += 1
+        # clock does NOT advance — simulates a burst faster than realtime
+    assert burst_dropped >= 1, "burst frames should be dropped, not stamped ahead of now"
+    assert core.state.get("dropped", 0) >= 1
+
+
+# ── _restamp_audio: monotonic PTS guard (HW Oct-8: audio -5 restart loop) ─────────
+# The bug: next_pts advances by buf.duration per buffer; on bursty fan-out delivery it races
+# ahead, then the >500ms re-anchor jumped it BACK to now+MARGIN → non-monotonic PTS → mxlsink
+# -5 → restart loop. The fix floors the re-anchor at last_mapped+quantum (never rewind).
+def _drive_audio(core, pad, clock, buffers):
+    """Feed (pts_ignored, duration_ns) audio buffers through _restamp_audio; return mapped PTS.
+    The caller advances clock.t between buffers to simulate burst vs realtime."""
+    out = []
+    for dur in buffers:
+        b = _ProbeBuf(0)
+        b.duration = dur
+
+        class _Info:
+            def get_buffer(_s):
+                return b
+        core._restamp_audio(pad, _Info())
+        out.append(b.pts)
+    return out
+
+
+def test_restamp_audio_pts_strictly_monotonic_through_burst_and_reanchor(monkeypatch):
+    core = cc.ContributionCore(_persist_adapter(), repair_url="none")
+    clock = _ProbeClock(10_000_000_000)
+    pad = _FakePad(_FakeCaps(48000, 1))          # audio caps (framerate irrelevant for audio path)
+    monkeypatch.setattr(core.pipe, "get_clock", lambda: clock)
+    monkeypatch.setattr(core.pipe, "get_base_time", lambda: 0)
+    AAC = 21_333_333     # ~1024 samples @48k ≈ 21.3ms per AAC frame
+
+    out = []
+    # 1) BURST: 60 AAC frames arrive with the clock FROZEN (jitter-buffer flush) → next_pts
+    #    races ~1.28s ahead of `now`. (Exactly the HW case: the fan-out flushes a burst.)
+    out += _drive_audio(core, pad, clock, [AAC] * 60)
+    # 2) resume realtime pacing: the clock now advances ~one AAC frame per buffer. Because
+    #    next_pts raced ahead, |now+MARGIN - next_pts| > 500ms on the NEXT frame → the OLD code
+    #    re-anchored next_pts BACK to now+MARGIN (a REWIND → mxlsink -5). The fix floors it.
+    for _ in range(8):
+        clock.t += AAC
+        out += _drive_audio(core, pad, clock, [AAC])
+
+    assert all(x is not None for x in out)
+    # THE invariant the -5 violated: PTS must be strictly non-decreasing throughout.
+    for a, b in zip(out, out[1:]):
+        assert b >= a, f"audio PTS rewound {a} -> {b} (would be mxlsink -5)"

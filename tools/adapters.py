@@ -323,3 +323,46 @@ def zoomiso_adapters(source_flow_ids, slot_flow_ids, mode='per_participant',
                               label=f'{label_prefix} {i+1}', domain=domain,
                               timing_policy=timing_policy)
             for i in range(n)]
+
+
+# -- Data / ANC: closed captions as a video/smpte291 MXL data flow (gst-mxl-rs v1.1.0) --
+# The seam's first DATA-essence source. mxlsink turns `meta/x-st-2038,alignment=frame`
+# into a `video/smpte291` data flow; this is the path for CEA-608/708 captions, and the
+# on-ramp to v1.2 "Timed Data" event flows (dmf-mxl #327). Pipeline mirrors the official
+# round-trip example in rust/gst-mxl-rs/README.md @ v1.1.0 (producer side).
+#
+# REQUIRES (not in the stock cbcrc base image): the `rsclosedcaption` plugin from
+# gst-plugins-rs >= 0.14 (cctost2038anc / tttocea608) + `ccconverter` from
+# gstreamer1.0-plugins-bad. docker/guest-ingest.Dockerfile must add these before this
+# adapter can run on HW (tracked in docs/ROADMAP-FROM-SPECS-2026-10.md Tier 3.1).
+class CaptionFileAdapter(SourceAdapter):
+    """CEA-608 closed captions from a subtitle (.srt) file, wrapped as SMPTE ST 2038
+    ANC and written to an MXL `video/smpte291` DATA flow.
+
+    essence='data' routes through the core's data conform branch (just the ST-2038 caps
+    + a queue -> mxlsink — no video/audio restamp; timing_policy='preserve' because the
+    ANC wrapper frame-aligns the grains). Front end = the v1.1.0 README producer chain:
+      filesrc ! subparse ! tttocea608 ! ccconverter ! closedcaption/x-cea-608 ! cctost2038anc
+
+    A real deployment would drive captions live (from an ASR/stenographer feed) rather
+    than a file; the file source is the reproducible first step and the upstream smoke
+    test. framerate defaults to 30000/1001 to match the README example and NTSC 608.
+    """
+    essence = 'data'
+    needs_conform = True        # the core appends the ST-2038 caps + queue + mxlsink
+    timing_policy = 'preserve'  # ST-2038 grains carry their own frame alignment
+
+    def __init__(self, srt_file: str, flow_id: str, label: str = 'Captions',
+                 framerate: str = '30000/1001'):
+        self.srt_file = srt_file
+        self.flow_id = flow_id
+        self.label = label
+        self.framerate = framerate
+        self.description = f'CEA-608 captions -> ST-2038 data flow ({srt_file})'
+
+    def source_fragment(self) -> str:
+        # Ends at `meta/x-st-2038` caps WITH the framerate the ANC wrapper needs; the core's
+        # data branch adds `meta/x-st-2038,alignment=frame ! queue ! mxlsink`.
+        return (f'filesrc location={self.srt_file} ! subparse ! tttocea608 mode=pop-on '
+                f'! ccconverter ! closedcaption/x-cea-608,framerate={self.framerate} '
+                f'! cctost2038anc ! meta/x-st-2038,alignment=frame,framerate={self.framerate} ')

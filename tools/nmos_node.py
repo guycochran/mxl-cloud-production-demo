@@ -12,18 +12,30 @@ it ships, Lawo/Riedel/Pebble) can DISCOVER it:
          └─ per selector slot: RECEIVER (caps video/v210, subscribed to
               its attached sender — live PGM shown in tags)
 
-Read-only by design (IS-04 discovery only; the IS-05 connection shim that
-lets controllers ROUTE us is the next build). Runs anywhere that can see
-the facility's public status API — deliberately NOT on the production
-host, so it can be iterated without touching the rig.
+IS-04 discovery (above) PLUS an IS-05 Connection API shim (/x-nmos/connection/v1.2):
+a controller that PATCHes a RECEIVER's /staged with a sender_id + activate triggers a
+real selector cut — because our receivers ARE the switcher's input slots and "program"
+is just which slot is live. So `activate receiver slotN` == `cut program to slot N`
+(POST /api/mxl/input on the facility). This is the piece that turns the node from
+"discoverable" into "routable" by a standard NMOS controller (BCP-007-03 §connection).
+Senders are read-only here (an MXL sender has no transport file to stage — BCP-007-03).
+
+Set --facility to a backend that exposes POST /api/mxl/input for activation to take
+effect; without it, staging still works (IS-05 conformant) but activation is a no-op
+cut (logged). Mutating the facility is gated the same way the facility gates it
+(X-MXL-Token via MXL_CONTROL_TOKEN).
 
 Usage:
   nmos_node.py [--port 8021] [--href http://THIS_HOST:8021/]
                [--registry http://registry:8010]   # enables registration+heartbeat
-               [--facility https://prodbots.com]
+               [--facility http://127.0.0.1:3100]   # POST /api/mxl/input for IS-05 activation
 
 stdlib only. Peer-to-peer queryable without a registry:
   curl :8021/x-nmos/node/v1.3/senders/
+  curl :8021/x-nmos/connection/v1.2/single/receivers/
+A controller routes by copying a Sender's active transport_params
+({mxl_flow_id, mxl_domain_id}) onto a Receiver's /staged, then activating — the shape
+garethsb/mxl-nmos-c-example uses. See docs/ADR-001-nmos-control-plane.md.
 """
 import argparse
 import json
@@ -36,9 +48,30 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NS = uuid.UUID('6ba7b812-9dad-11d1-80b4-00c04fd430c8')  # uuid5 namespace (X500)
-MXL_DOMAIN_ID = 'domain_1'   # from the domain's domain_def.json (BCP-007-03
-                             # prefers a UUID here — upgrading the def is a
-                             # one-line change on the domain host)
+
+# IS-05 Connection API version. v1.2 is what real MXL controllers speak (the version used by
+# garethsb/mxl-nmos-c-example's connect.sh). ADR-001: NMOS owns connection control, so we track
+# the version the ecosystem converged on. Backward-compatible with v1.1 clients at the wire level.
+CONN_VER = 'v1.2'
+
+
+def _resolve_domain_id():
+    """The MXL domain UUID to advertise as `mxl_domain_id` (ADR-001 convergence step 4).
+    Prefer the `id` in the domain's domain_def.json (BCP-007-03 wants a UUID here); fall back
+    to the env override, then the legacy 'domain_1' string. A controller that requires a
+    concrete UUID won't accept a non-UUID — same caveat as the reference example."""
+    path = os.environ.get('MXL_DOMAIN', '/mxl-domain')
+    try:
+        with open(os.path.join(path, 'domain_def.json')) as f:
+            did = json.load(f).get('id')
+            if did:
+                return did
+    except Exception:
+        pass
+    return os.environ.get('MXL_DOMAIN_ID', 'domain_1')
+
+
+MXL_DOMAIN_ID = _resolve_domain_id()   # UUID if domain_def.json has one, else 'domain_1'
 
 # name -> (mxl flow uuid, human label)
 SENDER_FLOWS = {
@@ -71,6 +104,9 @@ class Model:
         self.state = {'input': None, 'pvw': None, 'live': {}}
         self.version = ver()
         self.lock = threading.Lock()
+        self._conn = {}   # IS-05 staged/active state, keyed by receiver id
+        # receiver id -> slot, for IS-05 PATCH routing
+        self._rid_slot = {u5('receiver', f'slot{s}'): s for s in SLOT_TO_SENDER}
 
     def poll_facility(self):
         while True:
@@ -120,8 +156,12 @@ class Model:
         d = self.base('device', 'switcher', 'MXL Cloud Switcher',
                       'uncompressed v210 shared-memory switcher (Azure)')
         d['id'] = self.device_id
+        # Advertise the IS-05 Connection API so a controller knows we are routable.
+        conn_href = self.args.href.rstrip('/') + f'/x-nmos/connection/{CONN_VER}/'
         d.update({'type': 'urn:x-nmos:device:generic', 'node_id': self.node_id,
-                  'controls': [], 'senders': [u5('sender', n) for n in SENDER_FLOWS],
+                  'controls': [{'href': conn_href,
+                                'type': f'urn:x-nmos:control:sr-ctrl/{CONN_VER}'}],
+                  'senders': [u5('sender', n) for n in SENDER_FLOWS],
                   'receivers': [u5('receiver', f'slot{s}') for s in SLOT_TO_SENDER]})
         return d
 
@@ -191,6 +231,67 @@ class Model:
             out.append(d)
         return out
 
+    # ---- IS-05 Connection API (BCP-007-03 §connection) ---------------------
+    # Our receivers are the switcher's input slots; activating one = cutting PGM to that slot.
+    # The MXL flow identity travels in transport_params (ADR-001 convergence step 1), matching
+    # garethsb/mxl-nmos-c-example: {mxl_flow_id, mxl_domain_id}. A controller copies a Sender's
+    # active transport_params onto a Receiver's staged, then activates — so the flow id the
+    # controller routes is the SENDER's MXL flow uuid, and the receiver's slot is fixed wiring.
+    @staticmethod
+    def _mxl_tparams(flow_id=None):
+        """One transport_params leg for an MXL receiver/sender (BCP-007-03 MXL transport)."""
+        return [{'mxl_flow_id': flow_id, 'mxl_domain_id': MXL_DOMAIN_ID}]
+
+    def _blank_conn_leg(self, flow_id=None):
+        return {'master_enable': False, 'sender_id': None,
+                'activation': {'mode': None, 'requested_time': None, 'activation_time': None},
+                'transport_params': self._mxl_tparams(flow_id)}
+
+    def _recv_conn(self, slot):
+        """Lazily-initialised staged/active connection record for a receiver slot. Seeded with
+        the slot's wired sender flow id so a GET before any PATCH still shows a sane shape."""
+        rid = u5('receiver', f'slot{slot}')
+        wired = SENDER_FLOWS.get(SLOT_TO_SENDER.get(slot, ''), (None,))[0]
+        rec = self._conn.setdefault(rid, {
+            'staged': self._blank_conn_leg(wired),
+            'active': self._blank_conn_leg(wired),
+        })
+        return rid, rec
+
+    def _ctl_headers(self):
+        h = {'Content-Type': 'application/json', 'User-Agent': 'mxl-nmos-node/1.0'}
+        tok = os.environ.get('MXL_CONTROL_TOKEN', '').strip()
+        if tok:
+            h['X-MXL-Token'] = tok
+        return h
+
+    def activate_receiver(self, slot, sender_id):
+        """Apply an IS-05 activation: cut the switcher's program to this slot.
+        Returns (ok, detail). Never raises — a failed cut becomes a 500 to the
+        controller, not a crash."""
+        # The staged sender must be one of ours (or None to disconnect). We route by
+        # SLOT — the sender_id is advisory here (the receiver's slot is fixed wiring).
+        try:
+            req = urllib.request.Request(
+                self.args.facility + '/api/mxl/input',
+                data=json.dumps({'slot': slot}).encode(),
+                headers=self._ctl_headers(), method='POST')
+            with urllib.request.urlopen(req, timeout=8) as r:
+                body = r.read()[:200].decode('utf-8', 'replace')
+                print(f'IS-05 activate: receiver slot{slot} -> PGM (sender {sender_id}) '
+                      f'=> {r.status} {body}', flush=True)
+                return True, body
+        except Exception as e:
+            print(f'IS-05 activate slot{slot} FAILED: {e}', flush=True)
+            return False, str(e)
+
+    def conn_senders(self):
+        # Senders are read-only in BCP-007-03 (no transport file to stage).
+        return [u5('sender', n) for n in SENDER_FLOWS]
+
+    def conn_receivers(self):
+        return [u5('receiver', f'slot{s}') for s in SLOT_TO_SENDER]
+
 MODEL = None
 
 class Handler(BaseHTTPRequestHandler):
@@ -210,13 +311,19 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.rstrip('/')
         m = MODEL
         table = {
-            '/x-nmos': ['node/'],
+            '/x-nmos': ['node/', 'connection/'],
             '/x-nmos/node': ['v1.3/'],
             '/x-nmos/node/v1.3': ['self/', 'devices/', 'sources/', 'flows/',
                                   'senders/', 'receivers/'],
+            '/x-nmos/connection': [f'{CONN_VER}/'],
+            f'/x-nmos/connection/{CONN_VER}': ['single/', 'bulk/'],
+            f'/x-nmos/connection/{CONN_VER}/single': ['senders/', 'receivers/'],
         }
         if p in table:
             return self.send_json(table[p])
+        # ---- IS-05 Connection API (GET) ----
+        if self.conn_get(p, m):
+            return
         col = {'/x-nmos/node/v1.3/devices': lambda: [m.device()],
                '/x-nmos/node/v1.3/sources': m.sources,
                '/x-nmos/node/v1.3/flows': m.flows,
@@ -234,6 +341,121 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send_json(item)
                 return self.send_json({'code': 404, 'error': 'not found'}, 404)
         self.send_json({'code': 404, 'error': 'not found'}, 404)
+
+    # ---- IS-05 Connection API: GET of single/{senders,receivers}/... --------
+    def conn_get(self, p, m):
+        """Handle a GET under /x-nmos/connection/<CONN_VER>/single/. Returns True if it
+        matched (and responded), False to fall through to the IS-04 handler."""
+        S = f'/x-nmos/connection/{CONN_VER}/single/senders'
+        R = f'/x-nmos/connection/{CONN_VER}/single/receivers'
+        if p == S:
+            self.send_json([s + '/' for s in m.conn_senders()]); return True
+        if p == R:
+            self.send_json([r + '/' for r in m.conn_receivers()]); return True
+        # senders are read-only (no transport file): expose the standard sub-resources.
+        if p.startswith(S + '/'):
+            rest = p[len(S) + 1:]
+            sid, _, leaf = rest.partition('/')
+            if sid not in m.conn_senders():
+                self.send_json({'code': 404, 'error': 'no such sender'}, 404); return True
+            if leaf == '':
+                self.send_json(['constraints/', 'staged/', 'active/', 'transporttype/']); return True
+            if leaf == 'transporttype':
+                self.send_json('urn:x-nmos:transport:mxl'); return True
+            if leaf == 'constraints':
+                self.send_json([{}]); return True
+            if leaf in ('staged', 'active'):
+                # Carry the sender's real MXL flow id so a controller can copy sender->receiver
+                # (the whole point of IS-05 — garethsb/mxl-nmos-c-example's connect.sh reads this).
+                fid = next((f for n, (f, _l) in SENDER_FLOWS.items() if u5('sender', n) == sid), None)
+                self.send_json({'master_enable': True, 'receiver_id': None,
+                                'activation': {'mode': None, 'requested_time': None,
+                                               'activation_time': None},
+                                'transport_params': m._mxl_tparams(fid)}); return True
+            self.send_json({'code': 404, 'error': 'not found'}, 404); return True
+        if p.startswith(R + '/'):
+            rest = p[len(R) + 1:]
+            rid, _, leaf = rest.partition('/')
+            if rid not in m._rid_slot:
+                self.send_json({'code': 404, 'error': 'no such receiver'}, 404); return True
+            _, rec = m._recv_conn(m._rid_slot[rid])
+            if leaf == '':
+                self.send_json(['constraints/', 'staged/', 'active/', 'transporttype/']); return True
+            if leaf == 'transporttype':
+                self.send_json('urn:x-nmos:transport:mxl'); return True
+            if leaf == 'constraints':
+                self.send_json([{}]); return True
+            if leaf == 'staged':
+                self.send_json(rec['staged']); return True
+            if leaf == 'active':
+                self.send_json(rec['active']); return True
+            self.send_json({'code': 404, 'error': 'not found'}, 404); return True
+        return False
+
+    # ---- IS-05 Connection API: PATCH single/receivers/<id>/staged -----------
+    def do_PATCH(self):
+        m = MODEL
+        p = self.path.rstrip('/')
+        R = f'/x-nmos/connection/{CONN_VER}/single/receivers'
+        if not (p.startswith(R + '/') and p.endswith('/staged')):
+            return self.send_json({'code': 405, 'error': 'only receiver /staged is patchable '
+                                   '(senders are read-only on an MXL transport)'}, 405)
+        rid = p[len(R) + 1:-len('/staged')]
+        if rid not in m._rid_slot:
+            return self.send_json({'code': 404, 'error': 'no such receiver'}, 404)
+        try:
+            n = int(self.headers.get('Content-Length', 0))
+            patch = json.loads(self.rfile.read(n) or b'{}')
+        except Exception:
+            return self.send_json({'code': 400, 'error': 'bad JSON body'}, 400)
+        slot = m._rid_slot[rid]
+        _, rec = m._recv_conn(slot)
+        st = rec['staged']
+        # merge the PATCH into staged (IS-05 is a partial update)
+        if 'master_enable' in patch:
+            st['master_enable'] = bool(patch['master_enable'])
+        if 'sender_id' in patch:
+            st['sender_id'] = patch['sender_id']
+        if 'transport_params' in patch and patch['transport_params']:
+            # The controller routes by the MXL flow id in transport_params (the standard
+            # shape — garethsb/mxl-nmos-c-example). Merge per-leg so a partial PATCH keeps
+            # the fields it didn't set.
+            for i, leg in enumerate(patch['transport_params']):
+                if i < len(st['transport_params']):
+                    st['transport_params'][i].update(leg)
+                else:
+                    st['transport_params'].append(leg)
+        act = patch.get('activation') or {}
+        mode = act.get('mode')
+        st['activation'] = {'mode': mode, 'requested_time': act.get('requested_time'),
+                            'activation_time': None}
+        # Only immediate activation is supported (no scheduled/relative PTP here).
+        if mode == 'activate_immediate':
+            if st['master_enable']:
+                # ENABLE: route program to this slot. (Flow id travels in transport_params;
+                # the slot is our fixed wiring, so the cut is by slot — we log the flow id.)
+                fid = (st['transport_params'][0] or {}).get('mxl_flow_id')
+                ok, detail = m.activate_receiver(slot, fid)
+                if not ok:
+                    return self.send_json({'code': 500, 'error': f'activation failed: {detail}'}, 500)
+            else:
+                # DISABLE (master_enable=false): IS-05 disable is first-class (ADR-001 step 3).
+                # Receiver stops consuming; we don't force a program change (the switcher always
+                # shows SOME slot), we just record the disabled state. A re-enable re-activates.
+                print(f'IS-05 disable: receiver slot{slot} master_enable=false (no forced cut)',
+                      flush=True)
+            # promote staged -> active; stamp activation_time
+            st['activation']['activation_time'] = ver()
+            rec['active'] = json.loads(json.dumps(st))   # deep copy
+            rec['active']['activation']['mode'] = 'activate_immediate'
+            with m.lock:
+                m.version = ver()
+            return self.send_json(st, 200)
+        elif mode in ('activate_scheduled_absolute', 'activate_scheduled_relative'):
+            return self.send_json({'code': 501, 'error': 'scheduled activation not supported '
+                                   '(immediate only on this MXL shim)'}, 501)
+        # staging without activation
+        return self.send_json(st, 200)
 
 def register_loop(m, registry):
     api = registry.rstrip('/') + '/x-nmos/registration/v1.3'
@@ -268,7 +490,10 @@ def main():
     ap.add_argument('--port', type=int, default=8021)
     ap.add_argument('--href', default=None)
     ap.add_argument('--registry', default=None)
-    ap.add_argument('--facility', default=os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com'))
+    # Portable default: the LOCAL control plane, not any specific facility (adopter PR #38's
+    # sweep — a cloned core must not point at someone else's backend). Override with --facility
+    # or MXL_BACKEND_URL for a real deployment.
+    ap.add_argument('--facility', default=os.environ.get('MXL_BACKEND_URL', 'http://127.0.0.1:3100'))
     args = ap.parse_args()
     if not args.href:
         args.href = f'http://{socket.gethostbyname(socket.gethostname())}:{args.port}/'
@@ -277,8 +502,9 @@ def main():
     if args.registry:
         threading.Thread(target=register_loop, args=(MODEL, args.registry),
                          daemon=True).start()
-    print(f'IS-04 node on :{args.port} (href {args.href})'
-          + (f' -> registry {args.registry}' if args.registry else ' (peer-to-peer)'),
+    print(f'IS-04 + IS-05 node on :{args.port} (href {args.href})'
+          + (f' -> registry {args.registry}' if args.registry else ' (peer-to-peer)')
+          + f'; IS-05 activation routes to {args.facility}/api/mxl/input',
           flush=True)
     ThreadingHTTPServer(('0.0.0.0', args.port), Handler).serve_forever()
 

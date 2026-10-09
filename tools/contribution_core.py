@@ -12,11 +12,17 @@ there is ONE place that carries the FINDINGS lessons instead of three copy-paste
 scripts. A transport is expressed as a `SourceAdapter`; `ContributionCore.run()`
 wires it to the canonical conform + restamp + mxlsink + announce and runs the loop.
 
-The restamp probe here is byte-for-byte the one that shipped in cam_ingest.py and
-guest_ingest.py — do not "improve" it without re-reading FINDINGS §1/§6:
+The restamp probe maps a remote source onto our local grain grid — do not "improve"
+it without re-reading FINDINGS §1/§6 and §"Separate the output clock from the input":
   * MARGIN_NS = 2 grains. Bigger margins starve READERS (166ms => "too late" wedges).
-  * RESYNC only after RESYNC_COUNT consecutive out-of-band frames, so a momentary
-    network hiccup never yanks the offset.
+  * The output is driven by a LOCAL WALL-CLOCK GRID, not by the source PTS (HW Oct-8):
+    each grain is placed at `max(last_mapped + grain_ns, now + MARGIN_NS)` and any frame
+    that would land more than one grain ahead of wall-clock is DROPPED. This is monotonic
+    by construction (mxlsink has NO backward-index guard) and paced to real time. It
+    replaced an offset-following STEP re-sync and then a proportional SLEW servo — both
+    churned/ran away on a 60fps source decimated to 30 (the 1000ms SRT jitter buffer
+    flushes a burst ~1s ahead of the just-started wall clock, so ANY offset-follows-source
+    design breaks). HW-proven: clean 30fps, err bounded ~5-18ms, 0 restarts.
 Grain timestamps are RING ADDRESSES, not metadata: a remote source MUST be restamped
 onto the local clock cadence or it is not cuttable against local flows.
 
@@ -26,6 +32,7 @@ import json
 import os
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -36,9 +43,16 @@ from gi.repository import Gst, GLib
 
 # --- canonical cadence constants (FINDINGS §1/§6 — load-bearing, do not tune blindly) ---
 MARGIN_NS = 66_000_000      # 2 grains @30fps. Bigger => reader starvation ("too late" wedges).
-FRAME_NS = 33_333_333       # 1 grain @30fps — the monotonic step used on a persistent re-lock.
-RESYNC_NS = 150_000_000     # out-of-band threshold before we consider re-locking the offset
-RESYNC_COUNT = 45           # consecutive out-of-band frames required to actually re-sync
+FRAME_NS = 33_333_333       # 1 grain @30fps — fallback grain step when caps carry no framerate.
+# Gross-discontinuity threshold: if the flow is already more than this far AHEAD of wall-clock,
+# the grid re-anchors (continues from last_mapped) instead of drop-guarding — distinguishes a
+# reconnect/clock-step (seconds ahead → re-anchor, don't stall) from a jitter-buffer burst
+# (sub-second ahead → drop to stay real-time). 2s is above the 1000ms SRT jitter burst and
+# below a real leg-rebuild gap.
+RELOCK_GAP_NS = 2_000_000_000
+# (The restamp drives a local wall-clock grid + drop-ahead-of-realtime; it does NOT use a
+#  proportional slew or a hard-relock escape hatch — those were earlier designs the grid
+#  replaced on HW Oct-8. See _restamp. The SLEW_* constants that lived here are gone.)
 
 # --- canonical output formats: the chain's one true grain spec, per essence ---
 CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
@@ -47,6 +61,11 @@ CANON_CAPS = ('video/x-raw,format=v210,width=1920,height=1080,framerate=30/1,'
 # contributed audio flow drops straight into the program mix with no reconvert.
 CANON_AUDIO_CAPS = ('audio/x-raw,format=F32LE,layout=interleaved,rate=48000,'
                     'channels=2,channel-mask=(bitmask)0x3')
+# Data (ANC / timed metadata) canonical grain: SMPTE ST 2038-wrapped ancillary, frame-
+# aligned. mxlsink turns `meta/x-st-2038,alignment=frame` into a `video/smpte291` DATA flow
+# (gst-mxl-rs v1.1.0). This is the path for CEA-608/708 captions, SCTE-104, etc. — the
+# generalization of what v1.2 "Timed Data" (event flows, dmf-mxl #327) will make first-class.
+CANON_DATA_CAPS = 'meta/x-st-2038,alignment=frame'
 DEFAULT_DOMAIN = '/mxl-domain'
 
 
@@ -119,7 +138,7 @@ class SourceAdapter(ABC):
 
     @property
     def group_hint(self) -> str:
-        suffix = 'Audio' if self.essence == 'audio' else 'Video'
+        suffix = {'audio': 'Audio', 'data': 'Data'}.get(self.essence, 'Video')
         return f'{self.label.replace(" ", "")}:{suffix}'
 
     @abstractmethod
@@ -154,7 +173,21 @@ class ContributionCore:
             repair_url = _os.environ.get('MXL_REPAIR_URL', '')
         self.repair_url = None if repair_url.strip().lower() in ('', 'none') else repair_url
         self.diag_every = diag_every
-        self.state = {'offset': None, 'drift_n': 0, 'n': 0, 't0': None}
+        self.state = {'offset': None, 'n': 0, 't0': None}
+        # IN-005 ingress registry: AMWA IN-005 ("External Signal Ingress for DMF") asks that
+        # a workload record each external signal's provenance and the timing adjustments it
+        # applied, so they are TRACEABLE. We already compute all of it in _restamp; this
+        # persists it as a per-ingest JSON record (mirrors guest_slot_watcher's /tmp map
+        # pattern). Empty MXL_INGRESS_DIR disables it (default on so the quickstart writes it;
+        # a cloned core still writes only to /tmp, no external calls). One file per flow.
+        self.ingress_dir = _os.environ.get('MXL_INGRESS_DIR', '/tmp/mxl-ingress')
+        self._ingress_path = (os.path.join(self.ingress_dir, f'{(adapter.flow_id or "src")[:8]}.json')
+                              if self.ingress_dir else None)
+        if self._ingress_path:   # create the dir ONCE here, not on every record write
+            try:
+                os.makedirs(self.ingress_dir, exist_ok=True)
+            except Exception as _e:
+                print(f'ingress dir setup skipped: {_e}', flush=True)
         # Persistent-flow mode: adapter property OR env override (env wins when set),
         # so an adopter can turn it on for an existing adapter without editing it.
         env_persist = _os.environ.get('MXL_INGEST_PERSISTENT', '').strip().lower()
@@ -193,6 +226,14 @@ class ContributionCore:
             return (f'{a.source_fragment()}'
                     f'! audioconvert ! audioresample ! {CANON_AUDIO_CAPS} '
                     f'! queue max-size-buffers=32 ! {sink}')
+        if a.essence == 'data':
+            # Data (ANC) conform: the adapter's source_fragment IS the conform here — it
+            # ends at `meta/x-st-2038,alignment=frame` (e.g. caption text -> CEA-608 ->
+            # cctost2038anc). We only enforce the canonical caps + a queue before mxlsink,
+            # which writes the video/smpte291 data flow. No restamp: ST-2038 grains are
+            # frame-aligned by the ANC wrapper (adapter sets timing_policy='preserve').
+            return (f'{a.source_fragment()}'
+                    f'! {CANON_DATA_CAPS} ! queue max-size-buffers=32 ! {sink}')
         # Video decode path: front end -> canonical conform -> mxlsink.
         # videorate reconciles any 30000/1001 (etc.) to exact 30/1 — WITHOUT it the
         # v210 capsfilter intermittently fails to negotiate (documented crash). It
@@ -228,6 +269,8 @@ class ContributionCore:
         if a.essence == 'audio':
             return (f'{jbuf} ! audioconvert ! audioresample ! {CANON_AUDIO_CAPS} '
                     f'! queue max-size-buffers=32 ! {sink}')
+        if a.essence == 'data':
+            return f'{jbuf} ! {CANON_DATA_CAPS} ! queue max-size-buffers=32 ! {sink}'
         return (f'{jbuf} ! videorate ! videoscale add-borders=true ! videoconvert n-threads=2 '
                 f'! {CANON_CAPS} ! {sink}')
 
@@ -358,6 +401,66 @@ class ContributionCore:
                 print(f'announce err: {e} (attempt {attempt+1})', flush=True)
             _t.sleep(30)
 
+    def _write_ingress_record(self, pad, *, event, err_ns=None, grain_ns=None):
+        """Persist the IN-005 ingress record for this flow (atomic, best-effort).
+
+        `event` is the lifecycle tag that triggered the write ('locked', 'relocked',
+        'hard-relock', 'diag'). Captures signal PROVENANCE (source caps/essence/transport)
+        and the TIMING ADJUSTMENTS applied (locked offset, running wall-clock error, grain
+        step) so an operator can see — from one file — what the restamp is doing, which is
+        exactly what was invisible during the Oct-7 60fps churn. Never raises into the probe."""
+        if not self._ingress_path:
+            return
+        try:
+            s = self.state
+            caps = pad.get_current_caps()
+            rec = {
+                'flow_id': self.a.flow_id,
+                'label': self.a.label,
+                'essence': self.a.essence,
+                'transport': os.environ.get('MXL_GUEST_TRANSPORT', 'n/a'),
+                'timing_policy': self.a.timing_policy,
+                'event': event,
+                'frames': s.get('n', 0),
+                # timing adjustments (ns and ms for human + machine readers)
+                'offset_ns': s.get('offset'),
+                'offset_ms': round(s['offset'] / 1e6, 1) if s.get('offset') is not None else None,
+                'err_ms': round(err_ns / 1e6, 1) if err_ns is not None else None,
+                'grain_ns': grain_ns,
+                'dropped': s.get('dropped', 0),   # ahead-of-realtime frames dropped (burst guard) —
+                                                  # the grid servo's real health signal (replaces the
+                                                  # old relock count; the grid has no relock path).
+                # provenance: the negotiated source caps on the restamp pad
+                'source_caps': caps.to_string() if caps else None,
+                'mono_ns': time.monotonic_ns(),   # NOT wall time — no Date dependency, just ordering
+            }
+            tmp = self._ingress_path + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(rec, f)
+            os.replace(tmp, self._ingress_path)   # atomic swap — a reader never sees a half-write
+        except Exception as e:
+            print(f'ingress-record write skipped: {e}', flush=True)
+
+    def _grain_ns(self, pad):
+        """The monotonic grain step, derived from the NEGOTIATED output framerate on the
+        restamp pad — NOT the 30fps `FRAME_NS` constant.
+
+        The probe sits on the sink pad, AFTER the conform stage's
+        `videorate ! ...framerate=30/1`, so for a conform source this is one grain of
+        CANON_CAPS (33.3ms). But the servo/clamp must not BAKE IN 30fps: a 60fps source
+        whose videorate hasn't fully settled can momentarily deliver buffers ~16.6ms
+        apart. With a hardcoded 30fps clamp those map AHEAD of wall-clock faster than the
+        grain clock — `mapped` races `now`, `err` runs away (the Oct-6 `err=-41s/fps=173`
+        on a 60fps camera). Reading the actual framerate makes the step correct for
+        whatever cadence the pad negotiated (30, 50, 59.94, …). Falls back to FRAME_NS if
+        caps carry no framerate (e.g. pre-negotiation)."""
+        caps = pad.get_current_caps()
+        if caps and caps.get_size() > 0:
+            ok, num, den = caps.get_structure(0).get_fraction('framerate')
+            if ok and num > 0:
+                return round(den * 1_000_000_000 / num)
+        return FRAME_NS
+
     # --- the cadence-preserving restamp (verbatim; the single most load-bearing idea) ---
     def _restamp(self, pad, info):
         # Wait for caps before touching buffers — a dynamic-pad demux (tsdemux on the
@@ -370,58 +473,87 @@ class ContributionCore:
         if not clock or buf.pts == Gst.CLOCK_TIME_NONE:
             return Gst.PadProbeReturn.OK
         now = clock.get_time() - self.pipe.get_base_time()
+        grain_ns = self._grain_ns(pad)   # rate-derived step (see _grain_ns); 30fps => FRAME_NS
         s = self.state
         if s['offset'] is None:
+            # LOCK ANCHOR — a once-per-lock trigger + IN-005 provenance only. The grid below
+            # does NOT use s['offset'] for pacing (HW Oct-8: the grid is driven by last_mapped +
+            # now, see below); offset is recorded purely as "where wall-clock sat at lock" in the
+            # ingress record. On a persistent-flow RE-LOCK the grid's own monotonic floor
+            # (max(last_mapped + grain_ns, now + MARGIN)) already guarantees the first new-leg
+            # grain lands after the last committed one — no offset clamp needed.
             s['offset'] = now - buf.pts + MARGIN_NS
-            # On a RE-LOCK (persistent-flow leg rebuild) the flow already has grains up to
-            # last_mapped; clamp the offset so the first new-leg grain lands STRICTLY after
-            # that (never rewind the flow — a rewind is exactly the "grain too early" read).
-            if s.get('relock') and s.get('last_mapped') is not None:
-                min_pts = s['last_mapped'] + FRAME_NS
-                if buf.pts + s['offset'] < min_pts:
-                    s['offset'] = min_pts - buf.pts
-                print(f'cadence offset RE-LOCKED (monotonic): {s["offset"]/1e6:.0f}ms', flush=True)
-                s['relock'] = False
-            else:
-                print(f'cadence offset locked: {s["offset"]/1e6:.0f}ms', flush=True)
-                if self.a.announce_on_lock and self.repair_url:
-                    threading.Thread(target=self._announce, daemon=True).start()
-                elif self.a.announce_on_lock:
-                    print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
-        mapped = buf.pts + s['offset']
-        err = now + MARGIN_NS - mapped
-        if abs(err) > RESYNC_NS:
-            s['drift_n'] += 1
-            if s['drift_n'] >= RESYNC_COUNT:
-                s['offset'] += err
-                s['drift_n'] = 0
-                print(f'cadence re-synced by {err/1e6:.0f}ms', flush=True)
-                mapped = buf.pts + s['offset']
+            relock = bool(s.get('relock') and s.get('last_mapped') is not None)
+            s['relock'] = False
+            print(f'cadence {"RE-locked" if relock else "locked"} '
+                  f'(grid-driven; anchor {s["offset"]/1e6:.0f}ms)', flush=True)
+            self._write_ingress_record(pad, event=('relocked' if relock else 'locked'),
+                                       grain_ns=grain_ns)
+            if not relock and self.a.announce_on_lock and self.repair_url:
+                threading.Thread(target=self._announce, daemon=True).start()
+            elif not relock and self.a.announce_on_lock:
+                print('announce skipped (no repair_url) — selector is pre-wired for this slot', flush=True)
+        # LOCAL-GRID RESTAMP (HW Oct-8: the offset-follows-source approaches all failed on a
+        # 60fps camera — the 1000ms SRT jitter buffer releases a BURST whose source PTS is ~1s
+        # ahead of the just-started wall clock, so `buf.pts + offset` lands >1s off and every
+        # earlier design — step re-sync, slew servo, monotonic+grain clamp — either churned or
+        # hard-relock-looped to death). FINDINGS §"Separate the output clock from the input"
+        # (v-final / flow_stabilizer) is explicit: drive output from a FIXED grain grid SLEWED
+        # TO THE WALL CLOCK and DROP ahead-of-realtime arrivals. So we stop following buf.pts
+        # entirely and drive a local grid:
+        #   target = now + MARGIN_NS                     (where a live grain should sit)
+        #   mapped = max(last_mapped + grain_ns, target) (one grain forward, never behind now)
+        # This is monotonic by construction (mxlsink has NO backward-index guard — clock.rs —
+        # so WE must guarantee it), paced to wall-clock (bursts can't race ahead: a frame that
+        # would land before last_mapped+grain is simply placed on the next grid slot; a frame
+        # far ahead is pulled back to `target`), and has no offset to drift or re-lock. grain_ns
+        # is rate-derived so 50/59.94 grids work too. `err` is kept purely as a DIAGNOSTIC of
+        # how far the raw source PTS sat from the grid (not a control input anymore)."""
+        target = now + MARGIN_NS
+        last_mapped = s.get('last_mapped')        # not in the initial state dict (HW Oct-8 KeyError)
+        if last_mapped is None:
+            mapped = target
+        elif last_mapped - target > RELOCK_GAP_NS:
+            # GROSS discontinuity, not a burst: the flow is already far (> RELOCK_GAP_NS) ahead
+            # of wall-clock. This happens on a persistent-flow leg rebuild (10s of flow written,
+            # the new leg's clock starts near 0) or a wall-clock step. If we treated this as a
+            # burst we'd DROP every frame until `now` crawled up to last_mapped — a multi-second
+            # stall on reconnect (regression caught by test_restamp_relock_never_rewinds). Instead
+            # CONTINUE the grid from where the flow already is: one grain past last_mapped. The
+            # flow stays monotonic (never rewinds past the committed head) and resumes immediately.
+            mapped = last_mapped + grain_ns
         else:
-            s['drift_n'] = 0
-        # ⚠️ Monotonicity guard (HW Oct 6 2026): a re-sync can swing the offset by a full
-        # second (seen `cadence re-synced by -1036ms` on bursty SRT, where the latency
-        # buffer delivers grains ahead of wall-clock). Writing the resulting `mapped` PTS
-        # unclamped pushes it BACKWARDS past the grain already committed to the flow →
-        # non-monotonic PTS into v210/mxlsink → "Internal data stream error (-5)" → srtsrc
-        # dies → restart loop. (Proven: the SAME listener pipeline WITHOUT this probe ran a
-        # live camera 0-error; re-enabling the unclamped resync reintroduced -5.) The
-        # re-lock path already forbids rewinding past last_mapped+FRAME_NS; apply the same
-        # floor to EVERY emitted grain so a resync can only ever nudge the cadence forward,
-        # never rewind the flow. Drift that genuinely needs catching up is absorbed over
-        # subsequent grains instead of in one flow-breaking jump.
-        if s.get('last_mapped') is not None and mapped <= s['last_mapped']:
-            mapped = s['last_mapped'] + FRAME_NS
-            s['offset'] = mapped - buf.pts   # keep offset consistent with the clamped PTS
+            nxt = last_mapped + grain_ns
+            # DROP ahead-of-realtime arrivals: next grid slot is up to one grain beyond where
+            # wall-clock wants it — a burst/catch-up frame (e.g. the 1000ms SRT jitter buffer
+            # flushing). Stamping it would march `mapped` ahead of `now` unbounded (the Oct-8
+            # -30ms/frame runaway). Drop it; the grid stays locked to wall-clock. (Only reached
+            # when the flow is NOT grossly ahead — i.e. a genuine burst, not a reconnect.)
+            if nxt > target + grain_ns:
+                s['dropped'] = s.get('dropped', 0) + 1
+                return Gst.PadProbeReturn.DROP
+            mapped = max(nxt, target)
+        # GRID RESIDUAL (the real health signal, HW Oct-8): how far the emitted grain sits from
+        # where wall-clock wants it. By construction this stays within ~one grain in steady
+        # state; a value that grows means the grid is drifting ahead of realtime (the drop-guard
+        # should prevent it). NOT the old source-PTS-vs-offset gap, which was meaningless on a
+        # grid servo (it read -10s on HW while the flow was a perfectly healthy 30fps grid).
+        err = mapped - target
         buf.pts = mapped
-        s['last_mapped'] = mapped   # for a monotonic re-lock on the next leg rebuild
+        buf.duration = grain_ns     # stamp an explicit one-grain duration (mirrors the v4 servo)
+        s['last_mapped'] = mapped
         s['n'] += 1
         if s['t0'] is None:
             s['t0'] = now
         if s['n'] % self.diag_every == 0:
             el = (now - s['t0']) / 1e9
+            # fps over the FULL window since t0 (not a per-tick burst) → the committed
+            # cadence, ~grain rate in steady state. A persistently high value means
+            # videorate isn't decimating (source-rate mismatch worth investigating).
             fps = s['n'] / el if el > 0 else 0
-            print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms", flush=True)
+            print(f"diag n={s['n']} fps={fps:.2f} err={err/1e6:.0f}ms "
+                  f"grain={grain_ns/1e6:.1f}ms dropped={s.get('dropped', 0)}", flush=True)
+            self._write_ingress_record(pad, event='diag', err_ns=err, grain_ns=grain_ns)
         return Gst.PadProbeReturn.OK
 
     # --- the AUDIO restamp (verbatim from guest_audio.py) ---
@@ -442,21 +574,36 @@ class ContributionCore:
             return Gst.PadProbeReturn.OK
         now = clock.get_time() - self.pipe.get_base_time()
         s = self.state
-        if s.get('next_pts') is None or abs(now + MARGIN_NS - s['next_pts']) > 500_000_000:
-            s['next_pts'] = now + MARGIN_NS
-            # Monotonic re-anchor on a persistent-flow leg rebuild: never place the new
-            # leg's audio before the last sample we already wrote (same rule as video).
-            if s.get('relock') and s.get('last_mapped') is not None:
-                s['next_pts'] = max(s['next_pts'], s['last_mapped'] + FRAME_NS)
-                print(f'audio cadence RE-ANCHORED (monotonic): {s["next_pts"]/1e6:.0f}ms', flush=True)
-                s['relock'] = False
+        target = now + MARGIN_NS
+        last = s.get('last_mapped')
+        # Re-anchor when we have no anchor yet, OR we've drifted far from wall-clock. The OLD
+        # code re-anchored to `now + MARGIN` UNCONDITIONALLY on a >500ms gap — but on bursty
+        # fan-out delivery `next_pts` races AHEAD (it advances by buf.duration per buffer), so
+        # the re-anchor JUMPED next_pts BACKWARD to now+MARGIN → non-monotonic PTS into mxlsink
+        # (no backward-index guard) → "streaming stopped, reason error (-5)" → restart loop
+        # (HW Oct-8, reproduced with a live camera's AAC through the A/V fan-out). FIX: the
+        # anchor floors at last_mapped + one audio quantum, so a re-anchor can only ever nudge
+        # FORWARD — never rewind the flow. (Mirrors the video grid's monotonic guarantee.)
+        if s.get('next_pts') is None or abs(target - s['next_pts']) > 500_000_000:
+            new_anchor = target
+            if last is not None:
+                # never place audio at/behind the last sample already written (one buffer's
+                # worth of headroom; buf.duration is this buffer's span)
+                quantum = buf.duration if buf.duration != Gst.CLOCK_TIME_NONE else FRAME_NS
+                new_anchor = max(new_anchor, last + quantum)
+            relock = bool(s.get('relock') and last is not None)
+            s['relock'] = False
+            s['next_pts'] = new_anchor
             if s['offset'] is None:   # first lock -> announce if asked (parity w/ video)
-                s['offset'] = s['next_pts']
-                print(f'audio cadence anchored: {s["next_pts"]/1e6:.0f}ms', flush=True)
+                s['offset'] = new_anchor
+                print(f'audio cadence anchored: {new_anchor/1e6:.0f}ms', flush=True)
                 if self.a.announce_on_lock and self.repair_url:
                     threading.Thread(target=self._announce, daemon=True).start()
                 elif self.a.announce_on_lock:
                     print('announce skipped (no repair_url) — mixer tolerates absent flows', flush=True)
+            else:
+                print(f'audio cadence {"RE-ANCHORED" if relock else "re-anchored"} (monotonic): '
+                      f'{new_anchor/1e6:.0f}ms', flush=True)
         buf.pts = s['next_pts']
         s['last_mapped'] = s['next_pts']   # for a monotonic re-anchor on the next rebuild
         if buf.duration != Gst.CLOCK_TIME_NONE:
@@ -465,6 +612,13 @@ class ContributionCore:
 
     def run(self):
         policy = self.a.timing_policy
+        # Data (ANC) grains are frame-aligned by the ST-2038 wrapper and carry their own
+        # timing — there is no sensible video/audio restamp for them. Force 'preserve' so
+        # the probe is never attached, regardless of what the adapter requested.
+        if self.a.essence == 'data' and policy == 'restamp':
+            print("essence=data: forcing timing_policy=preserve (ST-2038 grains are "
+                  "frame-aligned; no restamp)", flush=True)
+            policy = 'preserve'
         # pick the essence-appropriate restamp probe (video offset-map vs audio
         # duration-accumulate). Both reference the same clock + MARGIN_NS.
         restamp_probe = self._restamp_audio if self.a.essence == 'audio' else self._restamp

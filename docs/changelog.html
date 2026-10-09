@@ -34,7 +34,18 @@
     <p class="eyebrow">Running log</p>
     <h1>What's new in MXL</h1>
     <p class="lede">A dated log of Media eXchange Layer milestones — in the ecosystem and in this lab. New entries at the top. <b>Suggest one</b> by opening an issue on <a href="https://github.com/guycochran/mxl-cloud-production-demo/issues">GitHub</a>.</p>
-    <p class="byline"><span>Office Hours Global</span><span>Last updated 2026-10-01</span></p>
+    <p class="byline"><span>Office Hours Global</span><span>Last updated 2026-10-09</span></p>
+
+    <h2><span class="n">Oct 2026</span>The whole switcher, on one $400 box</h2>
+    <p>We moved the entire facility off cloud VMs and onto a single second-hand <strong>dual-Xeon Supermicro bought for about $400</strong> — and ran a live multi-camera show from it. Everything that used to need three cloud instances now fits in one commodity box: all source ingest, the shared-memory domain, the cut (input-selector), the H.264 encoder, WebRTC output, and the control plane. Four live, switchable sources at once — a test pattern, a Makito hardware encoder, a PTZ camera, and a phone streaming SRT over Wi-Fi — all cuttable from a browser. Notes from the build:</p>
+    <ul>
+      <li><strong>Commodity silicon is enough.</strong> MXL needs <strong>AVX2</strong>, not AVX-512 — so a cheap older Xeon runs the full stack. No GPU, no specialty NIC, no cloud bill.</li>
+      <li><strong>Remote TD, anywhere.</strong> The control surface ("Skin") is served over a secure tunnel, so a technical director on any network can watch program and cut the show from a browser — the box stays behind the firewall.</li>
+      <li><strong>Reboot-proof.</strong> A self-heal step brings the whole program chain back in the right order after a cold boot — wire the selector, cut to a live source, re-publish program, then verify it's actually advancing. Proven across repeated full reboots with zero hands on keyboard.</li>
+    </ul>
+
+    <h2><span class="n">Oct 2026</span>Correcting the record on EFA — it was the hardware, not the proxy</h2>
+    <p>Earlier we reported that RDMA-over-EFA fabric transport failed in the cloud. The real cause turned out to be the instance type: our test ran on <strong>AWS Nitro v3</strong> (no remote-write RDMA). Re-running on a <strong>Nitro v4</strong> instance with EFA-direct, the RDMA target ran clean — no errors. The earlier "EFA failed" finding was an instance-type mismatch, not a bug in the proxy. The TCP fabric path remains the portable default; EFA is a real option on the right hardware.</p>
 
     <h2><span class="n">Oct 2026</span>AMWA publishes IN-001 — a control model for MXL</h2>
     <p>AMWA published <strong>IN-001, "API Requirements – Control of the Media eXchange Layer (MXL)"</strong> — the draft that starts defining how an external controller manages MXL readers and writers (MXL itself defines media exchange, not control). It's an open Increment soliciting public review. We wrote up what it is and mapped our own switcher's operations against it. <a href="/control.html">Read it →</a></p>
