@@ -53,6 +53,48 @@ test('grains: missing/garbage snapshot -> stale, empty', () => {
   assert.deepEqual(out.flows, {});
 });
 
+// ── classifyThumbsHealth (the probe already running on the box) ─────────────────
+test('thumbs: live slot (fresh frames, content changing) -> ok', () => {
+  const h2 = { ts: 1000, slots: { pattern: { age: 1.2, frozen: 1.2 } }, load1: 2 };
+  const out = h.classifyThumbsHealth(h2, { nowS: 1000 });
+  assert.equal(out.flows.pattern.state, 'ok');
+  assert.equal(out.stale, false);
+});
+
+test('thumbs: FROZEN slot (frames arrive but content stuck) -> frozen', () => {
+  // age low (frames keep arriving) but frozen high (picture hasn't changed).
+  const h2 = { ts: 1000, slots: { guest1: { age: 1.0, frozen: 11.0 } } };
+  const out = h.classifyThumbsHealth(h2, { nowS: 1000, frozenAfterS: 5 });
+  assert.equal(out.flows.guest1.state, 'frozen',
+    'frames arriving but content unchanged for >5s must read as frozen');
+});
+
+test('thumbs: dead slot (no frames at all / null) -> dead', () => {
+  const h2 = { ts: 1000, slots: { guest3: null, playout: { age: 9.0, frozen: 9.0 } } };
+  const out = h.classifyThumbsHealth(h2, { nowS: 1000, deadAfterS: 5 });
+  assert.equal(out.flows.guest3.state, 'dead');
+  assert.equal(out.flows.playout.state, 'dead', 'no new frames for >5s -> dead');
+});
+
+test('thumbs: pulls system (load/mem/cpus/viewers) from the same file', () => {
+  const h2 = {
+    ts: 1000, slots: {},
+    load1: 12.5, load5: 12, load15: 11,
+    cores: 24, mem_total_mb: 16000, mem_avail_mb: 4000, viewers: 3,
+  };
+  const out = h.classifyThumbsHealth(h2, { nowS: 1000 });
+  assert.equal(out.system.load.load1, 12.5);
+  assert.equal(out.system.cpus, 24);
+  assert.equal(out.system.mem.used_pct, 75);
+  assert.equal(out.system.viewers, 3);
+});
+
+test('thumbs: missing/garbage -> stale, empty', () => {
+  const out = h.classifyThumbsHealth(null, { nowS: 1000 });
+  assert.equal(out.stale, true);
+  assert.deepEqual(out.flows, {});
+});
+
 // ── system parsing ────────────────────────────────────────────────────────────
 test('cpuPercent: computes busy fraction from two /proc/stat samples', () => {
   const prev = { total: 1000, idle: 800 };

@@ -152,11 +152,13 @@ def test_health_endpoint_is_read_only():
             f"health endpoint must not expose {verb.upper()}"
 
 
-def test_health_reuses_grain_probe_snapshot():
-    """Cost control: the expensive grain measurement is grain_probe.py's job. The
-    endpoint must READ its snapshot (grains.json), not spawn its own probes."""
+def test_health_reuses_existing_probe_snapshot():
+    """Cost control: the endpoint must READ an existing probe's snapshot, never spawn
+    its own MXL readers. It prefers the already-running thumbs health.json and falls
+    back to grain_probe's grains.json — either way, no new process."""
     src = SERVER.read_text()
-    assert "grains.json" in src, "health endpoint doesn't read the grain-probe snapshot"
+    assert "health.json" in src, "health endpoint doesn't read the thumbs health snapshot"
+    assert "grains.json" in src, "health endpoint doesn't fall back to the grain-probe snapshot"
     # must cache so N viewers collapse to one scrape
     assert "HEALTH_TTL" in src or "_healthCache" in src, \
         "health endpoint has no server-side cache (N viewers would each scrape)"

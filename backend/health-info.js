@@ -113,6 +113,51 @@ function readGrainsSnapshot(grainsPath, readFile = fs.readFileSync) {
   catch { return null; }
 }
 
+// ── Thumbs health.json (the probe that's ALREADY running on the box) ──────────
+// tools/mxl_thumbs.py writes health.json beside the thumbnails — same cadence, no
+// extra process — with per-slot {age, frozen} where:
+//   age    = seconds since the LAST frame arrived      (delivery stalled -> dead)
+//   frozen = seconds since the CONTENT last CHANGED    (picture stuck -> frozen)
+// This is the cheaper, already-live source for the Health Skin: it carries the SAME
+// frozen-reader detection as grain_probe's unique-fps, plus system + viewers, so we
+// don't run a second set of MXL readers. classifyGrains (grains.json / grain_probe)
+// stays supported for adopters who run that probe instead — both normalize to the
+// same shape the UI consumes.
+// staleAfterS default is 25: tools/mxl_thumbs.py's health loop writes on a ~15s
+// cadence (its slots[].age/frozen are themselves sub-2s fresh, but the summary file
+// is rewritten every 15s), so a poll landing late in that cycle can legitimately see
+// an ~18-20s-old file — only flag stale past 25s (probe actually dead). grain_probe's
+// grains.json is 3s — callers using it can pass a tighter staleAfterS.
+function classifyThumbsHealth(h, { nowS, staleAfterS = 25, frozenAfterS = 5, deadAfterS = 5 } = {}) {
+  if (!h || typeof h !== 'object' || !h.slots) {
+    return { stale: true, age_s: null, flows: {}, system: null };
+  }
+  const now = nowS != null ? nowS : Date.now() / 1000;
+  const ageS = h.ts != null ? Math.max(0, now - h.ts) : null;
+  const stale = ageS == null ? true : ageS > staleAfterS;
+  const flows = {};
+  for (const [name, v] of Object.entries(h.slots)) {
+    if (!v || v.age == null) { flows[name] = { state: 'dead', age: null, frozen: null }; continue; }
+    let state = 'ok';
+    if (v.age > deadAfterS) state = 'dead';          // no new frames at all
+    else if (v.frozen != null && v.frozen > frozenAfterS) state = 'frozen'; // frames arrive, picture stuck
+    flows[name] = { state, age: v.age, frozen: v.frozen != null ? v.frozen : null };
+  }
+  // System block, assembled from the same file (load/mem are host-true in the probe).
+  const system = {
+    load: (h.load1 != null) ? { load1: h.load1, load5: h.load5, load15: h.load15 } : null,
+    cpus: h.cores != null ? h.cores : null,
+    mem: (h.mem_total_mb != null && h.mem_avail_mb != null) ? {
+      total_mb: h.mem_total_mb,
+      used_mb: h.mem_total_mb - h.mem_avail_mb,
+      used_pct: Math.round(((h.mem_total_mb - h.mem_avail_mb) / h.mem_total_mb) * 100),
+    } : null,
+    viewers: (h.viewers && typeof h.viewers === 'object') ? (h.viewers.count != null ? h.viewers.count : null)
+      : (typeof h.viewers === 'number' ? h.viewers : null),
+  };
+  return { stale, age_s: ageS != null ? Math.round(ageS * 10) / 10 : null, flows, system, procs: h.procs || null };
+}
+
 // ── Pipeline writers: normalize the three pipeline/status payloads for the UI. ─
 // Pure — the caller fetches the JSON (or passes nulls when a port is unreachable)
 // and we shape it. No network here, so it's unit-testable.
@@ -156,5 +201,5 @@ function composeHealth({ system, grains, pipelines, ts }) {
 
 module.exports = {
   readProcStat, cpuPercent, readMem, readLoad, cpuCount,
-  classifyGrains, readGrainsSnapshot, shapePipelines, composeHealth,
+  classifyGrains, classifyThumbsHealth, readGrainsSnapshot, shapePipelines, composeHealth,
 };

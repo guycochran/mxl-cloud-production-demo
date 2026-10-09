@@ -107,7 +107,7 @@
   <h2>Grain flow <span class="state" id="grainStale"></span></h2>
   <div class="card" style="padding:4px 2px">
     <table>
-      <thead><tr><th>Flow</th><th>State</th><th class="num">Grains/s</th><th class="num">Unique fps</th></tr></thead>
+      <thead><tr id="grainHead"><th>Flow</th><th>State</th><th class="num">Grains/s</th><th class="num">Unique fps</th></tr></thead>
       <tbody id="grainRows"><tr><td colspan="4" style="color:var(--faint);padding:14px 12px">waiting for probe…</td></tr></tbody>
     </table>
   </div>
@@ -148,6 +148,12 @@
       var cores=s.cpus?(' / '+s.cpus+' cores'):'';
       $('loadSub').textContent=s.load.load5.toFixed(1)+' · '+s.load.load15.toFixed(1)+cores;
     }
+    if(s.cpu_pct==null && s.load && s.cpus){
+      // CPU% unavailable (Core running off-box) — approximate from load/cores.
+      var approx=Math.min(100,Math.round(s.load.load1/s.cpus*100));
+      $('cpu').innerHTML=approx+'<small>% ~load</small>'; setBar($('cpuBar'),approx);
+    }
+    if(s.viewers!=null) $('viewers').textContent=s.viewers;
   }
 
   function renderGrains(g){
@@ -156,14 +162,22 @@
     else { stale.textContent=''; stale.className='state'; }
     var tbody=$('grainRows'), flows=(g&&g.flows)||{};
     var names=Object.keys(flows);
+    // Two probe shapes: grain_probe -> {bps, ufps}; thumbs health -> {age, frozen}.
+    var isThumbs=(g&&g.source==='thumbs');
+    var head=$('grainHead');
+    if(isThumbs) head.innerHTML='<th>Flow</th><th>State</th><th class="num">Last frame</th><th class="num">Content age</th>';
+    else head.innerHTML='<th>Flow</th><th>State</th><th class="num">Grains/s</th><th class="num">Unique fps</th>';
     if(!names.length){ tbody.innerHTML='<tr><td colspan="4" style="color:var(--faint);padding:14px 12px">no flows reported</td></tr>'; return; }
     tbody.innerHTML=names.map(function(n){
       var f=flows[n], st=f.state||'dead';
+      var c1,c2;
+      if(isThumbs){ c1=(f.age!=null?f.age+'s':'—'); c2=(f.frozen!=null?f.frozen+'s':'—'); }
+      else { c1=(f.bps!=null?f.bps:'—'); c2=(f.ufps!=null?f.ufps:'—'); }
       return '<tr>'+
         '<td><span class="dot '+st+'"></span><span class="flowname">'+esc(n)+'</span></td>'+
         '<td><span class="state '+st+'">'+st+'</span></td>'+
-        '<td class="num">'+(f.bps!=null?f.bps:'—')+'</td>'+
-        '<td class="num">'+(f.ufps!=null?f.ufps:'—')+'</td>'+
+        '<td class="num">'+c1+'</td>'+
+        '<td class="num">'+c2+'</td>'+
       '</tr>';
     }).join('');
   }

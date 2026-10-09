@@ -147,6 +147,13 @@ app.get('/api/mxl/ingest/qr/:slot.png', (req, res) => {
 // + /proc + the three pipeline/status endpoints, and cache the aggregate for a
 // couple seconds so N open Health tabs collapse to one scrape.
 const health = require('./health-info');
+// Two possible probe snapshots, in preference order:
+//   health.json — written by tools/mxl_thumbs.py, which is ALREADY running beside the
+//     multiview thumbnails (no extra process, no extra MXL readers). Carries per-slot
+//     {age, frozen} (same frozen-reader detection) + system + viewers.
+//   grains.json — written by tools/grain_probe.py (bps + unique-fps). Supported for
+//     adopters who run that probe; we fall back to it if health.json isn't present.
+const THUMBS_HEALTH_PATH = process.env.MXL_THUMBS_HEALTH_PATH || path.join(THUMBS_DIR, 'health.json');
 const GRAINS_PATH = process.env.MXL_GRAINS_PATH || path.join(THUMBS_DIR, 'grains.json');
 const HEALTH_RATE = parseInt(process.env.MXL_GRAIN_RATE || '30', 10);
 const HEALTH_TTL_MS = parseInt(process.env.MXL_HEALTH_TTL_MS || '2000', 10);
@@ -171,16 +178,28 @@ async function buildHealth() {
     fetchJson(9605, '/pipeline/status'),
     fetchJson(9601, '/pipeline/status'),
   ]);
+  // Prefer the already-running thumbs health.json; fall back to grain_probe's grains.json.
+  const thumbs = health.readGrainsSnapshot(THUMBS_HEALTH_PATH);
+  let grains, probeSystem = null;
+  if (thumbs && thumbs.slots) {
+    const t = health.classifyThumbsHealth(thumbs, {});
+    grains = { stale: t.stale, age_s: t.age_s, flows: t.flows, source: 'thumbs' };
+    probeSystem = t.system;      // load/mem/viewers measured where the probe runs (the box)
+  } else {
+    grains = health.classifyGrains(health.readGrainsSnapshot(GRAINS_PATH), { expectedRate: HEALTH_RATE });
+    grains.source = 'grains';
+  }
+  // System: use the probe's host-true numbers when available (Core may run off-box);
+  // otherwise read local /proc. CPU% always comes from local /proc deltas.
   const curCpu = health.readProcStat();
   const system = {
     cpu_pct: health.cpuPercent(_prevCpu, curCpu),
-    cpus: health.cpuCount(),
-    mem: health.readMem(),
-    load: health.readLoad(),
+    cpus: (probeSystem && probeSystem.cpus) || health.cpuCount(),
+    mem: (probeSystem && probeSystem.mem) || health.readMem(),
+    load: (probeSystem && probeSystem.load) || health.readLoad(),
+    viewers: probeSystem ? probeSystem.viewers : null,
   };
   _prevCpu = curCpu;
-  const grains = health.classifyGrains(
-    health.readGrainsSnapshot(GRAINS_PATH), { expectedRate: HEALTH_RATE });
   const pipelines = health.shapePipelines({ selector, keyer, encoder });
   return health.composeHealth({ ts: Date.now() / 1000, system, grains, pipelines });
 }
