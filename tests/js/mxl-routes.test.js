@@ -204,3 +204,47 @@ test('Take flip-flops PVW↔PGM: the old program drops back to preview', async (
   assert.strictEqual(took.body.input, 1, 'program is now the armed source (slot 1)');
   assert.strictEqual(took.body.pvw, 0, 'preview is now the OLD program (slot 0) — the flip-flop');
 });
+
+// ── Keyer-tolerant cut (public-demo robustness) ────────────────────────────────
+// The CUT is the selector's active-input move. A down/bypassed keyer must never
+// fail it. Before this, the cut path did `await mxlApi(9605,...)` unconditionally,
+// so a stopped keyer (:9605 unreachable or 400) sank an otherwise-good cut.
+
+test('cut succeeds even when the keyer (:9605) is DOWN', async () => {
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_PREWARM: '0' }, log: silent });
+  const calls = mkFetch((url) => {
+    if (url.includes(':9605/')) throw new Error('connect ECONNREFUSED'); // keyer down
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 1, input_flow_uuids: [CAM] }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 'cam' }, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 200, 'cut must succeed despite the keyer being down');
+  // the real cut (active-input) still went out
+  assert.ok(calls.some((c) => c.url.includes(':9604/pipeline/active-input')), 'the selector cut was issued');
+});
+
+test('MXL_KEYER_BYPASS=1: a cut never pokes the keyer (:9605)', async () => {
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_PREWARM: '0', MXL_KEYER_BYPASS: '1' }, log: silent });
+  const calls = mkFetch((url) => {
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 1, input_flow_uuids: [CAM] }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 'cam' }, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 200, 'cut succeeds in bypass mode');
+  assert.ok(!calls.some((c) => c.url.includes(':9605/')), 'bypass mode must not touch the keyer at all');
+});
+
+test('status survives a down keyer (:9605) — the Skin keeps polling', async () => {
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';
+  const app = mkApp(); registerMxlRoutes(app, { env: {}, log: silent });
+  mkFetch((url) => {
+    if (url.includes(':9605/')) throw new Error('ECONNREFUSED');       // keyer down
+    if (url.includes(':9600/')) throw new Error('ECONNREFUSED');       // test-gen down too
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 0, input_flow_uuids: [CAM] }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  const res = await call(app, 'GET /api/mxl/status', { headers: {}, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 200, 'status must still return 200 with keyer+testgen down');
+});

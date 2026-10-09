@@ -156,9 +156,13 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
   })();
 
   async function mxlStatus() {
+    // Only the SELECTOR (9604) is essential for status. The keyer (9605) and
+    // test-generator (9600) are optional — when bypassed or down they must not take
+    // down the whole status poll the Skin runs every second. Default them to {}.
     const [keyer, sel, tg1] = await Promise.all([
-      mxlApi(9605, '/pipeline/status'), mxlApi(9604, '/pipeline/status'),
-      mxlApi(9600, '/pipeline/status')
+      mxlApi(9605, '/pipeline/status').catch(() => ({})),
+      mxlApi(9604, '/pipeline/status'),
+      mxlApi(9600, '/pipeline/status').catch(() => ({})),
     ]);
     // Which flow UUID is actually on program right now? The selector reports its
     // active_input as an INDEX into its own live input_flow_uuids, so translate
@@ -246,16 +250,31 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
       }
       await mxlApi(9604, '/pipeline/active-input', { slot: selIndex });
       keyframeNudge();   // optional IDR (off by default — see keyframeNudge)
-      // self-heal: if the keyer is wired cam-direct (pre-relay topology), move it
-      const keyer = await mxlApi(9605, '/pipeline/status');
-      if (keyer.input_flow_uuid !== MXL_SEL_FLOW) {
-        const keyWas = !!keyer.key_on;
-        await mxlApi(9605, '/pipeline/stop', {}).catch(() => {});
-        await mxlApi(9605, '/pipeline/start', mxlKeyerBody(MXL_SEL_FLOW));
-        await mxlApi(9605, '/pipeline/key', { on: keyWas });
-        await new Promise(r => setTimeout(r, 1500));
-        await mxlApi(9601, '/pipeline/stop', {}).catch(() => {});
-        await mxlApi(9601, '/pipeline/start', mxlEncoderBody);
+      // The CUT itself is done — the selector's active-input moved. Everything below is
+      // a best-effort keyer self-heal, and it must NEVER fail the cut.
+      //
+      // When the keyer is bypassed (MXL_KEYER_BYPASS=1 — the encoder reads the selector
+      // output directly, no graphics overlay) or simply down, there is no keyer to heal:
+      // poking :9605 here used to throw (mxlApi rejects on unreachable/non-OK) and sink
+      // an otherwise-successful cut with ":9605 -> 400". Skip it, and even when we do try,
+      // swallow any error. A down/bypassed keyer can't break switching.
+      if (env.MXL_KEYER_BYPASS !== '1') {
+        try {
+          // self-heal: if the keyer is wired cam-direct (pre-relay topology), move it
+          const keyer = await mxlApi(9605, '/pipeline/status');
+          if (keyer && keyer.running && keyer.input_flow_uuid !== MXL_SEL_FLOW) {
+            const keyWas = !!keyer.key_on;
+            await mxlApi(9605, '/pipeline/stop', {}).catch(() => {});
+            await mxlApi(9605, '/pipeline/start', mxlKeyerBody(MXL_SEL_FLOW));
+            await mxlApi(9605, '/pipeline/key', { on: keyWas });
+            await new Promise(r => setTimeout(r, 1500));
+            await mxlApi(9601, '/pipeline/stop', {}).catch(() => {});
+            await mxlApi(9601, '/pipeline/start', mxlEncoderBody);
+          }
+        } catch (e) {
+          // keyer down/unreachable — the cut already succeeded; log and move on
+          console.warn(`cut: keyer self-heal skipped (${e.message})`);
+        }
       }
       return { ok: true, input: slot };
     } finally { mxlBusy = false; }
