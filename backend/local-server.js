@@ -278,6 +278,11 @@ app.get('/health', (req, res) => res.sendFile(path.join(WEB_DIR, 'health.html'))
 // preview. No control, no token; a visitor publishes their phone as a guest source.
 app.get('/join', (req, res) => res.sendFile(path.join(WEB_DIR, 'join.html')));
 
+// Public welcome/landing — routes a visitor to Join / Watch / Monitor (no control).
+// Give demo visitors this URL (or /join) instead of "/" so they never land on the
+// token-gated control Skin. The TD still uses "/".
+app.get('/welcome', (req, res) => res.sendFile(path.join(WEB_DIR, 'welcome.html')));
+
 // Serve the operator UI + its static assets.
 app.get('/', (req, res) => res.sendFile(path.join(WEB_DIR, 'local.html')));
 app.use(express.static(WEB_DIR));

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL — a live switcher on one $400 box</title>
+<style>
+  @font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;font-display:swap;src:url('/fonts/BarlowCondensed-600.woff2') format('woff2')}
+  @font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;font-display:swap;src:url('/fonts/BarlowCondensed-700.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:500;font-style:normal;font-display:swap;src:url('/fonts/IBMPlexMono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:600;font-style:normal;font-display:swap;src:url('/fonts/IBMPlexMono-600.woff2') format('woff2')}
+  :root{
+    --bg:#05070c; --panel:#0b1018; --panel2:#101725; --line:#1d2940;
+    --ink:#e8eeff; --dim:#7e8aa8; --faint:#4b5878;
+    --acc:#5b8cff; --cyan:#35e0ff; --grn:#23d97c; --amber:#ffb400;
+    --disp:'Barlow Condensed',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(53,224,255,.08), transparent 60%),
+    var(--bg);color:var(--ink);font-family:var(--mono);font-size:14px;line-height:1.55;min-height:100vh}
+  a{color:var(--acc);text-decoration:none}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 20px 60px}
+  .eyebrow{font-family:var(--disp);font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--cyan);font-size:13px;text-align:center}
+  h1{font-family:var(--disp);font-weight:700;font-size:clamp(34px,6vw,58px);line-height:1;margin:10px 0 14px;text-align:center}
+  h1 em{color:var(--cyan);font-style:normal}
+  .lede{color:var(--dim);max-width:60ch;margin:0 auto 14px;text-align:center}
+  .live-line{text-align:center;color:var(--dim);font-size:13px;margin-bottom:34px}
+  .live-line b{color:var(--grn)}
+  .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--grn);margin-right:6px;box-shadow:0 0 8px rgba(35,217,124,.6);vertical-align:middle;animation:p 2s infinite}
+  @keyframes p{50%{opacity:.4}}
+
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:720px){.cards{grid-template-columns:1fr}}
+  .card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 20px;
+    transition:transform .15s,border-color .15s;position:relative;overflow:hidden}
+  .card:hover{transform:translateY(-3px);border-color:var(--acc)}
+  .card .ic{font-size:30px;margin-bottom:10px}
+  .card h2{font-family:var(--disp);font-weight:700;font-size:22px;margin:0 0 6px;letter-spacing:.4px;color:var(--ink)}
+  .card p{color:var(--dim);font-size:13px;margin:0}
+  .card .go{margin-top:14px;font-family:var(--disp);font-weight:600;letter-spacing:1px;text-transform:uppercase;font-size:13px;color:var(--cyan)}
+  .card.primary{border-color:rgba(53,224,255,.4);background:linear-gradient(160deg,rgba(53,224,255,.07),var(--panel))}
+
+  .foot{margin-top:40px;text-align:center;color:var(--faint);font-size:12px}
+  .foot a{color:var(--dim)}
+  .badge{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 12px;color:var(--dim);font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="text-align:center"><span class="badge">Open-source · MXL / Dynamic Media Facility</span></div>
+  <p class="eyebrow">A broadcast control room, as software</p>
+  <h1>One <em>$400 computer</em><br>is running a live show.</h1>
+  <p class="lede">Real cameras, phone guests, playout, switching and streaming — all in shared memory on commodity hardware. Jump in: put your own camera on air, watch the program, or watch the machine work.</p>
+  <p class="live-line" id="liveLine"><span class="live-dot"></span>checking the facility…</p>
+
+  <div class="cards">
+    <a class="card primary" href="/join">
+      <div class="ic">📱</div>
+      <h2>Put your phone on air</h2>
+      <p>Scan a QR with the free Larix app and your camera becomes a live switchable source. ~30 seconds, no account.</p>
+      <div class="go">Join the show →</div>
+    </a>
+    <a class="card" href="/program/">
+      <div class="ic">📺</div>
+      <h2>Watch the program</h2>
+      <p>The live program output, straight from the switcher over WebRTC — sub-second, encoded once for everyone.</p>
+      <div class="go">Watch live →</div>
+    </a>
+    <a class="card" href="/health">
+      <div class="ic">📊</div>
+      <h2>Watch the machine</h2>
+      <p>Live health: grain flow per source, CPU/memory, and viewer count — see exactly how little a $400 box breaks a sweat.</p>
+      <div class="go">Open the monitor →</div>
+    </a>
+  </div>
+
+  <p class="foot">
+    New to this? <a href="/what-are-grains.html" target="_blank" rel="noopener">What's a "grain"? →</a>
+    &nbsp;·&nbsp; Built on the EBU/AMWA <b style="color:var(--dim)">Media eXchange Layer</b>.
+  </p>
+</div>
+
+<script>
+(function(){
+  function tick(){
+    fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      var flows=(d.grains&&d.grains.flows)||{};
+      var live=Object.keys(flows).filter(function(k){return flows[k].state==='ok';}).length;
+      var s=d.system||{}, v=(s.viewers!=null?s.viewers:null);
+      var cpu=(s.cpu_pct!=null?s.cpu_pct:(s.load&&s.cpus?Math.round(s.load.load1/s.cpus*100):null));
+      var el=document.getElementById('liveLine');
+      el.innerHTML='<span class="live-dot"></span><b>'+live+' live source'+(live===1?'':'s')+'</b> on air'
+        +(v!=null?(' · <b>'+v+'</b> watching'):'')
+        +(cpu!=null?(' · the $400 box at <b>'+cpu+'% CPU</b>'):'');
+    }).catch(function(){
+      document.getElementById('liveLine').innerHTML='<span class="live-dot" style="background:#ffb400"></span>the facility is offline right now — the ideas still stand.';
+    });
+  }
+  tick(); setInterval(tick,4000);
+})();
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ REPO = Path(__file__).resolve().parent.parent
 HTML = REPO / "web" / "local.html"
 HEALTH_HTML = REPO / "web" / "health.html"
 JOIN_HTML = REPO / "web" / "join.html"
+WELCOME_HTML = REPO / "web" / "welcome.html"
 SERVER = REPO / "backend" / "local-server.js"
 ROUTES = REPO / "backend" / "mxl-routes.js"
 HEALTH_INFO = REPO / "backend" / "health-info.js"
@@ -166,6 +167,20 @@ def test_join_page_served_and_qr_route_not_hardcoded_to_guest12():
     assert "app.get('/join'" in src, "local-server doesn't serve the /join page"
     assert "INGEST_SLOTS" in src, "QR route still hardcodes guest slots (should validate against config)"
     assert "guest[12]" not in src, "QR route still has the old guest[12]-only gate"
+
+
+def test_welcome_landing_served_and_self_contained():
+    """The public landing (/welcome) routes visitors to Join/Watch/Monitor. Air-gapped
+    (self-hosted fonts, no external hosts), served by the Core."""
+    assert WELCOME_HTML.is_file(), "web/welcome.html missing"
+    assert "app.get('/welcome'" in SERVER.read_text(), "local-server doesn't serve /welcome"
+    html = WELCOME_HTML.read_text()
+    urls = re.findall(r"https?://[a-z0-9.\-]+", html, re.I)
+    external = [u for u in urls if not re.search(r"(127\.0\.0\.1|localhost|w3\.org)", u)]
+    assert not external, f"welcome.html references external hosts: {external}"
+    # the three public entry points must be linked, and NOT the token-gated control Skin
+    for href in ("/join", "/program/", "/health"):
+        assert href in html, f"welcome.html doesn't link {href}"
 
 
 def test_health_endpoint_is_read_only():
