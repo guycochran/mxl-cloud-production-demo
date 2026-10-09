@@ -53,6 +53,16 @@ def test_heals_only_partial_chains_not_fully_down():
     assert not re.search(r'"\$up"\s*-eq\s*0.*heal', s), "must NOT heal a fully-down (absent) chain"
 
 
+def test_gives_up_on_chronically_flapping_chain():
+    """A leg that a restart can't fix (e.g. a video-only hardware encoder whose audio core
+    cycles 'not-linked' forever) must not be restarted endlessly — give up after GIVE_UP
+    heals and log, so it doesn't churn CPU. A chain going healthy resets the count."""
+    s = _src()
+    assert "GIVE_UP" in s, "no give-up cap on repeated heals"
+    assert "GIVE UP" in s, "must log when abandoning a chronic chain"
+    assert "heal_count[$name]=0" in s, "a healthy chain must reset its heal count (forgive transient wedges)"
+
+
 def test_watches_all_six_guest_chains_by_default():
     """The default port map must cover guest1-6 with their real (non-contiguous) ports —
     guest3 on :8895, not the computed :8892."""

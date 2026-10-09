@@ -40,6 +40,13 @@ declare -A strike
 GUEST_PORTS=${GUEST_PORTS:-"guest1:8890:8990:9090,guest2:8891:8991:9091,guest3:8895:8995:9095,guest4:8896:8996:9096,guest5:8897:8997:9097,guest6:8898:8998:9098"}
 
 declare -A last_heal
+declare -A heal_count
+# GIVE_UP: after this many heals that DON'T make a chain healthy, stop restarting it and
+# just log — some legs flap for reasons a restart can't fix (e.g. a hardware encoder that
+# sends video-only, so its audio core cycles 'not-linked' forever). Thrashing it endlessly
+# only churns CPU. A chain that goes healthy resets its count, so transient wedges always
+# get healed; only a chronic one is abandoned.
+GIVE_UP=${GIVE_UP:-4}
 
 bound() { ss -ulnp 2>/dev/null | grep -q ":$1 "; }   # is a UDP port listening?
 
@@ -51,8 +58,14 @@ heal_chain() {
     logger -t guest-leg-watchdog "skip $name — in cooldown ($((now - last))s < ${COOLDOWN_SECONDS}s)"
     return
   fi
+  heal_count[$name]=$(( ${heal_count[$name]:-0} + 1 ))
+  if [ "${heal_count[$name]}" -gt "$GIVE_UP" ]; then
+    logger -t guest-leg-watchdog "GIVE UP on $name — healed ${heal_count[$name]}x without it staying healthy; leaving it alone (restart won't fix). Investigate manually."
+    last_heal[$name]=$now   # keep cooldown so the give-up message doesn't spam
+    return
+  fi
   last_heal[$name]=$now
-  logger -t guest-leg-watchdog "HEALING $name chain (a leg was down) — restart audio→core→fanout"
+  logger -t guest-leg-watchdog "HEALING $name chain (heal #${heal_count[$name]}) — restart audio→core→fanout"
   # order matters: the cores (leg listeners) must be up before the fanout tries to write
   docker restart "${name}-audio" "${name}" "${name}-fanout" >/dev/null 2>&1
 }
@@ -81,8 +94,11 @@ while :; do
         heal_chain "$name"
         strike[$name]=0
       fi
-    else
+    elif [ "$up" -eq 3 ]; then
       strike[$name]=0
+      heal_count[$name]=0   # healthy again → forgive past heals (transient wedge recovered)
+    else
+      strike[$name]=0       # 0 up = absent/starting; don't count heals against it
     fi
   done
   sleep "$POLL_SECONDS"
