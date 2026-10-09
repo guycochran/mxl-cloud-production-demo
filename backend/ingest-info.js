@@ -45,10 +45,15 @@ function parsePorts(spec) {
 // default; quickstart also passes MXL_GUEST_TRANSPORT through explicitly).
 //   guests      — explicit slot list (MXL_GUESTS), else guest1+guest2
 //   guestPorts  — explicit per-guest ports (MXL_GUEST_PORTS), else srtPort + index
-function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-listen', guests, guestPorts } = {}) {
+// Parse "guest5=HOST,guest3=HOST2" → {guest5:HOST,...}. Lets a deployment
+// advertise a RELAY host (e.g. an Azure SRT relay) for a specific guest slot so the
+// contributor publishes there instead of the box's own IP — keeping the home IP private.
+function parseHosts(spec){ if(!spec) return {}; const m={}; for(const p of String(spec).split(',').map(x=>x.trim()).filter(Boolean)){ const [k,v]=p.split('='); if(k&&v) m[k.trim()]=v.trim(); } return m; }
+function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-listen', guests, guestPorts, guestHosts } = {}) {
   const listen = transport === 'srt-listen';
   const list = Array.isArray(guests) ? guests : parseGuests(guests);
   const explicitPorts = Array.isArray(guestPorts) ? guestPorts : parsePorts(guestPorts);
+  const hostMap = (guestHosts && typeof guestHosts==='object' && !Array.isArray(guestHosts)) ? guestHosts : parseHosts(guestHosts);
   return {
     publicIp,
     srtPort,
@@ -57,6 +62,7 @@ function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-listen',
     guests: list,
     // Explicit port map wins (handles non-contiguous real ports). Otherwise:
     // listen → each guest owns srtPort + index; direct → all share srtPort.
+    hostFor: (slot) => (hostMap[slot] || publicIp),
     guestPort: (i) => (explicitPorts && explicitPorts[i] != null)
       ? explicitPorts[i]
       : (listen ? srtPort + i : srtPort),
@@ -77,7 +83,7 @@ function ingestInfo(cfg) {
       srt_url: !cfg.publicIp
         ? null
         : cfg.listen
-          ? `srt://${cfg.publicIp}:${cfg.guestPort(i)}?latency=200`
+          ? `srt://${cfg.hostFor ? cfg.hostFor(g.slot) : cfg.publicIp}:${cfg.guestPort(i)}?latency=200`
           : `srt://${cfg.publicIp}:${cfg.srtPort}?streamid=publish:${g.slot}&latency=200`,
       qr: cfg.publicIp ? `/api/mxl/ingest/qr/${g.slot}.png` : null,
     })),
@@ -95,7 +101,7 @@ function larixUrl(cfg, slot) {
   const name = encodeURIComponent('MXL ' + slot.replace(/^guest/, 'Guest '));
   const idx = Math.max(0, (parseInt(slot.replace(/^guest/, ''), 10) || 1) - 1);
   if (cfg.listen) {
-    const srt = encodeURIComponent(`srt://${cfg.publicIp}:${cfg.guestPort(idx)}`);
+    const srt = encodeURIComponent(`srt://${cfg.hostFor ? cfg.hostFor(slot) : cfg.publicIp}:${cfg.guestPort(idx)}`);
     return `larix://set/v1?conn[][name]=${name}&conn[][url]=${srt}`
       + `&conn[][mode]=av&conn[][srtlatency]=1000`;
   }

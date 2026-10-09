@@ -112,6 +112,7 @@ const INGEST_CFG = ingestConfig({
   // aren't contiguous (e.g. "8890,8891,8895" — the box's guest3 is on :8895, not :8892).
   guests: process.env.MXL_GUESTS || undefined,
   guestPorts: process.env.MXL_GUEST_PORTS || undefined,
+  guestHosts: process.env.MXL_GUEST_HOSTS || undefined,
 });
 // The set of valid guest slots for the QR route — derived from the config, not hardcoded.
 const INGEST_SLOTS = new Set((INGEST_CFG.guests || []).map((g) => g.slot));

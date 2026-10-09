@@ -104,3 +104,21 @@ test('parsePorts: parses a CSV port list, null on empty/garbage', () => {
   assert.equal(parsePorts(''), null);
   assert.equal(parsePorts('abc'), null);
 });
+
+// ── Per-guest relay host (IP-hiding: a guest publishes to an SRT relay, not the box) ──
+test('MXL_GUEST_HOSTS routes a guest slot to a relay host (home IP stays private)', () => {
+  const cfg = ingestConfig({
+    publicIp: '192.168.1.254', srtPort: 8890, transport: 'srt-listen',
+    guests: 'guest3,guest5', guestPorts: '8895,8897',
+    guestHosts: 'guest5=20.230.141.204',   // guest5 -> Azure SRT relay
+  });
+  const j = ingestInfo(cfg);
+  const g3 = j.guests.find((g) => g.slot === 'guest3');
+  const g5 = j.guests.find((g) => g.slot === 'guest5');
+  // guest3 stays on the LAN/public IP; guest5 advertises the relay host
+  assert.match(g3.srt_url, /192\.168\.1\.254:8895/);
+  assert.match(g5.srt_url, /20\.230\.141\.204:8897/, 'guest5 must advertise the relay host, not the box IP');
+  // the Larix deep-link must ALSO carry the relay host (the QR a phone scans)
+  assert.match(larixUrl(cfg, 'guest5'), /20\.230\.141\.204/, 'guest5 QR must point at the relay, not the box');
+  assert.ok(!larixUrl(cfg, 'guest5').includes('192.168.1.254'), 'guest5 QR must NOT leak the box IP');
+});
