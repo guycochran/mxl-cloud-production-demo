@@ -230,6 +230,9 @@ app.get('/api/mxl/health', async (req, res) => {
       _healthCache = { at: now, payload: await buildHealth() };
     }
     res.set('Cache-Control', 'no-store');
+    // Read-only public telemetry — allow cross-origin reads so the public site
+    // (mxlswitcher.com) can embed the live numbers. GET-only, no secrets, no control.
+    res.set('Access-Control-Allow-Origin', process.env.MXL_HEALTH_CORS || '*');
     res.json(_healthCache.payload);
   } catch (e) {
     res.status(500).json({ error: String((e && e.message) || e) });
