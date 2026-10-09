@@ -27,7 +27,7 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'https://prodbots.com').rstrip('/')  # facility backend (docs/CONFIG.md)
+BACKEND_URL = os.environ.get('MXL_BACKEND_URL', 'http://localhost:3013').rstrip('/')  # facility backend (docs/CONFIG.md)
 STATE_URL = BACKEND_URL + '/api/mxl/audio-state'
 CAPS = 'audio/x-raw,format=F32LE,layout=interleaved,rate=48000,channels=2,channel-mask=(bitmask)0x3'
 MARGIN_NS = 66_000_000

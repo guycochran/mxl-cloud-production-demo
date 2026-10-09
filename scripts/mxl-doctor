@@ -16,7 +16,7 @@
 #   mxl-doctor heal <leg>   run a live-facility AUTO-HEALER (DESTRUCTIVE — restarts
 #                           containers / pipelines / fabric legs). These are the
 #                           prodbots/VM1 watchdogs; they need that environment
-#                           (prodbots.com, VM1 10.0.0.4, /home/guy/fabric, systemd).
+#                           (YOUR-BACKEND-HOST, VM1 10.0.0.4, /home/guy/fabric, systemd).
 #                           <leg> = selector | program | guest
 #   mxl-doctor help         this help.
 #
