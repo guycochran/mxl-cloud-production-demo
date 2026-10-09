@@ -175,9 +175,15 @@
   //    scanning don't collide on the same busy listener.
   fetch('/api/mxl/ingest',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     var guests=d.guests||[];
-    var pick = forced || d.suggested_slot;   // server-chosen free slot
-    var g = (pick && guests.filter(function(x){return x.slot===pick;})[0])
-            || guests.filter(function(x){return x.free!==false;})[0]
+    // A slot is "relay-safe" if its SRT host is NOT a private LAN IP — i.e. it goes through
+    // a public relay (e.g. an Azure SRT relay), so the contributor never sees the home IP.
+    function isRelay(x){ var u=x.srt_url||""; return !/:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(u); }
+    var freeGuests = guests.filter(function(x){return x.free!==false;});
+    // Prefer: forced slot -> a FREE RELAY slot (IP-safe, for public) -> server suggestion -> any free.
+    var g = (forced && guests.filter(function(x){return x.slot===forced;})[0])
+            || freeGuests.filter(isRelay)[0]
+            || (d.suggested_slot && freeGuests.filter(function(x){return x.slot===d.suggested_slot;})[0])
+            || freeGuests[0]
             || guests[guests.length-1] || null;
     if(!g || !d.public_ip){
       $('qrcard').style.display='none'; $('qrmissing').style.display='block'; $('qrslot').textContent='';
@@ -186,9 +192,13 @@
     mySlot=g.slot;
     if(g.qr){ $('qrimg').src=g.qr+'?t='+Date.now(); } else { $('qrcard').style.display='none'; $('qrmissing').style.display='block'; }
     var allFull = guests.length && guests.every(function(x){return x.free===false;});
+    var relaySafe = isRelay(g);
+    var badge = relaySafe
+      ? '<span style="color:#23d97c;font-size:11px;border:1px solid rgba(35,217,124,.4);border-radius:5px;padding:1px 7px;margin-left:6px">🔒 via relay</span>'
+      : '<span style="color:#ffb400;font-size:11px;border:1px solid rgba(255,180,0,.4);border-radius:5px;padding:1px 7px;margin-left:6px">LAN only</span>';
     $('qrslot').innerHTML = allFull
       ? '<span style="color:#c0392b">All slots busy — ask the director to free one</span>'
-      : esc(g.label)+' · '+(g.srt_url? esc(g.srt_url.replace(/^srt:\/\//,'')) : '');
+      : esc(g.label)+badge;
     $('mSrt').textContent=g.srt_url||'—';
     $('copyBtn').onclick=function(){
       if(g.srt_url){ navigator.clipboard.writeText(g.srt_url).then(function(){ $('copyBtn').textContent='Copied ✓'; setTimeout(function(){$('copyBtn').textContent='Copy SRT URL';},1500); }); }
