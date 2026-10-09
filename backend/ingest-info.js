@@ -10,33 +10,67 @@
 //     into a per-guest port (srtPort + index) with NO streamid. Mirrors
 //     quickstart's MXL_GUEST_TRANSPORT=srt-listen (one listener owns one port).
 
-const GUESTS = [
+const DEFAULT_GUESTS = [
   { slot: 'guest1', label: 'Guest 1' },
   { slot: 'guest2', label: 'Guest 2' },
 ];
 
+// Parse "guest1,guest2,guest3" or "Guest 1:guest1,Phone:guest3" into a guest list.
+// Falls back to DEFAULT_GUESTS. Lets a deployment advertise exactly the slots it runs
+// (e.g. the box added a 3rd "phone" slot) without code changes.
+function parseGuests(spec) {
+  if (!spec) return DEFAULT_GUESTS.slice();
+  const out = [];
+  for (const part of String(spec).split(',').map((s) => s.trim()).filter(Boolean)) {
+    const [a, b] = part.split(':').map((s) => s.trim());
+    const slot = (b || a);
+    const label = b ? a : a.replace(/^guest/i, 'Guest ');
+    if (/^guest\d+$/i.test(slot)) out.push({ slot: slot.toLowerCase(), label });
+  }
+  return out.length ? out : DEFAULT_GUESTS.slice();
+}
+
+// Parse an explicit port list "8890,8891,8895" → [8890,8891,8895]. Empty → null (use
+// the computed scheme). Non-contiguous real deployments (a bolt-on slot on a gap port)
+// MUST set this so the advertised QR port matches the actual listener. (HW Oct 9: the
+// box's guest3 listens on :8895, not the computed :8892 — a wrong QR = a dead demo.)
+function parsePorts(spec) {
+  if (!spec) return null;
+  const ports = String(spec).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n > 0);
+  return ports.length ? ports : null;
+}
+
 // Resolve the config once from a plain object (e.g. process.env), so callers and
 // tests share identical logic. transport defaults to srt-listen (matches quickstart's
 // default; quickstart also passes MXL_GUEST_TRANSPORT through explicitly).
-function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-listen' } = {}) {
+//   guests      — explicit slot list (MXL_GUESTS), else guest1+guest2
+//   guestPorts  — explicit per-guest ports (MXL_GUEST_PORTS), else srtPort + index
+function ingestConfig({ publicIp = '', srtPort = 8890, transport = 'srt-listen', guests, guestPorts } = {}) {
   const listen = transport === 'srt-listen';
+  const list = Array.isArray(guests) ? guests : parseGuests(guests);
+  const explicitPorts = Array.isArray(guestPorts) ? guestPorts : parsePorts(guestPorts);
   return {
     publicIp,
     srtPort,
     transport,
     listen,
-    // listen: each guest owns srtPort + index; direct: all share srtPort.
-    guestPort: (i) => (listen ? srtPort + i : srtPort),
+    guests: list,
+    // Explicit port map wins (handles non-contiguous real ports). Otherwise:
+    // listen → each guest owns srtPort + index; direct → all share srtPort.
+    guestPort: (i) => (explicitPorts && explicitPorts[i] != null)
+      ? explicitPorts[i]
+      : (listen ? srtPort + i : srtPort),
   };
 }
 
 // The JSON body for GET /api/mxl/ingest.
 function ingestInfo(cfg) {
+  const guests = cfg.guests || DEFAULT_GUESTS;
   return {
     public_ip: cfg.publicIp || null,
     srt_port: cfg.srtPort,
     transport: cfg.transport,
-    guests: GUESTS.map((g, i) => ({
+    guests: guests.map((g, i) => ({
       ...g,
       port: cfg.guestPort(i),
       streamid: cfg.listen ? null : 'publish:' + g.slot,
@@ -71,4 +105,4 @@ function larixUrl(cfg, slot) {
     + `&conn[][mode]=av&conn[][srtstreamid]=${sid}&conn[][srtlatency]=1000`;
 }
 
-module.exports = { GUESTS, ingestConfig, ingestInfo, larixUrl };
+module.exports = { GUESTS: DEFAULT_GUESTS, DEFAULT_GUESTS, parseGuests, parsePorts, ingestConfig, ingestInfo, larixUrl };

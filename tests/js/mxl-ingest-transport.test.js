@@ -62,3 +62,45 @@ test('no public IP: srt_url + qr are null, no crash', () => {
   assert.equal(j.guests[0].srt_url, null);
   assert.equal(j.guests[0].qr, null);
 });
+
+// ── Configurable guest list + explicit ports (public phone-inject flow) ─────────
+// A real deployment may run a 3rd "phone" slot on a NON-contiguous port (the box's
+// guest3 listens on :8895, not the computed :8892). The advertised QR/SRT URL MUST
+// match the real listener or the scan sends the phone to a dead port.
+const { parseGuests, parsePorts } = require(path.join(__dirname, '..', '..', 'backend', 'ingest-info.js'));
+
+test('MXL_GUESTS adds a third slot (guest3) to the advertised list', () => {
+  const cfg = ingestConfig({ publicIp: PUBLIC_IP, srtPort: BASE_PORT, guests: 'guest1,guest2,guest3' });
+  const j = ingestInfo(cfg);
+  assert.equal(j.guests.length, 3);
+  assert.equal(j.guests[2].slot, 'guest3');
+  assert.equal(j.guests[2].label, 'Guest 3');
+});
+
+test('MXL_GUEST_PORTS pins non-contiguous real ports (guest3 on :8895, not :8892)', () => {
+  const cfg = ingestConfig({
+    publicIp: PUBLIC_IP, srtPort: BASE_PORT, transport: 'srt-listen',
+    guests: 'guest1,guest2,guest3', guestPorts: '8890,8891,8895',
+  });
+  const j = ingestInfo(cfg);
+  assert.equal(j.guests[0].port, 8890);
+  assert.equal(j.guests[1].port, 8891);
+  assert.equal(j.guests[2].port, 8895, 'guest3 must advertise its REAL port 8895');
+  assert.match(j.guests[2].srt_url, /:8895\?/);
+  // the Larix deep-link for guest3 must carry :8895 too
+  const lx = larixUrl(cfg, 'guest3');
+  assert.match(lx, /%3A8895/, 'guest3 deep-link must point at the real :8895');
+});
+
+test('parseGuests: accepts "Label:slot" and bare slots; bad entries dropped', () => {
+  assert.deepEqual(parseGuests('guest1,guest2'), [{ slot: 'guest1', label: 'Guest 1' }, { slot: 'guest2', label: 'Guest 2' }]);
+  assert.deepEqual(parseGuests('Phone:guest3'), [{ slot: 'guest3', label: 'Phone' }]);
+  assert.deepEqual(parseGuests('nonsense,guest4'), [{ slot: 'guest4', label: 'Guest 4' }]);
+  assert.equal(parseGuests('').length, 2, 'empty falls back to the 2 defaults');
+});
+
+test('parsePorts: parses a CSV port list, null on empty/garbage', () => {
+  assert.deepEqual(parsePorts('8890,8891,8895'), [8890, 8891, 8895]);
+  assert.equal(parsePorts(''), null);
+  assert.equal(parsePorts('abc'), null);
+});

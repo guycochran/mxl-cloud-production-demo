@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Join the show — MXL</title>
+<style>
+  @font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-600.woff2') format('woff2')}
+  @font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-700.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:500;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-600.woff2') format('woff2')}
+  :root{
+    --bg:#05070c; --panel:#0b1018; --panel2:#101725; --line:#1d2940;
+    --ink:#e8eeff; --dim:#7e8aa8; --faint:#4b5878;
+    --acc:#5b8cff; --amber:#ffb400; --cyan:#35e0ff; --red:#e5484d; --grn:#23d97c;
+    --disp:'Barlow Condensed',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:14px;line-height:1.5}
+  a{color:var(--acc);text-decoration:none}
+  .wrap{max-width:1000px;margin:0 auto;padding:22px 20px 56px}
+  header.top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  header.top .brand{font-family:var(--disp);font-weight:700;font-size:24px;letter-spacing:.4px}
+  header.top .brand small{font-family:var(--mono);font-size:10px;color:var(--dim);font-weight:500;margin-left:7px;text-transform:uppercase;letter-spacing:1px}
+  .spacer{flex:1}
+  .eyebrow{font-family:var(--disp);font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--cyan);font-size:13px}
+  h1{font-family:var(--disp);font-weight:700;font-size:40px;line-height:1.02;margin:6px 0 10px}
+  h1 em{color:var(--cyan);font-style:normal}
+  .lede{color:var(--dim);max-width:62ch;margin-bottom:26px}
+
+  .cols{display:grid;grid-template-columns:320px 1fr;gap:26px;align-items:start}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+
+  .qrcard{background:#fff;border-radius:16px;padding:18px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+  .qrcard img{width:100%;max-width:280px;height:auto;display:block;margin:0 auto;image-rendering:pixelated}
+  .qrcard .cap{color:#0b1018;font-family:var(--disp);font-weight:700;font-size:18px;margin-top:10px;letter-spacing:.5px}
+  .qrcard .sub{color:#4b5878;font-size:12px;margin-top:2px}
+  .qr-missing{background:var(--panel);border:1px dashed var(--line);border-radius:16px;padding:40px 18px;text-align:center;color:var(--dim)}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:0 0 22px}
+  .steps li{position:relative;padding:14px 16px 14px 56px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;margin-bottom:10px}
+  .steps li::before{counter-increment:s;content:counter(s);position:absolute;left:14px;top:13px;
+    width:28px;height:28px;border-radius:50%;background:var(--acc);color:#05070c;font-family:var(--disp);
+    font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
+  .steps b{font-family:var(--disp);font-weight:600;font-size:17px;letter-spacing:.3px}
+  .steps .d{color:var(--dim);font-size:13px;margin-top:2px}
+  .steps code{background:var(--panel2);padding:2px 7px;border-radius:5px;color:var(--cyan);font-size:12.5px;word-break:break-all}
+  .applinks{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .applinks a{font-size:12px;border:1px solid var(--line);padding:5px 11px;border-radius:7px;color:var(--dim)}
+
+  .manual{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:22px}
+  .manual .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(29,41,64,.5);font-size:13px}
+  .manual .row:last-child{border-bottom:0}
+  .manual .k{color:var(--dim)} .manual .v{color:var(--ink);font-weight:600;text-align:right;word-break:break-all}
+  .copy{cursor:pointer;background:none;border:1px solid var(--line);color:var(--acc);border-radius:6px;padding:2px 9px;font-family:var(--mono);font-size:11px}
+
+  .preview{margin-top:8px}
+  .preview h2{font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin:0 0 10px}
+  .pgmwrap{position:relative;background:#000;border:1px solid var(--line);border-radius:12px;overflow:hidden;aspect-ratio:16/9}
+  .pgmwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .live-badge{position:absolute;top:10px;left:10px;z-index:2;font-family:var(--mono);font-size:11px;
+    background:rgba(229,72,77,.92);color:#fff;padding:3px 9px;border-radius:5px;letter-spacing:1px;font-weight:600}
+  .status{margin-top:10px;font-size:13px;color:var(--dim)}
+  .status b{color:var(--grn)}
+  .status.waiting b{color:var(--amber)}
+  .footer{margin-top:30px;color:var(--faint);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">MXL<small>Join the show</small></div>
+    <div class="spacer"></div>
+    <a href="/" style="font-size:12px;color:var(--dim)">Watch program →</a>
+  </header>
+
+  <p class="eyebrow">Be on air in 30 seconds</p>
+  <h1>Put <em>your phone's camera</em><br>into a live broadcast.</h1>
+  <p class="lede">No app store account, no login. Scan the code with the free Larix Broadcaster app and your camera becomes a switchable source in a real production control room — running on a single $400 computer.</p>
+
+  <div class="cols">
+    <div>
+      <div id="qrcard" class="qrcard">
+        <img id="qrimg" alt="Scan to join" src="">
+        <div class="cap">Scan to go live</div>
+        <div class="sub" id="qrslot">loading…</div>
+      </div>
+      <div id="qrmissing" class="qr-missing" style="display:none">
+        QR not available (the facility hasn't published its address). Use the manual settings below.
+      </div>
+    </div>
+
+    <div>
+      <ol class="steps">
+        <li>
+          <b>Install Larix Broadcaster</b>
+          <div class="d">Free, on iPhone &amp; Android. It's the app that sends your camera over SRT.</div>
+          <div class="applinks">
+            <a href="https://apps.apple.com/app/larix-broadcaster/id1042474385" target="_blank" rel="noopener">iPhone — App Store ↗</a>
+            <a href="https://play.google.com/store/apps/details?id=com.wmspanel.larix_broadcaster" target="_blank" rel="noopener">Android — Google Play ↗</a>
+          </div>
+        </li>
+        <li>
+          <b>Scan the code</b>
+          <div class="d">Open your phone camera (or Larix's built-in scanner) and point it at the QR. It loads all the settings for you — tap to import.</div>
+        </li>
+        <li>
+          <b>Tap the red button</b>
+          <div class="d">In Larix, hit record/stream. You're now publishing to the switcher. Watch yourself appear in the program below.</div>
+        </li>
+      </ol>
+
+      <div class="manual">
+        <div style="font-family:var(--disp);font-weight:600;font-size:14px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:6px">Manual settings (if the QR won't scan)</div>
+        <div class="row"><span class="k">Protocol</span><span class="v">SRT (Caller)</span></div>
+        <div class="row"><span class="k">URL</span><span class="v" id="mSrt">—</span></div>
+        <div class="row"><span class="k">Latency</span><span class="v">1000 ms</span></div>
+        <div class="row"><span class="k">Mode</span><span class="v">Audio + Video</span></div>
+        <button class="copy" id="copyBtn" type="button">Copy SRT URL</button>
+      </div>
+
+      <div class="preview">
+        <h2>Program — you'll appear here</h2>
+        <div class="pgmwrap">
+          <span class="live-badge">● LIVE</span>
+          <iframe id="pgm" src="/program/" allow="autoplay" title="Program output"></iframe>
+        </div>
+        <div class="status waiting" id="status"><b>Waiting for a source…</b> once you go live, ask the director to cut to you — or watch the sources count rise.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    An open-source MXL (Media eXchange Layer) switcher. Your phone's video travels as SRT into a shared-memory media domain and is composited live. <a href="/what-are-grains.html" target="_blank" rel="noopener">How it works →</a>
+  </div>
+</div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var slot=(location.hash.match(/slot=(guest\d+)/)||[])[1]||null;  // optional #slot=guest3
+
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+  fetch('/api/mxl/ingest',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var guests=d.guests||[];
+    // pick the requested slot, else the LAST guest (usually the phone slot), else first
+    var g = (slot && guests.filter(function(x){return x.slot===slot;})[0]) || guests[guests.length-1] || null;
+    if(!g || !d.public_ip){
+      $('qrcard').style.display='none'; $('qrmissing').style.display='block';
+      $('qrslot').textContent='';
+    } else {
+      if(g.qr){ $('qrimg').src=g.qr; } else { $('qrcard').style.display='none'; $('qrmissing').style.display='block'; }
+      $('qrslot').textContent=g.label+' · '+(g.srt_url? g.srt_url.replace(/^srt:\/\//,'') : '');
+      $('mSrt').textContent=g.srt_url||'—';
+      $('copyBtn').onclick=function(){
+        if(g.srt_url){ navigator.clipboard.writeText(g.srt_url).then(function(){ $('copyBtn').textContent='Copied ✓'; setTimeout(function(){$('copyBtn').textContent='Copy SRT URL';},1500); }); }
+      };
+    }
+  }).catch(function(){
+    $('qrcard').style.display='none'; $('qrmissing').style.display='block';
+  });
+
+  // Live source/viewer status from the health endpoint (read-only, public).
+  function pollHealth(){
+    fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      var flows=(d.grains&&d.grains.flows)||{};
+      var live=Object.keys(flows).filter(function(k){return flows[k].state==='ok';}).length;
+      var viewers=(d.system&&d.system.viewers!=null)?d.system.viewers:null;
+      var s=$('status');
+      if(live>0){
+        s.className='status';
+        s.innerHTML='<b>'+live+' live source'+(live===1?'':'s')+'</b> on the switcher'+(viewers!=null?(' · '+viewers+' watching'):'')+'. Go live and you\'re next.';
+      } else {
+        s.className='status waiting';
+        s.innerHTML='<b>Waiting for a source…</b> be the first — scan and go live.';
+      }
+    }).catch(function(){});
+  }
+  pollHealth(); setInterval(pollHealth,4000);
+})();
+</script>
+</body>
+</html>

@@ -107,7 +107,14 @@ const INGEST_CFG = ingestConfig({
   publicIp: PUBLIC_IP,
   srtPort: SRT_PORT,
   transport: process.env.MXL_GUEST_TRANSPORT || 'srt-listen',
+  // MXL_GUESTS lets a deployment advertise exactly its slots (e.g. "guest1,guest2,guest3"
+  // with a bolt-on phone slot). MXL_GUEST_PORTS pins the real listener ports when they
+  // aren't contiguous (e.g. "8890,8891,8895" — the box's guest3 is on :8895, not :8892).
+  guests: process.env.MXL_GUESTS || undefined,
+  guestPorts: process.env.MXL_GUEST_PORTS || undefined,
 });
+// The set of valid guest slots for the QR route — derived from the config, not hardcoded.
+const INGEST_SLOTS = new Set((INGEST_CFG.guests || []).map((g) => g.slot));
 
 app.get('/api/mxl/ingest', (req, res) => {
   res.json(ingestInfo(INGEST_CFG));
@@ -119,7 +126,9 @@ app.get('/api/mxl/ingest', (req, res) => {
 const { spawn } = require('child_process');
 app.get('/api/mxl/ingest/qr/:slot.png', (req, res) => {
   const slot = req.params.slot;
-  if (!/^guest[12]$/.test(slot)) return res.status(400).end();
+  // validate against the configured guest slots (not a hardcoded guest1/2), and keep
+  // the strict shape so nothing odd reaches the shell below.
+  if (!/^guest\d+$/.test(slot) || !INGEST_SLOTS.has(slot)) return res.status(400).end();
   if (!PUBLIC_IP) return res.status(503).end();   // no IP → nothing to encode
   const payload = larixUrl(INGEST_CFG, slot);
   // segno writes a PNG to stdout; -o - with --scale for a crisp phone-scannable size.
@@ -264,6 +273,10 @@ app.get('/api/mxl/health', async (req, res) => {
 
 // The Health Skin page (read-only). Separate URL from the control Skin.
 app.get('/health', (req, res) => res.sendFile(path.join(WEB_DIR, 'health.html')));
+
+// The public "join the show" page — QR + Larix instructions + a live program
+// preview. No control, no token; a visitor publishes their phone as a guest source.
+app.get('/join', (req, res) => res.sendFile(path.join(WEB_DIR, 'join.html')));
 
 // Serve the operator UI + its static assets.
 app.get('/', (req, res) => res.sendFile(path.join(WEB_DIR, 'local.html')));

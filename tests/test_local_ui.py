@@ -9,6 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 HTML = REPO / "web" / "local.html"
 HEALTH_HTML = REPO / "web" / "health.html"
+JOIN_HTML = REPO / "web" / "join.html"
 SERVER = REPO / "backend" / "local-server.js"
 ROUTES = REPO / "backend" / "mxl-routes.js"
 HEALTH_INFO = REPO / "backend" / "health-info.js"
@@ -138,6 +139,33 @@ def test_health_skin_is_self_contained():
     woff2 = list(FONTS.glob("*.woff2"))
     for f in woff2:
         assert f.name in html, f"health.html doesn't @font-face {f.name}"
+
+
+def test_join_page_exists_and_is_self_contained():
+    """The public phone-inject page: QR + Larix steps + live program preview. Must be
+    air-gapped (self-hosted fonts, no external hosts) EXCEPT the two app-store links,
+    which are legitimate outbound links a visitor taps to install Larix."""
+    assert JOIN_HTML.is_file(), "web/join.html missing"
+    html = JOIN_HTML.read_text()
+    urls = re.findall(r"https?://[a-z0-9.\-]+", html, re.I)
+    # allow the app-store install links (apple + google) — everything else must be local
+    allowed_ext = ("apps.apple.com", "play.google.com")
+    external = [u for u in urls
+               if not re.search(r"(127\.0\.0\.1|localhost|w3\.org)", u)
+               and not any(a in u for a in allowed_ext)]
+    assert not external, f"join.html references unexpected external hosts: {external}"
+    woff2 = list(FONTS.glob("*.woff2"))
+    for f in woff2:
+        assert f.name in html, f"join.html doesn't @font-face {f.name}"
+
+
+def test_join_page_served_and_qr_route_not_hardcoded_to_guest12():
+    """The Core serves /join, and the QR route validates against the configured guest
+    slots (so a 3rd 'phone' slot works) rather than a hardcoded guest1/guest2 regex."""
+    src = SERVER.read_text()
+    assert "app.get('/join'" in src, "local-server doesn't serve the /join page"
+    assert "INGEST_SLOTS" in src, "QR route still hardcodes guest slots (should validate against config)"
+    assert "guest[12]" not in src, "QR route still has the old guest[12]-only gate"
 
 
 def test_health_endpoint_is_read_only():
