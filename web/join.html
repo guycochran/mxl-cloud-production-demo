@@ -200,19 +200,23 @@
   // 2) Multiview return grid — the "we see you" feedback. Live thumbnails of every
   //    source; the visitor's OWN slot is ringed cyan + "YOU". Near-zero cost (the
   //    thumbnails are already generated for the switcher's multiview).
-  var SOURCES=['cam','cam2','guest1','guest2','guest3','playout','pattern','layout'];
-  var builtGrid=false;
+  // Preferred display order; any other flows the health reports are appended, so new
+  // guest slots (guest4, guest5, …) show up automatically.
+  var ORDER=['cam','cam2','guest1','guest2','guest3','guest4','guest5','guest6','playout','pattern','layout'];
+  var builtGrid=false, gridKeys='';
   function buildGrid(flows){
     var g=$('mvGrid');
-    var names=SOURCES.filter(function(n){return flows[n]!==undefined;});
-    if(!names.length) names=Object.keys(flows);
+    var present=Object.keys(flows);
+    var names=ORDER.filter(function(n){return flows[n]!==undefined;})
+      .concat(present.filter(function(n){return ORDER.indexOf(n)<0;}));
+    if(!names.length) names=present;
     g.innerHTML=names.map(function(n){
       return '<div class="mvtile" data-slot="'+n+'">'+
         '<img alt="'+esc(pretty(n))+'" src="/api/mxl/thumbs/'+n+'.jpg">'+
         '<span class="dot"></span><span class="me">YOU</span>'+
         '<span class="lbl">'+esc(pretty(n))+'</span></div>';
     }).join('');
-    builtGrid=true;
+    builtGrid=true; gridKeys=names.slice().sort().join(',');
   }
   function refreshThumbs(){
     Array.prototype.forEach.call(document.querySelectorAll('.mvtile img'),function(img){
@@ -224,7 +228,8 @@
   function pollHealth(){
     fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
       var flows=(d.grains&&d.grains.flows)||{};
-      if(!builtGrid) buildGrid(flows);
+      // (re)build the grid when the set of sources changes (new guest slots appear)
+      if(!builtGrid || Object.keys(flows).slice().sort().join(',')!==gridKeys) buildGrid(flows);
       // update per-tile live/dead + "you" highlight
       Array.prototype.forEach.call(document.querySelectorAll('.mvtile'),function(t){
         var n=t.getAttribute('slot')||t.getAttribute('data-slot');
