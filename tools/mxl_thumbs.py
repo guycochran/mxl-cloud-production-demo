@@ -20,23 +20,87 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 OUT = '/mxl-domain/thumbs'
-SLOTS = {
-    'cam':     'ca111e00-aaaa-4bbb-8ccc-000000000001',
-    'playout': '2f34c189-64bf-5971-993a-332a28a7a6ee',
-    'pattern': '6b5d8d68-64ce-56f8-bea2-e79b6c282a86',
-    'cam2':    'ca222e00-aaaa-4bbb-8ccc-000000000001',
-    'guest1':  '9e111e00-aaaa-4bbb-8ccc-000000000001',
-    'guest2':  '9e222e00-aaaa-4bbb-8ccc-000000000001',
-    'layout':  '1a900700-aaaa-4bbb-8ccc-000000000001',
-}
+DOMAIN = '/mxl-domain'
+
+# Slots are DISCOVERED at runtime, never hardcoded — the probe renders whatever
+# video sources actually exist on this facility (same discipline as the selector/
+# healers in tools/mxl-flows.sh and the manifest emitter facility_from_discovery.py).
+# Stale baked-in UUIDs are exactly what made the Health panel show dead slots for
+# sources never present and miss the ones that were (reviewer R2). A background
+# supervisor re-scans so sources that appear AFTER startup (a correspondent
+# joining) get a worker, and a role whose flow is recreated with a new UUID has
+# its worker re-attach to the live flow (fixes the ~2min slow re-attach wedge,
+# HW Oct 10). Env MXL_THUMBS_SLOTS ("name=uuid,...") forces an explicit map.
+#
+# NOTE: kept INLINE (not imported) on purpose — run-mxl-thumbs.sh `docker cp`s
+# this ONE file into the container, so it must be self-contained. The discovery
+# helpers are module-level + the run loop is under __main__, so tests can import
+# this module and call discover_slots() without starting any threads.
+
+# PGM outputs, not source tiles — the multiview shows what you can CUT TO, and
+# the selector/keyer are the program bus itself. (The 2-up/PiP composite 'layout'
+# IS a wanted preview tile, so it is not excluded.)
+EXCLUDE_ROLES = {'selector', 'keyer'}
+
+
+def _grouphint_role(flow_def):
+    """The role a flow belongs to, from its grouphint tag; None if untagged.
+    "Guest1:Video" -> "guest1"; the never-interrupt stable flow collapses to its
+    friendly name: "Guest5Stable:Video" -> "guest5" (operator sees "guest5")."""
+    gh = flow_def.get('tags', {}).get('urn:x-nmos:tag:grouphint/v1.0') or []
+    if gh:
+        role = gh[0].split(':', 1)[0].strip().lower()
+        if role.startswith('guest') and role.endswith('stable'):
+            role = role[:-len('stable')]
+        return role
+    return None
+
+
+def discover_slots(domain=DOMAIN, forced=None):
+    """role-name -> video-flow UUID for every selectable VIDEO source present.
+    forced: explicit "name=uuid,name=uuid" (from MXL_THUMBS_SLOTS) bypasses
+    discovery for tests / odd facilities; None reads the env."""
+    if forced is None:
+        forced = os.environ.get('MXL_THUMBS_SLOTS', '').strip()
+    if forced:
+        out = {}
+        for pair in forced.split(','):
+            if '=' in pair:
+                n, u = pair.split('=', 1)
+                out[n.strip()] = u.strip()
+        return out
+    slots = {}
+    try:
+        entries = sorted(os.listdir(domain))
+    except OSError:
+        return slots
+    for e in entries:
+        if not e.endswith('.mxl-flow'):
+            continue
+        try:
+            with open(f'{domain}/{e}/flow_def.json') as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not str(d.get('format', '')).endswith(':video'):
+            continue  # thumbnails are a video preview; skip audio/data flows
+        role = _grouphint_role(d) or d.get('id', '')[:8]
+        if role in EXCLUDE_ROLES:
+            continue  # program outputs, not source tiles
+        # For a never-interrupt slot GuestN and GuestNStable both collapse to
+        # "guestN"; the STABLE flow is the one wired to the selector (what goes to
+        # air), so it's the right tile. Stable sorts first by UUID, so first-wins
+        # (setdefault) keeps it and ignores the volatile duplicate.
+        slots.setdefault(role, d.get('id'))
+    return slots
+
+
+SLOTS = discover_slots(DOMAIN)
 
 # per-slot overrides: the layout slot doubles as the live PREVIEW for the
 # 2-up/PiP controls on mxl.html, so it renders faster and larger
 FPS = {'layout': '2/1'}        # default 1/2 (one frame per 2s)
 SIZE = {'layout': (480, 270)}  # default 320x180
-
-Gst.init(None)
-os.makedirs(OUT, exist_ok=True)
 
 # per-slot delivery state for health.json: 'last' = a frame arrived,
 # 'changed' = the frame CONTENT changed (repeat-wedged readers keep 'last'
@@ -49,6 +113,12 @@ def worker(name, uuid):
     tmp = f'{OUT}/.{name}.tmp'
     while True:
         pipe = None
+        # Re-read the role's CURRENT uuid each rebuild. The supervisor updates
+        # SLOTS when a source reconnects under a new flow id; without this, a
+        # wedged worker would keep re-attaching to the DEAD old uuid forever
+        # (the ~2min "slow re-attach" wedge — HW Oct 10). Now a rebuild lands on
+        # the live flow on the next cycle.
+        uuid = SLOTS.get(name, uuid)
         try:
             fps = FPS.get(name, '1/2')
             w, h = SIZE.get(name, (320, 180))
@@ -126,7 +196,7 @@ def health():
                     mem[k] = int(v.strip().split()[0])
             now = time.time()
             slots = {}
-            for name in SLOTS:
+            for name in list(SLOTS):  # snapshot: the supervisor may add roles concurrently
                 st = STATE.get(name)
                 if st:
                     slots[name] = {'age': round(now - st['last'], 1),
@@ -175,9 +245,44 @@ def health():
         time.sleep(15)
 
 
-for n, u in SLOTS.items():
-    threading.Thread(target=worker, args=(n, u), daemon=True).start()
-threading.Thread(target=health, daemon=True).start()
-print('mxl_thumbs running', flush=True)
-while True:
-    time.sleep(3600)
+_running = set()  # roles that already have a worker thread
+
+
+def _start_worker(name, uuid):
+    _running.add(name)
+    threading.Thread(target=worker, args=(name, uuid), daemon=True).start()
+
+
+def supervisor():
+    """Keep the worker set in sync with the live domain. Picks up sources that
+    appear AFTER startup (a correspondent joining) and refreshes a role's UUID
+    when its flow is recreated with a new id, so the worker re-attaches to the
+    live flow instead of the dead one. Env MXL_THUMBS_SLOTS disables discovery
+    (fixed map) — then there's nothing to re-scan."""
+    if os.environ.get('MXL_THUMBS_SLOTS', '').strip():
+        return
+    while True:
+        time.sleep(10)
+        try:
+            found = discover_slots(DOMAIN)
+        except Exception as e:
+            print(f'supervisor: {e}', flush=True)
+            continue
+        for name, uuid in found.items():
+            if SLOTS.get(name) != uuid:
+                SLOTS[name] = uuid  # worker re-reads this on its next rebuild
+            if name not in _running:
+                print(f'supervisor: new source {name} -> starting worker', flush=True)
+                _start_worker(name, uuid)
+
+
+if __name__ == '__main__':
+    Gst.init(None)
+    os.makedirs(OUT, exist_ok=True)
+    for n, u in SLOTS.items():
+        _start_worker(n, u)
+    threading.Thread(target=health, daemon=True).start()
+    threading.Thread(target=supervisor, daemon=True).start()
+    print(f'mxl_thumbs running ({len(SLOTS)} slots discovered)', flush=True)
+    while True:
+        time.sleep(3600)
