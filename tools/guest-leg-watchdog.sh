@@ -35,13 +35,30 @@ COOLDOWN_SECONDS=${COOLDOWN_SECONDS:-300}
 SELECTOR_CONTAINER=${SELECTOR_CONTAINER:-input-selector}
 DOMAIN=${MXL_DOMAIN:-/mxl-domain}
 MXL_INFO=${MXL_INFO:-/opt/mxl/tools/mxl-info/mxl-info}
+# CPU-spin guard (HW Oct 10): a source that CONNECTS then goes silent (phone stalls,
+# Makito unplugged mid-stream) leaves the conform pipeline freewheeling the last frame
+# through videorate!videoconvert!v210 at full rate — ~1 full core burned while the flow
+# does NOT advance (head frozen). Idle slots that never had a caller sit near 0% (srtsrc
+# blocks), so "high CPU + flow not advancing" uniquely identifies the stuck-hot case. We
+# restart ONLY the fanout (same safe action as a dead listener) to drop the leg back to
+# idle. SPIN_CPU=0 disables this guard; the dead-listener logic below is unaffected.
+SPIN_CPU=${SPIN_CPU:-60}            # %CPU above which an ingest counts as "spinning"
+SPIN_STRIKES=${SPIN_STRIKES:-3}     # consecutive polls spinning+not-advancing before heal
 
 # name:public:video-leg:audio-leg : video-flow-uuid
 GUEST_PORTS=${GUEST_PORTS:-"guest1:8890:8990:9090:9e111e00-aaaa-4bbb-8ccc-000000000001,guest2:8891:8991:9091:9e222e00-aaaa-4bbb-8ccc-000000000001,guest3:8895:8995:9095:9e333e00-aaaa-4bbb-8ccc-000000000001,guest4:8896:8996:9096:9e444e00-aaaa-4bbb-8ccc-000000000001,guest5:8897:8997:9097:9e555e00-aaaa-4bbb-8ccc-000000000001,guest6:8898:8998:9098:9e666e00-aaaa-4bbb-8ccc-000000000001"}
 
-declare -A last_heal heal_count strike
+declare -A last_heal heal_count strike spin_strike
 
 bound() { ss -ulnp 2>/dev/null | grep -q ":$1 "; }
+
+# %CPU of the guest's ingest WORKER process (the actual `python3 guest_ingest.py <name>`,
+# not the `while :; do ...` supervisor shell that wraps it). Integer; empty if not found.
+ingest_cpu() {
+  ps -eo %cpu,args 2>/dev/null \
+    | grep -E "[p]ython3 guest_ingest\.py $1 " \
+    | awk '{c=$1} END{ if (c!="") printf "%d", c }'
+}
 
 head_idx() {  # current head index of a flow, or empty
   docker exec "$SELECTOR_CONTAINER" sh -c "$MXL_INFO -d $DOMAIN -f $1 2>/dev/null" 2>/dev/null \
@@ -69,13 +86,36 @@ heal_chain() {
   docker restart "${name}-fanout" >/dev/null 2>&1
 }
 
-logger -t guest-leg-watchdog "started (ENABLE=$ENABLE, poll ${POLL_SECONDS}s) — watching PUBLIC listeners only; never touches a chain with live video"
+logger -t guest-leg-watchdog "started (ENABLE=$ENABLE, poll ${POLL_SECONDS}s, SPIN_CPU=${SPIN_CPU}%) — watches PUBLIC listeners + CPU-spin; never touches a chain with live (advancing) video"
 while :; do
   IFS=',' read -ra specs <<< "$GUEST_PORTS"
   for spec in "${specs[@]}"; do
     IFS=':' read -r name pub vleg aleg vuuid <<< "$spec"
     docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${name}-fanout" || continue
 
+    # --- CPU-spin guard (runs for EVERY slot, whatever the listener topology) ----------
+    # A source can be present yet silent — spinning the conform hot (~1 core) while the
+    # flow stays FROZEN. This happens on a bound public listener (Makito unplugged
+    # mid-stream) AND on an outbound-pull slot (guest5 phone stalls behind the Azure
+    # relay, no local public port), so the check can't live inside the bound-listener
+    # branch. "high CPU AND flow not advancing" is the signature; a live source conforms
+    # at ~1 core too, so advancing is the discriminator (checked last — it costs a 1s sleep).
+    if [ "$SPIN_CPU" -gt 0 ] 2>/dev/null; then
+      cpu=$(ingest_cpu "$name")
+      if [ -n "$cpu" ] && [ "$cpu" -ge "$SPIN_CPU" ] 2>/dev/null && ! video_advancing "$vuuid"; then
+        spin_strike[$name]=$(( ${spin_strike[$name]:-0} + 1 ))
+        logger -t guest-leg-watchdog "$name SPINNING (${cpu}% CPU, flow not advancing) (${spin_strike[$name]}/${SPIN_STRIKES})"
+        if [ "${spin_strike[$name]}" -ge "$SPIN_STRIKES" ]; then
+          if [ "$ENABLE" = "1" ]; then heal_chain "$name"; else
+            logger -t guest-leg-watchdog "$name would heal spin, but ENABLE!=1 (observe-only)"; fi
+          spin_strike[$name]=0
+        fi
+        continue   # addressed this slot's health for this poll
+      fi
+      spin_strike[$name]=0
+    fi
+
+    # --- dead-listener guard (idle slot whose PUBLIC listener died = a real join block) --
     # Only concern: is the PUBLIC listener up? If yes, a contributor can connect → done.
     if bound "$pub"; then strike[$name]=0; heal_count[$name]=0; continue; fi
 
