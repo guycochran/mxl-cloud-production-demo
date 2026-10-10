@@ -149,7 +149,43 @@ Guy chose **option (a)**. Built + measured on HW:
 - VERIFY: connect/disconnect a phone on guest5 repeatedly → PGM bytes never hit 0; cut
   guest5↔PTZ instant.
 
-**Box state at Oct-10 pause:** PGM LIVE (1.0 MB/2s, cut to pattern slot 0, encoder republished).
-Stabilizers guest5/guest6 ACTIVE (load ~12). Selector currently on pgm-heal's volatile wiring
-(the stable pre-wire was rolled back by a pgm-heal run during PGM recovery) — the stable-flow
-pre-wire is NOT yet persisted into pgm-heal; that's the next commit.
+## ✅ BUILT + LIVE (Oct 10, option (a)) — never-interrupt wiring is now the boot default
+
+`mxl-pgm-heal` was patched (on the box; see "repo note" below) and is the live boot/recovery
+path. Two changes:
+
+1. **Correspondent slots wired to STABLE flows.** Fixed sources (pattern, playout, Makito,
+   PTZ, guest4) stay on volatile flows; the roving-correspondent slots guest5/guest6 wire to
+   their STABLE flows `57ab5e00`/`57ab6e00` **when the stabilizer is up** (stable flow
+   present), else fall back to the volatile flow so the slot is still cuttable. A new
+   `add_slot()` tracks the uuid each wired slot carries in `SLOTS` so the cut logic tests the
+   right flow.
+2. **Default cut gated on ADVANCING, not file-exists** (the Oct-10 bug fix). New `advancing()`
+   helper samples head over 1 s; the boot cut walks the slots and picks the first one actually
+   moving, falling back to pattern(0). A freewheeled-dark stable flow reads "not advancing", so
+   we never blank PGM by cutting to an idle correspondent slot.
+
+**Verified on HW (Oct 10):**
+- After pgm-heal: selector = `[pattern, playout, PTZ, 57ab5e00(STABLE), 57ab6e00(STABLE)]`,
+  cut to playout (verified advancing), PGM live 1.5 MB/2s. ✅
+- **The never-interrupt property, demonstrated:** stopped the guest5 Azure pull, pushed/killed
+  test callers at the ingest, restarted the pull — through ALL that source churn the selector
+  wiring stayed byte-identical and PGM never dropped (would have re-wired + blipped under the
+  old design). ✅
+- **Boot-durable:** re-running pgm-heal cold re-establishes stable slots [3,4] + live PGM every
+  time — i.e. survives the reboot it's designed for. ✅
+- NOT yet closed: a *positive* end-to-end live-video test (test pattern all the way through to
+  the stable flow advancing) — blocked only by test-harness SRT encoder availability, not the
+  architecture. Real proof = a phone joining via the Azure relay (previously proven), which now
+  rides the stable-flow wiring. Still TODO: strip any residual `/pipeline/start` on join from
+  the Core cut path (cuts should be `active-input`-only; mostly already true).
+
+**Repo note:** the patched `mxl-pgm-heal.sh` lives on the box, NOT committed here, because it
+hardcodes this box's DISCOVERED (random-suffix) pattern/playout UUIDs — box-specific config
+that must not ship in the shared repo (reviewer R6e + issue #2). The proper repo version should
+DISCOVER pattern/playout UUIDs at runtime (from `/pipeline/status` + the domain dir) rather than
+hardcode them; that generalization is the follow-up that makes this committable.
+
+**Box state (Oct-10, build complete):** PGM LIVE (~1.5 MB/2s, cut to a verified-advancing
+source). Stabilizers guest5/guest6 ACTIVE+enabled. Selector pre-wired to stable correspondent
+slots. Load ~11. guest-leg-watchdog CPU-spin guard active. All reboot-durable.
