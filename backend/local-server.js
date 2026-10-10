@@ -117,6 +117,60 @@ const INGEST_CFG = ingestConfig({
 // The set of valid guest slots for the QR route — derived from the config, not hardcoded.
 const INGEST_SLOTS = new Set((INGEST_CFG.guests || []).map((g) => g.slot));
 
+// ── Health "Sources" panel role map ───────────────────────────────────────────
+// Friendly name + role for each wired flow, so the health page can label inputs
+// ("Makito", "PTZ", "Correspondent 5") instead of raw UUIDs, and mark which is PGM.
+// Keyed by UUID PREFIX (first 8 chars) because that's what survives runtime discovery
+// for the deterministic flows (guest/stable = 9eNNN…/57abN…); pattern/playout get random
+// suffixes so we match them by prefix too (d3e15194/9998da48 on this box). A deployment
+// overrides via MXL_HEALTH_ROLES="<prefix>=<name>:<role>,..." — all box-specific values
+// live in env, so this stays generic. Defaults cover the common lab roles by prefix.
+function parseHealthRoles(spec) {
+  const map = {};
+  String(spec || '').split(',').map((s) => s.trim()).filter(Boolean).forEach((e) => {
+    const [pfx, rest] = e.split('=');
+    if (!pfx || !rest) return;
+    const [name, role] = rest.split(':');
+    map[pfx.trim()] = { name: (name || '').trim(), role: (role || 'input').trim() };
+  });
+  return map;
+}
+// Generic defaults: studio roles keyed by the conventional flow-id prefixes. These are
+// NOT secrets or hostnames (just the demo flow-id scheme), and are overridable.
+const HEALTH_ROLES = Object.assign({
+  'd3e15194': { name: 'Pattern', role: 'generator' },
+  '9998da48': { name: 'Playout', role: 'playout' },
+  '9e111e00': { name: 'Makito', role: 'camera' },
+  '9e222e00': { name: 'Cam 2', role: 'camera' },
+  '9e333e00': { name: 'PTZ', role: 'camera' },
+  '9e444e00': { name: 'Guest 4', role: 'guest' },
+  '9e555e00': { name: 'Guest 5', role: 'guest' },
+  '9e666e00': { name: 'Guest 6', role: 'guest' },
+  '57ab5e00': { name: 'Correspondent 5', role: 'correspondent' },
+  '57ab6e00': { name: 'Correspondent 6', role: 'correspondent' },
+}, parseHealthRoles(process.env.MXL_HEALTH_ROLES));
+// Build the per-UUID roleMap + flowSlot (uuid -> thumbs slot name) for a given wiring.
+function sourceMaps(uuids) {
+  const roleMap = {}; const flowSlot = {};
+  (uuids || []).forEach((u) => {
+    if (typeof u !== 'string') return;
+    const meta = HEALTH_ROLES[u.slice(0, 8)];
+    if (meta) roleMap[u] = meta;
+    // Map each flow to the thumbs probe slot name that carries its liveness. The thumbs
+    // probe keys by guestN for contributions and pattern/playout for the always-on
+    // generators; a stable correspondent flow (57abN) reflects its volatile guestN source.
+    const byPrefix = {
+      'd3e15': 'pattern', '9998d': 'playout',
+      '9e111': 'guest1', '9e222': 'guest2', '9e333': 'guest3',
+      '9e444': 'guest4', '9e555': 'guest5', '9e666': 'guest6',
+      '57ab5': 'guest5', '57ab6': 'guest6',
+    };
+    const slot = byPrefix[u.slice(0, 5)];
+    if (slot) flowSlot[u] = slot;
+  });
+  return { roleMap, flowSlot };
+}
+
 app.get('/api/mxl/ingest', async (req, res) => {
   const info = ingestInfo(INGEST_CFG);
   // Annotate each guest slot as free/occupied so the /join page can auto-assign the
@@ -271,7 +325,13 @@ async function buildHealth() {
   const pipelines = health.shapePipelines({ selector, keyer, encoder });
   // Surface the real count on the encoder card too (it self-reports 0 — see above).
   if (mtxViewers != null && pipelines.encoder) pipelines.encoder.viewers = mtxViewers;
-  return health.composeHealth({ ts: Date.now() / 1000, system, grains, pipelines });
+  // Sources panel: join the wired selector inputs with thumbs liveness + friendly roles.
+  const wired = (pipelines.selector && pipelines.selector.input_flow_uuids) || [];
+  const { roleMap, flowSlot } = sourceMaps(wired);
+  const sources = health.buildSources({
+    selector: pipelines.selector, flows: grains.flows || {}, roleMap, flowSlot,
+  });
+  return health.composeHealth({ ts: Date.now() / 1000, system, grains, pipelines, sources });
 }
 
 app.get('/api/mxl/health', async (req, res) => {

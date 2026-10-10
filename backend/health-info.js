@@ -137,7 +137,12 @@ function classifyThumbsHealth(h, { nowS, staleAfterS = 25, frozenAfterS = 5, dea
   const stale = ageS == null ? true : ageS > staleAfterS;
   const flows = {};
   for (const [name, v] of Object.entries(h.slots)) {
-    if (!v || v.age == null) { flows[name] = { state: 'dead', age: null, frozen: null }; continue; }
+    // v == null / age == null means the PROBE has no reader for this slot (rebuilding,
+    // or it couldn't attach) — NOT that the source is confirmed dead. Report 'unknown' so
+    // the UI doesn't paint a live-but-unprobed camera red. A slot with real stale `age`
+    // data below IS classified dead/frozen. (HW Oct 10: the thumbs reader for a live
+    // Makito/PTZ can sit null while mxl-info shows the flow advancing — false-dead fixed.)
+    if (!v || v.age == null) { flows[name] = { state: 'unknown', age: null, frozen: null }; continue; }
     let state = 'ok';
     if (v.age > deadAfterS) state = 'dead';          // no new frames at all
     else if (v.frozen != null && v.frozen > frozenAfterS) state = 'frozen'; // frames arrive, picture stuck
@@ -178,6 +183,7 @@ function shapePipelines({ selector, keyer, encoder } = {}) {
       running: !!sel.running, error: sel.error || null,
       active_input: sel.active_input != null ? sel.active_input : null,
       inputs: Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids.length : null,
+      input_flow_uuids: Array.isArray(sel.input_flow_uuids) ? sel.input_flow_uuids : [],
       format: fmt(sel),
     } : { running: false, unreachable: true },
     keyer: keyer ? {
@@ -194,12 +200,50 @@ function shapePipelines({ selector, keyer, encoder } = {}) {
   };
 }
 
+// ── Sources panel: one row per wired selector input, joined with liveness. ────
+// Pure. Joins three things we ALREADY have — no new probes:
+//   • the selector's wired UUID list + active_input (which slot is PGM)
+//   • the thumbs per-flow {state} map (keyed by thumbs slot name, e.g. "guest1")
+//   • a caller-supplied roleMap: { "<uuid>": {name, role}, ... } for friendly labels
+//     and a flowSlot map { "<uuid>": "<thumbs-slot-name>" } to look up liveness.
+// roleMap/flowSlot are built from config on the server (box-specific), so this stays
+// generic/committable. A uuid starting with the stable prefix (57ab) is flagged as a
+// never-interrupt correspondent slot. Unknown uuids still render (short uuid + "input").
+function buildSources({ selector, flows = {}, roleMap = {}, flowSlot = {}, stablePrefix = '57ab' } = {}) {
+  const uuids = (selector && Array.isArray(selector.input_flow_uuids)) ? selector.input_flow_uuids : [];
+  const active = selector && selector.active_input != null ? selector.active_input : null;
+  return uuids.map((uuid, i) => {
+    const meta = roleMap[uuid] || {};
+    const slotName = flowSlot[uuid] || meta.slot || null;
+    const liveness = slotName && flows[slotName] ? flows[slotName].state : null;
+    const stable = typeof uuid === 'string' && uuid.startsWith(stablePrefix);
+    // A stable slot with no live correspondent reads 'dead'/none from thumbs but is
+    // correctly "standing by", not broken — surface that distinctly.
+    let state = liveness || 'unknown';
+    if (stable && (state === 'dead' || state === 'unknown')) state = 'standby';
+    return {
+      slot: i,
+      uuid: typeof uuid === 'string' ? uuid.slice(0, 8) : null,
+      name: meta.name || (stable ? `Correspondent ${i}` : `Input ${i}`),
+      role: meta.role || (stable ? 'correspondent' : 'input'),
+      state,
+      is_pgm: active != null && i === active,
+      stable,
+    };
+  });
+}
+
 // ── Compose the whole payload (pure; takes already-read inputs). ──────────────
-function composeHealth({ system, grains, pipelines, ts }) {
-  return { ts, system: system || null, grains: grains || { stale: true, flows: {} }, pipelines: pipelines || {} };
+function composeHealth({ system, grains, pipelines, sources, ts }) {
+  return {
+    ts, system: system || null,
+    grains: grains || { stale: true, flows: {} },
+    pipelines: pipelines || {},
+    sources: sources || [],
+  };
 }
 
 module.exports = {
   readProcStat, cpuPercent, readMem, readLoad, cpuCount,
-  classifyGrains, classifyThumbsHealth, readGrainsSnapshot, shapePipelines, composeHealth,
+  classifyGrains, classifyThumbsHealth, readGrainsSnapshot, shapePipelines, buildSources, composeHealth,
 };

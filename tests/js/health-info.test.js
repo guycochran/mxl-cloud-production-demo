@@ -69,11 +69,13 @@ test('thumbs: FROZEN slot (frames arrive but content stuck) -> frozen', () => {
     'frames arriving but content unchanged for >5s must read as frozen');
 });
 
-test('thumbs: dead slot (no frames at all / null) -> dead', () => {
+test('thumbs: no reader data (null) -> unknown; real stale age -> dead', () => {
   const h2 = { ts: 1000, slots: { guest3: null, playout: { age: 9.0, frozen: 9.0 } } };
   const out = h.classifyThumbsHealth(h2, { nowS: 1000, deadAfterS: 5 });
-  assert.equal(out.flows.guest3.state, 'dead');
-  assert.equal(out.flows.playout.state, 'dead', 'no new frames for >5s -> dead');
+  // null = probe has no reader (not confirmed dead) -> unknown, so a live-but-unprobed
+  // source isn't painted red on the health page.
+  assert.equal(out.flows.guest3.state, 'unknown');
+  assert.equal(out.flows.playout.state, 'dead', 'real age data >5s -> dead');
 });
 
 test('thumbs: pulls system (load/mem/cpus/viewers) from the same file', () => {
@@ -158,4 +160,32 @@ test('composeHealth: assembles a stable top-level shape', () => {
   assert.equal(out.ts, 123);
   assert.equal(out.system.cpu_pct, 10);
   assert.ok('grains' in out && 'pipelines' in out);
+});
+
+// ── buildSources (the Sources panel join) ───────────────────────────────────────
+test('buildSources: joins wiring + liveness + roles, flags PGM', () => {
+  const out = h.buildSources({
+    selector: { input_flow_uuids: ['d3e15194-x', '9e333e00-x', '57ab5e00-x'], active_input: 1 },
+    flows: { guest3: { state: 'ok' }, guest5: { state: 'dead' } },
+    roleMap: { 'd3e15194-x': { name: 'Pattern', role: 'generator' },
+               '9e333e00-x': { name: 'PTZ', role: 'camera' } },
+    flowSlot: { '9e333e00-x': 'guest3', '57ab5e00-x': 'guest5' },
+  });
+  assert.equal(out.length, 3);
+  assert.equal(out[1].name, 'PTZ');
+  assert.equal(out[1].state, 'ok');
+  assert.equal(out[1].is_pgm, true);         // active_input=1
+  assert.equal(out[0].is_pgm, false);
+  // stable slot with no live correspondent -> 'standby', flagged stable
+  assert.equal(out[2].stable, true);
+  assert.equal(out[2].state, 'standby');
+  assert.equal(out[2].name, 'Correspondent 2');  // default name for unmapped stable
+});
+
+test('buildSources: unknown uuid still renders; empty wiring -> []', () => {
+  assert.deepEqual(h.buildSources({ selector: { input_flow_uuids: [], active_input: null } }), []);
+  const out = h.buildSources({ selector: { input_flow_uuids: ['abcd1234-x'], active_input: 0 } });
+  assert.equal(out[0].name, 'Input 0');
+  assert.equal(out[0].state, 'unknown');
+  assert.equal(out[0].is_pgm, true);
 });

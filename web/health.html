@@ -69,6 +69,20 @@
   .flowname{font-weight:600}
   .state{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim)}
   .state.ok{color:var(--grn)} .state.frozen,.state.slow{color:var(--amber)} .state.dead{color:var(--red)}
+  .state.standby{color:var(--cyan)} .state.unknown{color:var(--faint)}
+  .dot.unknown{background:var(--faint)}
+  /* Sources panel: one card per wired selector input */
+  .grid.srcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .card.src{padding:12px 13px;position:relative}
+  .card.src.pgm{border-color:var(--grn);box-shadow:0 0 0 1px var(--grn-glow),0 0 14px var(--grn-glow)}
+  .card.src .srow{display:flex;align-items:center;gap:7px}
+  .card.src .nm{font-weight:650;font-size:14px;color:var(--ink)}
+  .card.src .rl{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--faint);margin-top:2px}
+  .card.src .meta{display:flex;justify-content:space-between;align-items:center;margin-top:9px}
+  .badge{font-size:9px;letter-spacing:.6px;text-transform:uppercase;padding:2px 6px;border-radius:5px;border:1px solid var(--line);color:var(--dim)}
+  .badge.pgm{color:#06120a;background:var(--grn);border-color:var(--grn);font-weight:700}
+  .badge.ni{color:var(--cyan);border-color:rgba(53,224,255,.4)}
+  .dot.standby{background:var(--cyan);box-shadow:0 0 8px rgba(53,224,255,.4)}
   .num{font-variant-numeric:tabular-nums}
 
   /* pipeline writers */
@@ -102,6 +116,11 @@
     <div class="card stat"><div class="k">Memory</div><div class="v" id="mem">—</div><div class="bar" id="memBar"><span style="width:0"></span></div></div>
     <div class="card stat"><div class="k">Load (1m)</div><div class="v" id="load">—</div><div class="sub" id="loadSub">—</div></div>
     <div class="card stat"><div class="k">Viewers</div><div class="v" id="viewers">—</div><div class="sub">WebRTC program</div></div>
+  </div>
+
+  <h2>Sources</h2>
+  <div class="grid srcs" id="srcCards">
+    <div class="card src" style="color:var(--faint)">waiting for selector…</div>
   </div>
 
   <h2>Grain flow <span class="state" id="grainStale"></span></h2>
@@ -188,6 +207,27 @@
   }
   function fmtRow(lab,val){ return '<div class="row"><span class="lab">'+lab+'</span><span>'+val+'</span></div>'; }
 
+  function renderSources(list){
+    var wrap=$('srcCards');
+    if(!list || !list.length){ wrap.innerHTML='<div class="card src" style="color:var(--faint)">no inputs wired</div>'; return; }
+    // state -> {dot class, label, state-text class}
+    var S={ ok:['ok','Live','ok'], frozen:['frozen','Frozen','frozen'],
+            standby:['standby','Standby','standby'], dead:['dead','Idle','dead'],
+            unknown:['dead','—','dead'] };
+    wrap.innerHTML=list.map(function(s){
+      var st=S[s.state]||S.unknown;
+      var pgm=s.is_pgm;
+      var badges='';
+      if(pgm) badges+='<span class="badge pgm">● PGM</span>';
+      else if(s.stable) badges+='<span class="badge ni">never-interrupt</span>';
+      return '<div class="card src'+(pgm?' pgm':'')+'">'+
+        '<div class="srow"><span class="dot '+st[0]+'"></span><span class="nm">'+esc(s.name)+'</span></div>'+
+        '<div class="rl">'+esc(s.role)+' · slot '+s.slot+'</div>'+
+        '<div class="meta"><span class="state '+st[2]+'">'+st[1]+'</span>'+badges+'</div>'+
+        '</div>';
+    }).join('');
+  }
+
   function renderPipes(p){
     p=p||{};
     var sel=p.selector||{unreachable:true}, key=p.keyer||{unreachable:true}, enc=p.encoder||{unreachable:true};
@@ -218,7 +258,7 @@
     fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
       fails=0;
       var u=$('updated'); u.className='pill ok'; u.textContent='live · '+new Date().toLocaleTimeString();
-      renderSystem(d.system); renderGrains(d.grains); renderPipes(d.pipelines);
+      renderSystem(d.system); renderSources(d.sources); renderGrains(d.grains); renderPipes(d.pipelines);
     }).catch(function(){
       fails++;
       var u=$('updated'); u.className='pill bad'; u.textContent='no data ('+fails+')';
