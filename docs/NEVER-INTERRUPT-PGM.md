@@ -75,3 +75,30 @@ Correspondent phone ─SRT→ Azure relay ─(box pulls)→ guestK volatile ─�
   architecture is to make both unnecessary during a live show.
 - The gst-keyer (lower-third) must read a STABLE program flow too, or it stalls on re-wire.
 - `mxl-pgm-heal` stays as the BOOT bring-up + recovery tool, not a per-join mechanism.
+
+## ⚠️ HW REALITY (Oct 9, first build attempt) — stabilizer-per-slot is too heavy
+
+Validated the CORE idea on HW: a stabilizer creates its STABLE flow at boot (even with no
+source — "boot frame pushed"), and the selector KEEPS a wired slot pointing at an existing-
+but-stale stable flow (wire → 200, slot holds while idle). So **pre-wiring to stable flows
+genuinely prevents re-wire on join.** ✅ The architecture is sound.
+
+BUT: **running a flow_stabilizer per slot ×6 overloaded the box to load 54 (on 24 cores).**
+Each stabilizer is a full mxlsrc→appsink + appsrc→mxlsink pipeline (~1 core). Six of them, on
+top of the switcher + encoder + thumbs, starved the box — SSH stalled, the selector wedged
+(API 000), and under the starvation the stabilizers' restamp couldn't stay monotonic so the
+stable flows' head FROZE (mxlsink stopped advancing) despite the push-loop reporting pushes.
+
+**Revised approach needed (pick one):**
+- **(a) Stabilize ONLY the slots that need live-join** (the roving correspondents), not all 6.
+  e.g. 2–3 stabilizers, not 6. Cheapest; fits the box.
+- **(b) A lighter stabilizer** — the current one fully decodes+re-encodes v210. A passthrough/
+  copy stabilizer (no decode) would be far cheaper, but your notes say a plain passthrough
+  stable flow stalls+timeline-jumps on respawn (the 9/12 kill). Needs the freewheel conform
+  but cheaper (e.g. operate on compressed/copy, or lower the conform cost).
+- **(c) GPU-assist the stabilizer conform** (the GTX 970 is now installed) — offload the
+  v210↔raw there.
+- **(d) Fewer, bigger correspondent slots** + accept that cutting to a NEW correspondent
+  (first join) does one re-wire, but cutting BETWEEN already-joined ones is instant.
+
+DECISION PENDING (Guy). Do NOT start 6 stabilizers again — it takes the box down.
