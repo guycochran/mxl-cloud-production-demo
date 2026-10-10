@@ -124,7 +124,44 @@ heal_relay(){
   log "relay restarted video-only"
 }
 
-pass(){ heal_selector; heal_relay; }
+# ── heal 3: PGM publish dropped → republish encoder (the grey-screen fix) ───────
+# The recurring grey screen: the selector output keeps ADVANCING (source + cut fine) but
+# mxl2webrtc's publish to mediamtx silently dies downstream (ICE/renegotiation/mediamtx
+# hiccup) — the relay's /pipeline/status still says running:true, so heal_relay above
+# doesn't catch it. The only reliable signal is mediamtx itself: 0 program bytes while
+# the selector output is moving = publish dropped. Fix = restart the encoder read of the
+# current program flow (same body pgm-heal uses). We require the selector to be ADVANCING
+# first so we never "heal" a genuinely-stopped program into a busy-loop.
+SEL_OUT_FLOW=""
+sel_out_flow(){
+  [ -n "$SEL_OUT_FLOW" ] && { printf '%s' "$SEL_OUT_FLOW"; return; }
+  SEL_OUT_FLOW=$(_get 9604 /pipeline/status | _json output_flow_uuid)
+  printf '%s' "$SEL_OUT_FLOW"
+}
+headidx(){ $DOCKER exec "$SEL_CTR" sh -c "/opt/mxl/tools/mxl-info/mxl-info -d $DOMAIN -f $1 2>/dev/null" 2>/dev/null | grep -i 'Head index' | grep -oE '[0-9]+' | head -1; }
+mtx_pgm_bytes(){ _get 9997 /v3/paths/list | python3 -c "import sys,json;print(sum(p.get('bytesReceived',0) for p in json.load(sys.stdin).get('items',[])))" 2>/dev/null; }
+heal_publish(){
+  local out; out=$(sel_out_flow)
+  [ -n "$out" ] || return 0
+  # is the program source actually advancing? (don't republish a legitimately-idle PGM)
+  local a b; a=$(headidx "$out"); sleep 1; b=$(headidx "$out")
+  [ -n "$a" ] && [ -n "$b" ] && [ "$b" -gt "$a" ] 2>/dev/null || return 0   # not advancing — nothing to publish
+  # selector is moving. is mediamtx actually receiving program bytes?
+  local p0 p1; p0=$(mtx_pgm_bytes); sleep 2; p1=$(mtx_pgm_bytes)
+  [ -n "$p0" ] && [ -n "$p1" ] || return 0            # can't read mediamtx — leave alone
+  [ "$p1" -gt "$p0" ] 2>/dev/null && return 0          # publishing fine
+  # ADVANCING but NO bytes to mediamtx = the grey screen. Republish the encoder.
+  local src key; key=$(keyer_out_flow)
+  if [ -n "$key" ]; then local ka kb; ka=$(headidx "$key"); sleep 1; kb=$(headidx "$key")
+    [ -n "$ka" ] && [ -n "$kb" ] && [ "$kb" -gt "$ka" ] 2>/dev/null && src="$key"; fi
+  [ -n "$src" ] || src="$out"                          # keyer not advancing -> publish selector (bypass)
+  log "PGM PUBLISH DROPPED (selector advancing, mediamtx 0 bytes) — republishing encoder on ${src}"
+  $DOCKER restart "$RELAY_CTR" >/dev/null 2>&1; sleep 7
+  _post 9601 /pipeline/start "{\"domain_path\":\"$DOMAIN\",\"video_flow_uuid\":\"$src\",\"use_mediamtx\":true,\"encoder\":{\"tune\":4,\"speed_preset\":2,\"bitrate\":6000,\"key_int_max\":30}}" >/dev/null
+  log "encoder republished"
+}
+
+pass(){ heal_selector; heal_relay; heal_publish; }
 
 if [ "${1:-}" = "--watch" ]; then
   log "watching (every ${INTERVAL}s) — selector + relay"
