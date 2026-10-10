@@ -397,6 +397,26 @@ module.exports = function registerMxlRoutes(app, opts = {}) {
     mxlBusy = true;
     try {
       const slot = [0, 1, 2, 3].includes(req.body.slot) ? req.body.slot : 0;
+      // NEVER-INTERRUPT (docs/NEVER-INTERRUPT-PGM.md): a contributor's ingest fires an
+      // AUTO announce ({auto:1}) on its first locked frame — including every reconnect.
+      // The full cascade below STOPS+restarts the selector from a FIXED input list, which
+      // (a) drops the pre-wired stable correspondent slots and (b) interrupts PGM. That is
+      // exactly what never-interrupt must avoid. So for an AUTO announce, first check
+      // whether the selector even needs rebuilding: if it's already running cleanly with
+      // inputs wired, the reconnecting source is served by its pre-wired slot (stable flow)
+      // or is cuttable as-is — SKIP the cascade entirely. A genuine selector-down state
+      // still falls through to the full repair. Manual repair (no `auto`) always rebuilds
+      // (an operator asked for it). Publish/grey-screen recovery is handled separately by
+      // mxl-selfheal's heal_publish, so skipping here never leaves PGM grey.
+      if (req.body.auto) {
+        const sel = await mxlApi(9604, '/pipeline/status').catch(() => null);
+        const healthy = sel && sel.running === true && !sel.error
+          && Array.isArray(sel.input_flow_uuids) && sel.input_flow_uuids.length > 0;
+        if (healthy) {
+          mxlBusy = false;
+          return res.json({ ok: true, skipped: 'selector healthy — auto announce needs no rebuild (never-interrupt)' });
+        }
+      }
       await mxlApi(9604, '/pipeline/stop', {}).catch(() => {});
       await mxlApi(9604, '/pipeline/start', mxlSelectorBody);
       await new Promise(r => setTimeout(r, 1000));
