@@ -161,18 +161,39 @@ heal_publish(){
   local p0 p1; p0=$(mtx_pgm_bytes); sleep 2; p1=$(mtx_pgm_bytes)
   [ -n "$p0" ] && [ -n "$p1" ] || return 0            # can't read mediamtx — leave alone
   [ "$p1" -gt "$p0" ] 2>/dev/null && return 0          # publishing fine
-  # ADVANCING but NO bytes to mediamtx = the grey screen. Republish the encoder.
-  # NOTE: src MUST be initialized ('' not just `local src`) — the script runs under
-  # `set -u`, so a declared-but-unset var trips "unbound variable" exactly when this
-  # path fires (PGM down). That crash is why an earlier version never actually healed.
-  local src="" key=""; key=$(keyer_out_flow)
-  if [ -n "$key" ]; then local ka="" kb=""; ka=$(headidx "$key"); sleep 1; kb=$(headidx "$key")
-    [ -n "$ka" ] && [ -n "$kb" ] && [ "$kb" -gt "$ka" ] 2>/dev/null && src="$key"; fi
-  [ -n "$src" ] || src="$out"                          # keyer not advancing -> publish selector (bypass)
-  log "PGM PUBLISH DROPPED (selector advancing, mediamtx 0 bytes) — republishing encoder on ${src}"
-  $DOCKER restart "$RELAY_CTR" >/dev/null 2>&1; sleep 7
-  _post 9601 /pipeline/start "{\"domain_path\":\"$DOMAIN\",\"video_flow_uuid\":\"$src\",\"use_mediamtx\":true,\"encoder\":{\"tune\":4,\"speed_preset\":2,\"bitrate\":6000,\"key_int_max\":30}}" >/dev/null
+  # ADVANCING but NO bytes to mediamtx = the grey screen. Republish the encoder on the
+  # SELECTOR output (keyer bypassed for stability — HW Oct 10: the gst-keyer throttled the
+  # whole chain to ~300KB/s and its flow 86efffa4 keeps a stale advancing head even when the
+  # keyer is stopped, so an earlier version kept republishing onto that DEAD keyer flow every
+  # 30s = permanent 0 bytes. Always use the selector output here.). To re-enable keyed PGM,
+  # fix the keyer's throughput first, then revisit. src is '' only transiently.
+  local src="$out"
+  # The encoder sticks on its current flow if `start` is sent while running, and a container
+  # restart auto-starts it on its DEFAULT (keyer) flow — both leave PGM dead. So STOP until
+  # confirmed stopped, then START, then VERIFY it took (one retry). No container restart.
+  log "PGM PUBLISH DROPPED (selector advancing, mediamtx 0 bytes) — republishing encoder on selector ${src}"
+  _enc_restart "$src"
   log "encoder republished"
+}
+
+# Re-point the encoder at $1 reliably: stop-until-stopped -> start -> verify (one retry).
+_enc_restart(){
+  local want="$1" i r now
+  curl -s -m3 "http://127.0.0.1:9601/pipeline/status" >/dev/null 2>&1 || { $DOCKER restart "$RELAY_CTR" >/dev/null 2>&1; sleep 8; }
+  i=0; while [ "$i" -lt 6 ]; do
+    _post 9601 /pipeline/stop '{}' >/dev/null
+    sleep 2
+    r=$(_get 9601 /pipeline/status | _json running)
+    [ "$r" = "False" ] && break; i=$((i+1))
+  done
+  _post 9601 /pipeline/start "{\"domain_path\":\"$DOMAIN\",\"video_flow_uuid\":\"$want\",\"use_mediamtx\":true,\"encoder\":{\"tune\":4,\"speed_preset\":2,\"bitrate\":6000,\"key_int_max\":30}}" >/dev/null
+  sleep 3
+  now=$(_get 9601 /pipeline/status | _json video_flow_uuid)
+  if [ "$now" != "$want" ]; then
+    i=0; while [ "$i" -lt 6 ]; do _post 9601 /pipeline/stop '{}' >/dev/null; sleep 2
+      [ "$(_get 9601 /pipeline/status | _json running)" = "False" ] && break; i=$((i+1)); done
+    _post 9601 /pipeline/start "{\"domain_path\":\"$DOMAIN\",\"video_flow_uuid\":\"$want\",\"use_mediamtx\":true,\"encoder\":{\"tune\":4,\"speed_preset\":2,\"bitrate\":6000,\"key_int_max\":30}}" >/dev/null
+  fi
 }
 
 # ── heal 4: thumbs probe wedged on a live source → restart it (keeps Makito/PTZ visible) ─
