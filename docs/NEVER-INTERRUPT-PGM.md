@@ -102,3 +102,54 @@ stable flows' head FROZE (mxlsink stopped advancing) despite the push-loop repor
   (first join) does one re-wire, but cutting BETWEEN already-joined ones is instant.
 
 DECISION PENDING (Guy). Do NOT start 6 stabilizers again — it takes the box down.
+
+## ✅ HW REALITY (Oct 10, option (a) build) — 2 stabilizers fit; three more findings
+
+Guy chose **option (a)**. Built + measured on HW:
+
+1. **Two stabilizers fit with huge headroom.** Started `mxl-stabilizer@guest5` +
+   `@guest6` only. Load went **11.8 → 12.5** (vs 54 with six). Both stable flows
+   (`57ab5e00`, `57ab6e00`) created cleanly, "boot frame pushed — stable flow exists
+   from t0", and sat in freewheel standby (`have_input=False pushed=0 clock=True`) —
+   exactly correct with no correspondent connected. PGM was undisturbed throughout
+   (1.56 MB/2s). **Option (a) is viable; 2–3 stabilizers is the right ceiling for this box.**
+
+2. **Pre-wiring the stable flows into the selector requires `/pipeline/start`, which
+   RESTARTS the selector output and DROPS PGM to 0 for the republish.** This is the
+   crucial nuance the architecture hinges on: the never-interrupt payoff (a correspondent
+   joins → their pre-wired stable slot just starts carrying frames → NO re-wire) only holds
+   *after* a one-time pre-wire done **at setup/boot**. You still pay ONE program blip to
+   establish the wiring — so **do the pre-wire during bring-up, never mid-show.** Once wired,
+   joins/drops are free. → The build is: teach `mxl-pgm-heal` (the boot/bring-up tool) to
+   wire the **stable** correspondent UUIDs (`57abNe00`) instead of the volatile ones
+   (`9eNNNe00`), so the one-time cost is folded into the boot it already does.
+
+3. **UUIDs MUST be discovered, not taken from config (reviewer issue #2, reproduced).**
+   The selector resolves flows by FULL uuid. `pattern`/`playout` have random suffixes
+   (`d3e15194-6d1f-5955-8d52-52e7076b7a99`), NOT the config placeholder
+   (`…-4c2a-9b3e-000000000001`). Sending the placeholder → `flow_def.json not found`.
+   The pre-wire body must be built from `/pipeline/status`'s live `input_flow_uuids` +
+   the domain dir listing, never from `config/facility.json` literals.
+
+4. **`mxl-pgm-heal` has a real bug: it cuts to the first slot whose flow FILE EXISTS,
+   not one that's ADVANCING.** After a re-wire it cut to slot 2 (Makito), whose flow
+   existed but was stale (delta=0) → selector output froze → PGM dark. Pattern(0)/
+   playout(1)/PTZ(3) were all LIVE (delta≈36). Fix: `have()` is not enough — gate the
+   default cut on a 1-second head-advance check and fall back to pattern(0). (This bug
+   bit us independently of the stabilizers and is the actual cause of the Oct-10 PGM-dark.)
+
+**NEXT (option (a) build, concrete):**
+- Patch `mxl-pgm-heal.sh`: (i) build inputs as pattern, playout, G1(Makito vol), G2(PTZ vol),
+  then **stabilized** 57ab5e00/57ab6e00 for the two correspondent slots; (ii) replace the
+  file-exists default-cut with an **advancing** check (1 s head delta > 0, else pattern).
+- Make the Core cut path `active-input`-ONLY for already-wired slots (it mostly is; remove any
+  residual `/pipeline/start` on join).
+- Boot order: facility → stabilizers (guest5/6) → pgm-heal (wires stable, cuts to a live slot,
+  republishes). Then a phone join on guest5 makes 57ab5e00 carry frames with ZERO re-wire.
+- VERIFY: connect/disconnect a phone on guest5 repeatedly → PGM bytes never hit 0; cut
+  guest5↔PTZ instant.
+
+**Box state at Oct-10 pause:** PGM LIVE (1.0 MB/2s, cut to pattern slot 0, encoder republished).
+Stabilizers guest5/guest6 ACTIVE (load ~12). Selector currently on pgm-heal's volatile wiring
+(the stable pre-wire was rolled back by a pgm-heal run during PGM recovery) — the stable-flow
+pre-wire is NOT yet persisted into pgm-heal; that's the next commit.
