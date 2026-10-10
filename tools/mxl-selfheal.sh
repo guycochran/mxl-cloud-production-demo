@@ -151,8 +151,11 @@ heal_publish(){
   [ -n "$p0" ] && [ -n "$p1" ] || return 0            # can't read mediamtx — leave alone
   [ "$p1" -gt "$p0" ] 2>/dev/null && return 0          # publishing fine
   # ADVANCING but NO bytes to mediamtx = the grey screen. Republish the encoder.
-  local src key; key=$(keyer_out_flow)
-  if [ -n "$key" ]; then local ka kb; ka=$(headidx "$key"); sleep 1; kb=$(headidx "$key")
+  # NOTE: src MUST be initialized ('' not just `local src`) — the script runs under
+  # `set -u`, so a declared-but-unset var trips "unbound variable" exactly when this
+  # path fires (PGM down). That crash is why an earlier version never actually healed.
+  local src="" key=""; key=$(keyer_out_flow)
+  if [ -n "$key" ]; then local ka="" kb=""; ka=$(headidx "$key"); sleep 1; kb=$(headidx "$key")
     [ -n "$ka" ] && [ -n "$kb" ] && [ "$kb" -gt "$ka" ] 2>/dev/null && src="$key"; fi
   [ -n "$src" ] || src="$out"                          # keyer not advancing -> publish selector (bypass)
   log "PGM PUBLISH DROPPED (selector advancing, mediamtx 0 bytes) — republishing encoder on ${src}"
