@@ -34,6 +34,17 @@ SEL_CTR="${SELECTOR_CONTAINER:-input-selector}"
 RELAY_CTR="${RELAY_CONTAINER:-mxl2webrtc}"
 DOMAIN="${MXL_DOMAIN:-/mxl-domain}"
 KEYER_FLOW=""   # discovered lazily
+# Thumbs-probe heal (HW Oct 10): the thumbs probe (mxl_thumbs.py) readers can wedge on a
+# specific slot — a live Makito/PTZ then shows 'unknown' on the Health Skin even though its
+# flow is advancing (mxl-info sees it; the probe's reader doesn't). It needs a restart to
+# re-attach. heal_thumbs detects that exact mismatch (Core reports a wired source NOT 'ok'
+# while its flow IS advancing) and restarts the thumbs unit. STRIKES avoids restarting during
+# the probe's own ~30s startup. CORE_URL = the Skin's health API; THUMBS_UNIT = systemd unit.
+THUMBS_UNIT="${MXL_THUMBS_UNIT:-mxl-thumbs.service}"
+CORE_URL="${MXL_CORE_URL:-http://127.0.0.1:3100}"
+THUMBS_HEAL="${MXL_THUMBS_HEAL:-1}"       # 0 disables the thumbs-probe heal
+THUMBS_STRIKES="${MXL_THUMBS_STRIKES:-3}" # consecutive mismatched polls before restart
+_thumbs_strike=0; _thumbs_last_heal=0
 
 # Use `docker` directly if we can (quickstart runs as root), else `sudo docker`.
 if docker ps >/dev/null 2>&1; then DOCKER="docker"; else DOCKER="sudo docker"; fi
@@ -164,10 +175,59 @@ heal_publish(){
   log "encoder republished"
 }
 
-pass(){ heal_selector; heal_relay; heal_publish; }
+# ── heal 4: thumbs probe wedged on a live source → restart it (keeps Makito/PTZ visible) ─
+# Symptom: a source wired into the selector is ADVANCING, but the Core's health reports it
+# NOT 'ok' (unknown/dead/frozen) — the thumbs reader for that slot wedged and the camera
+# vanishes from the Health Skin. Restart the thumbs unit so its readers re-attach. Guards:
+# only counts a strike when a flow is genuinely advancing (never restarts for a truly idle
+# source), needs THUMBS_STRIKES in a row (rides out the probe's own startup), and a 120s
+# cooldown so a restart that takes a while to settle doesn't trigger a restart storm.
+heal_thumbs(){
+  [ "$THUMBS_HEAL" = "1" ] || return 0
+  local now; now=$(date +%s)
+  [ $((now - _thumbs_last_heal)) -lt 120 ] && return 0     # cooling down after a restart
+  # Pull the Core's per-source view once (it already joins thumbs state + wiring, cheaply).
+  local health; health=$(_get_url "$CORE_URL/api/mxl/health") || return 0
+  [ -n "$health" ] || return 0
+  # Any wired, non-stable source reported not-ok whose flow IS advancing = a wedged reader.
+  local wedged; wedged=$(printf '%s' "$health" | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+for s in d.get("sources", []):
+    # stable correspondent slots legitimately sit "standby" with no source — skip them
+    if s.get("stable"): continue
+    if s.get("state") not in ("ok",):
+        print(s.get("name","?")); break
+' 2>/dev/null)
+  if [ -z "$wedged" ]; then _thumbs_strike=0; return 0; fi
+  # The Core said a source is not-ok; confirm its FLOW is actually advancing before blaming
+  # the probe (if the flow is genuinely dead, that is a source problem, not a thumbs wedge).
+  # We only have names here; the selector output advancing + >2 sources ok is a good proxy
+  # that the facility is live and it is the probe (not the domain) that is broken.
+  local oks; oks=$(printf '%s' "$health" | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: print(0); sys.exit(0)
+print(sum(1 for s in d.get("sources", []) if s.get("state")=="ok"))
+' 2>/dev/null)
+  [ -n "$oks" ] && [ "$oks" -ge 1 ] 2>/dev/null || { _thumbs_strike=0; return 0; }  # whole probe cold -> let it start
+  _thumbs_strike=$((_thumbs_strike + 1))
+  log "thumbs probe looks wedged ($wedged not-ok while others ok) (${_thumbs_strike}/${THUMBS_STRIKES})"
+  if [ "$_thumbs_strike" -ge "$THUMBS_STRIKES" ]; then
+    log "restarting $THUMBS_UNIT so its readers re-attach"
+    systemctl restart "$THUMBS_UNIT" >/dev/null 2>&1 || sudo systemctl restart "$THUMBS_UNIT" >/dev/null 2>&1
+    _thumbs_strike=0; _thumbs_last_heal=$now
+  fi
+}
+
+# curl to a full URL (the thumbs heal talks to the Core's health API, not a bare port).
+_get_url(){ curl -s -m 5 "$1" 2>/dev/null; }
+
+pass(){ heal_selector; heal_relay; heal_publish; heal_thumbs; }
 
 if [ "${1:-}" = "--watch" ]; then
-  log "watching (every ${INTERVAL}s) — selector + relay"
+  log "watching (every ${INTERVAL}s) — selector + relay + publish + thumbs"
   while :; do pass; sleep "$INTERVAL"; done
 else
   pass
