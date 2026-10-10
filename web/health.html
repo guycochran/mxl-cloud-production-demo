@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MXL Health</title>
+<style>
+  /* ── self-hosted fonts (bundled woff2 — works on an air-gapped box) ───── */
+  @font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-600.woff2') format('woff2')}
+  @font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-700.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:500;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-600.woff2') format('woff2')}
+
+  :root{
+    --bg:#05070c; --panel:#0b1018; --panel2:#101725; --line:#1d2940;
+    --ink:#e8eeff; --dim:#7e8aa8; --faint:#4b5878;
+    --acc:#5b8cff; --amber:#ffb400; --cyan:#35e0ff;
+    --red:#e5484d; --grn:#23d97c;
+    --red-glow:rgba(229,72,77,.5); --grn-glow:rgba(35,217,124,.35);
+    --disp:'Barlow Condensed',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px}
+  a{color:var(--acc);text-decoration:none}
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 20px 40px}
+
+  header.top{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+  header.top .brand{font-family:var(--disp);font-weight:700;font-size:26px;letter-spacing:.4px}
+  header.top .brand small{font-family:var(--mono);font-size:11px;color:var(--dim);font-weight:500;margin-left:8px}
+  header.top .spacer{flex:1}
+  .pill{font-size:11px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--dim)}
+  .pill.ok{color:var(--grn);border-color:rgba(35,217,124,.35)}
+  .pill.bad{color:var(--red);border-color:rgba(229,72,77,.45)}
+  header.top a.corelink{font-size:11px;color:var(--dim);border:1px solid var(--line);
+    padding:4px 10px;border-radius:7px}
+
+  h2{font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:1.2px;
+    text-transform:uppercase;color:var(--dim);margin:22px 0 10px}
+
+  .grid{display:grid;gap:12px}
+  .cards4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:720px){.cards4{grid-template-columns:repeat(2,1fr)}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:14px 15px}
+  .stat .k{font-size:11px;color:var(--dim);letter-spacing:.5px;text-transform:uppercase}
+  .stat .v{font-family:var(--disp);font-weight:700;font-size:34px;line-height:1.05;margin-top:4px}
+  .stat .v small{font-family:var(--mono);font-size:13px;color:var(--dim);font-weight:500}
+  .stat .sub{font-size:11px;color:var(--faint);margin-top:4px}
+  .bar{height:5px;border-radius:3px;background:var(--panel2);margin-top:9px;overflow:hidden}
+  .bar>span{display:block;height:100%;background:var(--acc);transition:width .4s}
+  .bar.warn>span{background:var(--amber)} .bar.crit>span{background:var(--red)}
+
+  /* grain-flow rows */
+  table{width:100%;border-collapse:collapse}
+  thead th{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);
+    text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+  tbody td{padding:9px 10px;border-bottom:1px solid rgba(29,41,64,.5);font-size:12.5px}
+  tbody tr:last-child td{border-bottom:0}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:middle}
+  .dot.ok{background:var(--grn);box-shadow:0 0 8px var(--grn-glow)}
+  .dot.frozen{background:var(--amber);box-shadow:0 0 8px rgba(255,180,0,.5)}
+  .dot.slow{background:var(--amber)}
+  .dot.dead{background:var(--red);box-shadow:0 0 8px var(--red-glow)}
+  .flowname{font-weight:600}
+  .state{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim)}
+  .state.ok{color:var(--grn)} .state.frozen,.state.slow{color:var(--amber)} .state.dead{color:var(--red)}
+  .state.standby{color:var(--cyan)} .state.unknown{color:var(--faint)}
+  .dot.unknown{background:var(--faint)}
+  /* Sources panel: one card per wired selector input */
+  .grid.srcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .card.src{padding:12px 13px;position:relative}
+  .card.src.pgm{border-color:var(--grn);box-shadow:0 0 0 1px var(--grn-glow),0 0 14px var(--grn-glow)}
+  .card.src .srow{display:flex;align-items:center;gap:7px}
+  .card.src .nm{font-weight:650;font-size:14px;color:var(--ink)}
+  .card.src .rl{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--faint);margin-top:2px}
+  .card.src .meta{display:flex;justify-content:space-between;align-items:center;margin-top:9px}
+  .badge{font-size:9px;letter-spacing:.6px;text-transform:uppercase;padding:2px 6px;border-radius:5px;border:1px solid var(--line);color:var(--dim)}
+  .badge.pgm{color:#06120a;background:var(--grn);border-color:var(--grn);font-weight:700}
+  .badge.ni{color:var(--cyan);border-color:rgba(53,224,255,.4)}
+  .dot.standby{background:var(--cyan);box-shadow:0 0 8px rgba(53,224,255,.4)}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* pipeline writers */
+  .pipes{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.pipes{grid-template-columns:1fr}}
+  .pipe .name{font-family:var(--disp);font-weight:700;font-size:17px;letter-spacing:.5px}
+  .pipe .row{display:flex;justify-content:space-between;margin-top:7px;font-size:12px}
+  .pipe .row .lab{color:var(--dim)}
+  .ind{font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}
+  .ind.run{color:var(--grn);border-color:rgba(35,217,124,.35)}
+  .ind.stop{color:var(--red);border-color:rgba(229,72,77,.4)}
+  .ind.unr{color:var(--faint)}
+  .err{color:var(--red);font-size:11px;margin-top:6px;word-break:break-word}
+
+  .note{color:var(--faint);font-size:11px;margin-top:18px;line-height:1.6}
+  .stale{color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">MXL Health<small>read-only facility monitor</small></div>
+    <div class="spacer"></div>
+    <span class="pill" id="updated">connecting…</span>
+    <a class="corelink" href="/">← Switcher</a>
+  </header>
+
+  <h2>System</h2>
+  <div class="grid cards4" id="sysCards">
+    <div class="card stat"><div class="k">CPU</div><div class="v" id="cpu">—</div><div class="bar" id="cpuBar"><span style="width:0"></span></div></div>
+    <div class="card stat"><div class="k">Memory</div><div class="v" id="mem">—</div><div class="bar" id="memBar"><span style="width:0"></span></div></div>
+    <div class="card stat"><div class="k">Load (1m)</div><div class="v" id="load">—</div><div class="sub" id="loadSub">—</div></div>
+    <div class="card stat"><div class="k">Viewers</div><div class="v" id="viewers">—</div><div class="sub">WebRTC program</div></div>
+  </div>
+
+  <h2>Sources</h2>
+  <div class="grid srcs" id="srcCards">
+    <div class="card src" style="color:var(--faint)">waiting for selector…</div>
+  </div>
+
+  <h2>Grain flow <span class="state" id="grainStale"></span></h2>
+  <div class="card" style="padding:4px 2px">
+    <table>
+      <thead><tr id="grainHead"><th>Flow</th><th>State</th><th class="num">Grains/s</th><th class="num">Unique fps</th></tr></thead>
+      <tbody id="grainRows"><tr><td colspan="4" style="color:var(--faint);padding:14px 12px">waiting for probe…</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>Pipeline writers</h2>
+  <div class="grid pipes" id="pipes">
+    <div class="card pipe" id="pipe-selector"><div class="name">Selector</div><div class="row"><span class="lab">state</span><span class="ind unr">—</span></div></div>
+    <div class="card pipe" id="pipe-keyer"><div class="name">Keyer</div><div class="row"><span class="lab">state</span><span class="ind unr">—</span></div></div>
+    <div class="card pipe" id="pipe-encoder"><div class="name">Encoder</div><div class="row"><span class="lab">state</span><span class="ind unr">—</span></div></div>
+  </div>
+
+  <div class="note">
+    Grain rate <b>and unique-frames/s</b> come from the long-lived grain probe: a flow can tick 30 grains/s while the
+    picture is frozen (a repeat-wedge) — when that happens <span style="color:var(--amber)">unique&nbsp;fps collapses</span>
+    and the row turns amber. This page never controls the facility; it only reads.
+  </div>
+</div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var RATE=30; // 1080p30 facility; overridden by payload hints if present later
+
+  function pct(v){ return (v==null?'—':v); }
+  function barClass(p){ return p>=90?'crit':(p>=75?'warn':''); }
+  function setBar(el,p){
+    var span=el.firstElementChild;
+    el.className='bar '+barClass(p||0);
+    span.style.width=(p==null?0:Math.max(2,Math.min(100,p)))+'%';
+  }
+
+  function renderSystem(s){
+    if(!s){return;}
+    if(s.cpu_pct!=null){ $('cpu').innerHTML=s.cpu_pct+'<small>%</small>'; setBar($('cpuBar'),s.cpu_pct); }
+    if(s.mem){ $('mem').innerHTML=s.mem.used_pct+'<small>% · '+(s.mem.used_mb/1024).toFixed(1)+'/'+(s.mem.total_mb/1024).toFixed(0)+'G</small>'; setBar($('memBar'),s.mem.used_pct); }
+    if(s.load){
+      $('load').innerHTML=s.load.load1.toFixed(1);
+      var cores=s.cpus?(' / '+s.cpus+' cores'):'';
+      $('loadSub').textContent=s.load.load5.toFixed(1)+' · '+s.load.load15.toFixed(1)+cores;
+    }
+    if(s.cpu_pct==null && s.load && s.cpus){
+      // CPU% unavailable (Core running off-box) — approximate from load/cores.
+      var approx=Math.min(100,Math.round(s.load.load1/s.cpus*100));
+      $('cpu').innerHTML=approx+'<small>% ~load</small>'; setBar($('cpuBar'),approx);
+    }
+    if(s.viewers!=null) $('viewers').textContent=s.viewers;
+  }
+
+  function renderGrains(g){
+    var stale=$('grainStale');
+    if(!g || g.stale){ stale.textContent='· probe stale'+(g&&g.age_s!=null?(' ('+g.age_s+'s)'):''); stale.className='state frozen'; }
+    else { stale.textContent=''; stale.className='state'; }
+    var tbody=$('grainRows'), flows=(g&&g.flows)||{};
+    var names=Object.keys(flows);
+    // Two probe shapes: grain_probe -> {bps, ufps}; thumbs health -> {age, frozen}.
+    var isThumbs=(g&&g.source==='thumbs');
+    var head=$('grainHead');
+    if(isThumbs) head.innerHTML='<th>Flow</th><th>State</th><th class="num">Last frame</th><th class="num">Content age</th>';
+    else head.innerHTML='<th>Flow</th><th>State</th><th class="num">Grains/s</th><th class="num">Unique fps</th>';
+    if(!names.length){ tbody.innerHTML='<tr><td colspan="4" style="color:var(--faint);padding:14px 12px">no flows reported</td></tr>'; return; }
+    tbody.innerHTML=names.map(function(n){
+      var f=flows[n], st=f.state||'dead';
+      var c1,c2;
+      if(isThumbs){ c1=(f.age!=null?f.age+'s':'—'); c2=(f.frozen!=null?f.frozen+'s':'—'); }
+      else { c1=(f.bps!=null?f.bps:'—'); c2=(f.ufps!=null?f.ufps:'—'); }
+      return '<tr>'+
+        '<td><span class="dot '+st+'"></span><span class="flowname">'+esc(n)+'</span></td>'+
+        '<td><span class="state '+st+'">'+st+'</span></td>'+
+        '<td class="num">'+c1+'</td>'+
+        '<td class="num">'+c2+'</td>'+
+      '</tr>';
+    }).join('');
+  }
+
+  function indState(p){
+    if(!p || p.unreachable) return '<span class="ind unr">unreachable</span>';
+    return p.running?'<span class="ind run">running</span>':'<span class="ind stop">stopped</span>';
+  }
+  function fmtRow(lab,val){ return '<div class="row"><span class="lab">'+lab+'</span><span>'+val+'</span></div>'; }
+
+  function renderSources(list){
+    var wrap=$('srcCards');
+    if(!list || !list.length){ wrap.innerHTML='<div class="card src" style="color:var(--faint)">no inputs wired</div>'; return; }
+    // state -> {dot class, label, state-text class}
+    var S={ ok:['ok','Live','ok'], frozen:['frozen','Frozen','frozen'],
+            standby:['standby','Standby','standby'], dead:['dead','Idle','dead'],
+            unknown:['dead','—','dead'] };
+    wrap.innerHTML=list.map(function(s){
+      var st=S[s.state]||S.unknown;
+      var pgm=s.is_pgm;
+      var badges='';
+      if(pgm) badges+='<span class="badge pgm">● PGM</span>';
+      else if(s.stable) badges+='<span class="badge ni">never-interrupt</span>';
+      return '<div class="card src'+(pgm?' pgm':'')+'">'+
+        '<div class="srow"><span class="dot '+st[0]+'"></span><span class="nm">'+esc(s.name)+'</span></div>'+
+        '<div class="rl">'+esc(s.role)+' · slot '+s.slot+'</div>'+
+        '<div class="meta"><span class="state '+st[2]+'">'+st[1]+'</span>'+badges+'</div>'+
+        '</div>';
+    }).join('');
+  }
+
+  function renderPipes(p){
+    p=p||{};
+    var sel=p.selector||{unreachable:true}, key=p.keyer||{unreachable:true}, enc=p.encoder||{unreachable:true};
+    $('pipe-selector').innerHTML='<div class="name">Selector</div>'+
+      '<div class="row"><span class="lab">state</span>'+indState(sel)+'</div>'+
+      (sel.active_input!=null?fmtRow('active input','#'+sel.active_input):'')+
+      (sel.inputs!=null?fmtRow('wired inputs',sel.inputs):'')+
+      (sel.format?fmtRow('format',sel.format.w+'×'+sel.format.h+'@'+sel.format.rate):'')+
+      (sel.error?'<div class="err">'+esc(sel.error)+'</div>':'');
+    $('pipe-keyer').innerHTML='<div class="name">Keyer</div>'+
+      '<div class="row"><span class="lab">state</span>'+indState(key)+'</div>'+
+      (key.mode?fmtRow('mode',key.mode+(key.key_on?' · key on':' · bypass')):'')+
+      (key.format?fmtRow('format',key.format.w+'×'+key.format.h+'@'+key.format.rate):'')+
+      (key.error?'<div class="err">'+esc(key.error)+'</div>':'');
+    $('pipe-encoder').innerHTML='<div class="name">Encoder</div>'+
+      '<div class="row"><span class="lab">state</span>'+indState(enc)+'</div>'+
+      (enc.viewers!=null?fmtRow('viewers',enc.viewers):'')+
+      (enc.bitrate_kbps!=null?fmtRow('bitrate',(enc.bitrate_kbps)+' kbps'):'')+
+      (enc.error?'<div class="err">'+esc(enc.error)+'</div>':'');
+    // mirror viewers into the System card
+    if(enc && enc.viewers!=null) $('viewers').textContent=enc.viewers;
+  }
+
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  var fails=0;
+  function tick(){
+    fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      fails=0;
+      var u=$('updated'); u.className='pill ok'; u.textContent='live · '+new Date().toLocaleTimeString();
+      renderSystem(d.system); renderSources(d.sources); renderGrains(d.grains); renderPipes(d.pipelines);
+    }).catch(function(){
+      fails++;
+      var u=$('updated'); u.className='pill bad'; u.textContent='no data ('+fails+')';
+    });
+  }
+  tick();
+  setInterval(tick,3000);
+})();
+</script>
+</body>
+</html>

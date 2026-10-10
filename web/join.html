@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Join the show — MXL</title>
+<style>
+  @font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-600.woff2') format('woff2')}
+  @font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;
+    font-display:swap;src:url('/fonts/BarlowCondensed-700.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:500;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-500.woff2') format('woff2')}
+  @font-face{font-family:'IBM Plex Mono';font-weight:600;font-style:normal;
+    font-display:swap;src:url('/fonts/IBMPlexMono-600.woff2') format('woff2')}
+  :root{
+    --bg:#05070c; --panel:#0b1018; --panel2:#101725; --line:#1d2940;
+    --ink:#e8eeff; --dim:#7e8aa8; --faint:#4b5878;
+    --acc:#5b8cff; --amber:#ffb400; --cyan:#35e0ff; --red:#e5484d; --grn:#23d97c;
+    --disp:'Barlow Condensed',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:14px;line-height:1.5}
+  a{color:var(--acc);text-decoration:none}
+  .wrap{max-width:1000px;margin:0 auto;padding:22px 20px 56px}
+  header.top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  header.top .brand{font-family:var(--disp);font-weight:700;font-size:24px;letter-spacing:.4px}
+  header.top .brand small{font-family:var(--mono);font-size:10px;color:var(--dim);font-weight:500;margin-left:7px;text-transform:uppercase;letter-spacing:1px}
+  .spacer{flex:1}
+  .eyebrow{font-family:var(--disp);font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--cyan);font-size:13px}
+  h1{font-family:var(--disp);font-weight:700;font-size:40px;line-height:1.02;margin:6px 0 10px}
+  h1 em{color:var(--cyan);font-style:normal}
+  .lede{color:var(--dim);max-width:62ch;margin-bottom:26px}
+
+  .cols{display:grid;grid-template-columns:320px 1fr;gap:26px;align-items:start}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+
+  .qrcard{background:#fff;border-radius:16px;padding:18px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+  .qrcard img{width:100%;max-width:280px;height:auto;display:block;margin:0 auto;image-rendering:pixelated}
+  .qrcard .cap{color:#0b1018;font-family:var(--disp);font-weight:700;font-size:18px;margin-top:10px;letter-spacing:.5px}
+  .qrcard .sub{color:#4b5878;font-size:12px;margin-top:2px}
+  .qr-missing{background:var(--panel);border:1px dashed var(--line);border-radius:16px;padding:40px 18px;text-align:center;color:var(--dim)}
+
+  .steps{counter-reset:s;list-style:none;padding:0;margin:0 0 22px}
+  .steps li{position:relative;padding:14px 16px 14px 56px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;margin-bottom:10px}
+  .steps li::before{counter-increment:s;content:counter(s);position:absolute;left:14px;top:13px;
+    width:28px;height:28px;border-radius:50%;background:var(--acc);color:#05070c;font-family:var(--disp);
+    font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
+  .steps b{font-family:var(--disp);font-weight:600;font-size:17px;letter-spacing:.3px}
+  .steps .d{color:var(--dim);font-size:13px;margin-top:2px}
+  .steps code{background:var(--panel2);padding:2px 7px;border-radius:5px;color:var(--cyan);font-size:12.5px;word-break:break-all}
+  .applinks{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .applinks a{font-size:12px;border:1px solid var(--line);padding:5px 11px;border-radius:7px;color:var(--dim)}
+
+  .manual{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:22px}
+  .manual .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(29,41,64,.5);font-size:13px}
+  .manual .row:last-child{border-bottom:0}
+  .manual .k{color:var(--dim)} .manual .v{color:var(--ink);font-weight:600;text-align:right;word-break:break-all}
+  .copy{cursor:pointer;background:none;border:1px solid var(--line);color:var(--acc);border-radius:6px;padding:2px 9px;font-family:var(--mono);font-size:11px}
+
+  .preview{margin-top:8px}
+  .preview h2{font-family:var(--disp);font-weight:600;font-size:15px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin:0 0 10px}
+  .pgmwrap{position:relative;background:#000;border:1px solid var(--line);border-radius:12px;overflow:hidden;aspect-ratio:16/9}
+  .pgmwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .live-badge{position:absolute;top:10px;left:10px;z-index:2;font-family:var(--mono);font-size:11px;
+    background:rgba(229,72,77,.92);color:#fff;padding:3px 9px;border-radius:5px;letter-spacing:1px;font-weight:600}
+  .status{margin-top:10px;font-size:13px;color:var(--dim)}
+  .status b{color:var(--grn)}
+  .status.waiting b{color:var(--amber)}
+  /* multiview return grid */
+  .mv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  @media(max-width:520px){.mv{grid-template-columns:repeat(2,1fr)}}
+  .mvtile{position:relative;background:#000;border:1px solid var(--line);border-radius:9px;overflow:hidden;aspect-ratio:16/9}
+  .mvtile img{width:100%;height:100%;object-fit:cover;display:block}
+  .mvtile .lbl{position:absolute;bottom:0;left:0;right:0;font-size:10px;padding:3px 6px;background:linear-gradient(transparent,rgba(0,0,0,.8));color:var(--ink);font-weight:600;letter-spacing:.5px}
+  .mvtile .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--faint)}
+  .mvtile.live .dot{background:var(--grn);box-shadow:0 0 8px rgba(35,217,124,.6)}
+  .mvtile.dead{opacity:.4}
+  .mvtile.you{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan),0 0 18px rgba(53,224,255,.5)}
+  .mvtile.you .lbl{background:var(--cyan);color:#05070c}
+  .mvtile .me{position:absolute;top:6px;left:6px;font-size:9px;background:var(--cyan);color:#05070c;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:.5px;display:none}
+  .mvtile.you .me{display:block}
+  .footer{margin-top:30px;color:var(--faint);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">MXL<small>Join the show</small></div>
+    <div class="spacer"></div>
+    <a href="/" style="font-size:12px;color:var(--dim)">Watch program →</a>
+  </header>
+
+  <p class="eyebrow">Be on air in 30 seconds</p>
+  <h1>Put <em>your phone's camera</em><br>into a live broadcast.</h1>
+  <p class="lede">No app store account, no login. Scan the code with the free Larix Broadcaster app and your camera becomes a switchable source in a real production control room — running on a single $400 computer.</p>
+
+  <div class="cols">
+    <div>
+      <div id="qrcard" class="qrcard">
+        <img id="qrimg" alt="Scan to join" src="">
+        <div class="cap">Scan to go live</div>
+        <div class="sub" id="qrslot">loading…</div>
+      </div>
+      <div id="qrmissing" class="qr-missing" style="display:none">
+        QR not available (the facility hasn't published its address). Use the manual settings below.
+      </div>
+    </div>
+
+    <div>
+      <ol class="steps">
+        <li>
+          <b>Install Larix Broadcaster</b>
+          <div class="d">Free, on iPhone &amp; Android. It's the app that sends your camera over SRT.</div>
+          <div class="applinks">
+            <a href="https://apps.apple.com/app/larix-broadcaster/id1042474385" target="_blank" rel="noopener">iPhone — App Store ↗</a>
+            <a href="https://play.google.com/store/apps/details?id=com.wmspanel.larix_broadcaster" target="_blank" rel="noopener">Android — Google Play ↗</a>
+          </div>
+        </li>
+        <li>
+          <b>Scan the code</b>
+          <div class="d">Open your phone camera (or Larix's built-in scanner) and point it at the QR. It loads all the settings for you — tap to import.</div>
+        </li>
+        <li>
+          <b>Tap the red button</b>
+          <div class="d">In Larix, hit record/stream. You're now publishing to the switcher. Watch yourself appear in the program below.</div>
+        </li>
+      </ol>
+
+      <div class="manual">
+        <div style="font-family:var(--disp);font-weight:600;font-size:14px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin-bottom:6px">Manual settings (if the QR won't scan)</div>
+        <div class="row"><span class="k">Protocol</span><span class="v">SRT (Caller)</span></div>
+        <div class="row"><span class="k">URL</span><span class="v" id="mSrt">—</span></div>
+        <div class="row"><span class="k">Latency</span><span class="v">1000 ms</span></div>
+        <div class="row"><span class="k">Mode</span><span class="v">Audio + Video</span></div>
+        <button class="copy" id="copyBtn" type="button">Copy SRT URL</button>
+      </div>
+
+      <div class="preview">
+        <h2>Can we see you? <span style="color:var(--faint);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">— your tile lights up when you're live</span></h2>
+        <div class="mv" id="mvGrid"><!-- source tiles injected --></div>
+        <div class="status waiting" id="status"><b>Waiting for a source…</b> go live in Larix and watch your tile appear below.</div>
+      </div>
+
+      <div class="preview" style="margin-top:18px">
+        <h2>Program output <span style="color:var(--faint);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">— what's on air</span></h2>
+        <div class="pgmwrap">
+          <span class="live-badge">● LIVE</span>
+          <iframe id="pgm" src="/program/" allow="autoplay" title="Program output"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    An open-source MXL (Media eXchange Layer) switcher. Your phone's video travels as SRT into a shared-memory media domain and is composited live. <a href="/what-are-grains.html" target="_blank" rel="noopener">How it works →</a>
+  </div>
+</div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var forced=(location.hash.match(/slot=(guest\d+)/)||[])[1]||null;  // optional #slot=guestN
+  var mySlot=null;  // the slot THIS visitor was assigned (highlight it in the grid)
+
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function pretty(name){
+    var m={pattern:'Pattern',playout:'Playout',guest1:'Guest 1',guest2:'Guest 2',guest3:'Guest 3',layout:'PiP',cam:'Cam 1',cam2:'Cam 2'};
+    return m[name]||name;
+  }
+
+  // 1) QR + settings — use the FIRST FREE slot the server suggests, so two people
+  //    scanning don't collide on the same busy listener.
+  fetch('/api/mxl/ingest',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var guests=d.guests||[];
+    // A slot is "relay-safe" if its SRT host is NOT a private LAN IP — i.e. it goes through
+    // a public relay (e.g. an Azure SRT relay), so the contributor never sees the home IP.
+    function isRelay(x){ var u=x.srt_url||""; return !/:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(u); }
+    var freeGuests = guests.filter(function(x){return x.free!==false;});
+    // Prefer: forced slot -> a FREE RELAY slot (IP-safe, for public) -> server suggestion -> any free.
+    var g = (forced && guests.filter(function(x){return x.slot===forced;})[0])
+            || freeGuests.filter(isRelay)[0]
+            || (d.suggested_slot && freeGuests.filter(function(x){return x.slot===d.suggested_slot;})[0])
+            || freeGuests[0]
+            || guests[guests.length-1] || null;
+    if(!g || !d.public_ip){
+      $('qrcard').style.display='none'; $('qrmissing').style.display='block'; $('qrslot').textContent='';
+      return;
+    }
+    mySlot=g.slot;
+    if(g.qr){ $('qrimg').src=g.qr+'?t='+Date.now(); } else { $('qrcard').style.display='none'; $('qrmissing').style.display='block'; }
+    var allFull = guests.length && guests.every(function(x){return x.free===false;});
+    var relaySafe = isRelay(g);
+    var badge = relaySafe
+      ? '<span style="color:#23d97c;font-size:11px;border:1px solid rgba(35,217,124,.4);border-radius:5px;padding:1px 7px;margin-left:6px">🔒 via relay</span>'
+      : '<span style="color:#ffb400;font-size:11px;border:1px solid rgba(255,180,0,.4);border-radius:5px;padding:1px 7px;margin-left:6px">LAN only</span>';
+    $('qrslot').innerHTML = allFull
+      ? '<span style="color:#c0392b">All slots busy — ask the director to free one</span>'
+      : esc(g.label)+badge;
+    $('mSrt').textContent=g.srt_url||'—';
+    $('copyBtn').onclick=function(){
+      if(g.srt_url){ navigator.clipboard.writeText(g.srt_url).then(function(){ $('copyBtn').textContent='Copied ✓'; setTimeout(function(){$('copyBtn').textContent='Copy SRT URL';},1500); }); }
+    };
+  }).catch(function(){
+    $('qrcard').style.display='none'; $('qrmissing').style.display='block';
+  });
+
+  // 2) Multiview return grid — the "we see you" feedback. Live thumbnails of every
+  //    source; the visitor's OWN slot is ringed cyan + "YOU". Near-zero cost (the
+  //    thumbnails are already generated for the switcher's multiview).
+  // Preferred display order; any other flows the health reports are appended, so new
+  // guest slots (guest4, guest5, …) show up automatically.
+  var ORDER=['cam','cam2','guest1','guest2','guest3','guest4','guest5','guest6','playout','pattern','layout'];
+  var builtGrid=false, gridKeys='';
+  function buildGrid(flows){
+    var g=$('mvGrid');
+    var present=Object.keys(flows);
+    var names=ORDER.filter(function(n){return flows[n]!==undefined;})
+      .concat(present.filter(function(n){return ORDER.indexOf(n)<0;}));
+    if(!names.length) names=present;
+    g.innerHTML=names.map(function(n){
+      return '<div class="mvtile" data-slot="'+n+'">'+
+        '<img alt="'+esc(pretty(n))+'" src="/api/mxl/thumbs/'+n+'.jpg">'+
+        '<span class="dot"></span><span class="me">YOU</span>'+
+        '<span class="lbl">'+esc(pretty(n))+'</span></div>';
+    }).join('');
+    builtGrid=true; gridKeys=names.slice().sort().join(',');
+  }
+  function refreshThumbs(){
+    Array.prototype.forEach.call(document.querySelectorAll('.mvtile img'),function(img){
+      var base=img.getAttribute('src').split('?')[0];
+      img.src=base+'?t='+Date.now();
+    });
+  }
+
+  function pollHealth(){
+    fetch('/api/mxl/health',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      var flows=(d.grains&&d.grains.flows)||{};
+      // (re)build the grid when the set of sources changes (new guest slots appear)
+      if(!builtGrid || Object.keys(flows).slice().sort().join(',')!==gridKeys) buildGrid(flows);
+      // update per-tile live/dead + "you" highlight
+      Array.prototype.forEach.call(document.querySelectorAll('.mvtile'),function(t){
+        var n=t.getAttribute('slot')||t.getAttribute('data-slot');
+        var f=flows[n]; var live=f&&f.state==='ok';
+        t.classList.toggle('live',!!live);
+        t.classList.toggle('dead',!!(f&&f.state==='dead'));
+        t.classList.toggle('you', n===mySlot);
+      });
+      refreshThumbs();
+      var live=Object.keys(flows).filter(function(k){return flows[k].state==='ok';}).length;
+      var viewers=(d.system&&d.system.viewers!=null)?d.system.viewers:null;
+      var mine=mySlot&&flows[mySlot]&&flows[mySlot].state==='ok';
+      var s=$('status');
+      if(mine){
+        s.className='status';
+        s.innerHTML='<b>You\'re LIVE 🎥</b> — your tile is ringed in cyan above. Ask the director to cut you to program.';
+      } else if(live>0){
+        s.className='status';
+        s.innerHTML='<b>'+live+' live source'+(live===1?'':'s')+'</b> on the switcher'+(viewers!=null?(' · '+viewers+' watching'):'')+'. Go live in Larix and your tile lights up.';
+      } else {
+        s.className='status waiting';
+        s.innerHTML='<b>Waiting for a source…</b> be the first — scan and go live.';
+      }
+    }).catch(function(){});
+  }
+  pollHealth(); setInterval(pollHealth,3000);
+})();
+</script>
+</body>
+</html>

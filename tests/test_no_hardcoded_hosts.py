@@ -41,6 +41,7 @@ ALLOW = {
     "tools/guest-leg-doctor.sh": {"10.0.0.4", "10.0.0.5", "prodbots.com"},  # MXL_VM1_IP/VM2_IP/BACKEND defaults
     "tools/selector-doctor.sh": {"prodbots.com"},                 # MXL_BACKEND_URL default
     "scripts/quickstart.sh": {"mxlswitcher.com"},                 # comment only
+    "backend/local-server.js": {"mxlswitcher.com"},               # comment only (CORS rationale; override via MXL_HEALTH_CORS)
     "tools/start-jonas-leg.sh": {"10.0.0.4"},                     # MXL_VM1_IP default
     "tools/tams_shipper.py": {"203.0.113.140"},                   # TAMS_HOST default (RFC 5737 placeholder)
     "tools/backfill-mini.py": {"203.0.113.140"},                  # TAMS_HOST default (RFC 5737 placeholder)

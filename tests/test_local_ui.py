@@ -8,8 +8,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 HTML = REPO / "web" / "local.html"
+HEALTH_HTML = REPO / "web" / "health.html"
+JOIN_HTML = REPO / "web" / "join.html"
+WELCOME_HTML = REPO / "web" / "welcome.html"
 SERVER = REPO / "backend" / "local-server.js"
 ROUTES = REPO / "backend" / "mxl-routes.js"
+HEALTH_INFO = REPO / "backend" / "health-info.js"
 PKG = REPO / "backend" / "package.json"
 FONTS = REPO / "web" / "fonts"
 
@@ -110,3 +114,94 @@ def test_package_pins_express():
     import json
     pkg = json.loads(PKG.read_text())
     assert "express" in pkg.get("dependencies", {}), "express not pinned in package.json"
+
+
+# ── Health Skin (read-only monitor, separate page from the control Skin) ──────
+
+def test_health_skin_exists_and_is_separate():
+    """The grain/system monitor is its own page + its own read-only endpoint — it
+    must NOT leak control into the Core Skin (local.html drives only control
+    routes). Keeping health separate is the whole point of 'Core vs Skin'."""
+    assert HEALTH_HTML.is_file(), "web/health.html missing"
+    assert HEALTH_INFO.is_file(), "backend/health-info.js missing"
+    # the control Skin must not start calling /api/mxl/health — health is its own page
+    assert "/api/mxl/health" not in HTML.read_text(), \
+        "the control Skin (local.html) should not poll health — keep it separate"
+
+
+def test_health_skin_is_self_contained():
+    """Same air-gap promise as the control Skin: no external hosts, self-hosted
+    fonts only, no CDN."""
+    html = HEALTH_HTML.read_text()
+    urls = re.findall(r"https?://[a-z0-9.\-]+", html, re.I)
+    external = [u for u in urls if not re.search(r"(127\.0\.0\.1|localhost|w3\.org)", u)]
+    assert not external, f"health.html references external hosts: {external}"
+    assert "cdn" not in html.lower(), "health.html pulls from a CDN"
+    woff2 = list(FONTS.glob("*.woff2"))
+    for f in woff2:
+        assert f.name in html, f"health.html doesn't @font-face {f.name}"
+
+
+def test_join_page_exists_and_is_self_contained():
+    """The public phone-inject page: QR + Larix steps + live program preview. Must be
+    air-gapped (self-hosted fonts, no external hosts) EXCEPT the two app-store links,
+    which are legitimate outbound links a visitor taps to install Larix."""
+    assert JOIN_HTML.is_file(), "web/join.html missing"
+    html = JOIN_HTML.read_text()
+    urls = re.findall(r"https?://[a-z0-9.\-]+", html, re.I)
+    # allow the app-store install links (apple + google) — everything else must be local
+    allowed_ext = ("apps.apple.com", "play.google.com")
+    external = [u for u in urls
+               if not re.search(r"(127\.0\.0\.1|localhost|w3\.org)", u)
+               and not any(a in u for a in allowed_ext)]
+    assert not external, f"join.html references unexpected external hosts: {external}"
+    woff2 = list(FONTS.glob("*.woff2"))
+    for f in woff2:
+        assert f.name in html, f"join.html doesn't @font-face {f.name}"
+
+
+def test_join_page_served_and_qr_route_not_hardcoded_to_guest12():
+    """The Core serves /join, and the QR route validates against the configured guest
+    slots (so a 3rd 'phone' slot works) rather than a hardcoded guest1/guest2 regex."""
+    src = SERVER.read_text()
+    assert "app.get('/join'" in src, "local-server doesn't serve the /join page"
+    assert "INGEST_SLOTS" in src, "QR route still hardcodes guest slots (should validate against config)"
+    assert "guest[12]" not in src, "QR route still has the old guest[12]-only gate"
+
+
+def test_welcome_landing_served_and_self_contained():
+    """The public landing (/welcome) routes visitors to Join/Watch/Monitor. Air-gapped
+    (self-hosted fonts, no external hosts), served by the Core."""
+    assert WELCOME_HTML.is_file(), "web/welcome.html missing"
+    assert "app.get('/welcome'" in SERVER.read_text(), "local-server doesn't serve /welcome"
+    html = WELCOME_HTML.read_text()
+    urls = re.findall(r"https?://[a-z0-9.\-]+", html, re.I)
+    external = [u for u in urls if not re.search(r"(127\.0\.0\.1|localhost|w3\.org)", u)]
+    assert not external, f"welcome.html references external hosts: {external}"
+    # the three public entry points must be linked, and NOT the token-gated control Skin
+    for href in ("/join", "/program/", "/health"):
+        assert href in html, f"welcome.html doesn't link {href}"
+
+
+def test_health_endpoint_is_read_only():
+    """The health endpoint + page must be GET-only — a monitor never mutates the
+    facility. No POST/PUT/DELETE handlers touch the health surface."""
+    src = SERVER.read_text()
+    assert "app.get('/api/mxl/health'" in src, "local-server missing GET /api/mxl/health"
+    assert "app.get('/health'" in src, "local-server doesn't serve /health page"
+    # no mutating verb on the health paths
+    for verb in ("post", "put", "delete", "patch"):
+        assert f"app.{verb}('/api/mxl/health'" not in src, \
+            f"health endpoint must not expose {verb.upper()}"
+
+
+def test_health_reuses_existing_probe_snapshot():
+    """Cost control: the endpoint must READ an existing probe's snapshot, never spawn
+    its own MXL readers. It prefers the already-running thumbs health.json and falls
+    back to grain_probe's grains.json — either way, no new process."""
+    src = SERVER.read_text()
+    assert "health.json" in src, "health endpoint doesn't read the thumbs health snapshot"
+    assert "grains.json" in src, "health endpoint doesn't fall back to the grain-probe snapshot"
+    # must cache so N viewers collapse to one scrape
+    assert "HEALTH_TTL" in src or "_healthCache" in src, \
+        "health endpoint has no server-side cache (N viewers would each scrape)"

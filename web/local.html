@@ -41,6 +41,8 @@
     font-weight:500;letter-spacing:.5px;color:var(--dim);border:1px solid var(--line);
     border-radius:6px;padding:5px 9px;text-transform:uppercase}
   .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  a.navlink{text-decoration:none;color:var(--dim);transition:color .15s,border-color .15s}
+  a.navlink:hover{color:var(--acc);border-color:var(--acc)}
   .chip.ok{color:var(--ink)} .chip.ok .dot{background:var(--grn);box-shadow:0 0 7px var(--grn-glow)}
   .chip.bad .dot{background:var(--red);box-shadow:0 0 7px var(--red-glow)}
   .chip b{color:var(--ink);font-weight:600}
@@ -156,6 +158,8 @@
   <header>
     <div class="wordmark"><b>MXL</b> <span>Switcher</span></div>
     <div class="spacer"></div>
+    <a class="chip navlink" href="/health" target="_blank" rel="noopener" title="Live grain flow, CPU/memory and pipeline health (read-only)">Health ↗</a>
+    <a class="chip navlink" href="/join" target="_blank" rel="noopener" title="Public page to put a phone/camera on air">Join ↗</a>
     <div class="chip" id="conn"><span class="dot"></span><span id="connText">connecting…</span></div>
     <div class="chip"><span style="color:var(--faint)">PGM</span>&nbsp;<b id="pgmChip">—</b></div>
   </header>
@@ -223,6 +227,9 @@
         free <b>Larix Broadcaster</b> app, or paste the URL into OBS / ffmpeg.</p>
       <div id="camBody"><!-- guests injected here --></div>
       <p class="camnote" id="camNote"></p>
+      <p class="camlede" style="margin-top:10px">Running a public demo? Send visitors the self-serve page:
+        <a href="/welcome" target="_blank" rel="noopener" style="color:var(--acc)">/welcome ↗</a>
+        · <a href="/join" target="_blank" rel="noopener" style="color:var(--acc)">/join ↗</a></p>
     </div>
   </div>
 

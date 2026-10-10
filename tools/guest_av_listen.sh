@@ -35,13 +35,22 @@ LATENCY_MS="${4:-300}"
 # our srtsink callers reconnect to them. wait-for-connection=false so the pipeline comes
 # up and listens even before a contributor or a leg is present.
 while :; do
+  # tee branches MUST be decoupled with leaky queues (HW Oct-8): both legs carry the full TS
+  # (~13 Mbit/s each), so if either srtsink's SRT send buffer backs up momentarily, a PLAIN
+  # bounded queue fills → backpressures the tee → the OTHER leg's srtsink SRT-errors ("Error on
+  # SRT socket (0)"). Observed: the audio leg (:${AUDIO_PORT}) errored + its core -5-looped while
+  # the video leg looked fine — classic unbalanced-tee stall. leaky=downstream makes each branch
+  # DROP its own oldest TS packets rather than stall the tee, so one slow leg can't kill the other.
+  # tee allow-not-linked so a torn-down leg (core restart) doesn't error the whole fan-out.
   gst-launch-1.0 -e \
     srtsrc uri="srt://0.0.0.0:${PUBLIC_PORT}?mode=listener&latency=${LATENCY_MS}" \
-      ! tsparse set-timestamps=true ! tee name=t \
-    t. ! queue ! srtsink uri="srt://127.0.0.1:${VIDEO_PORT}?mode=caller&latency=${LATENCY_MS}" \
-                         wait-for-connection=false \
-    t. ! queue ! srtsink uri="srt://127.0.0.1:${AUDIO_PORT}?mode=caller&latency=${LATENCY_MS}" \
-                         wait-for-connection=false \
+      ! tsparse ! tee name=t allow-not-linked=true \
+    t. ! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 max-size-bytes=0 \
+       ! srtsink uri="srt://127.0.0.1:${VIDEO_PORT}?mode=caller&latency=${LATENCY_MS}" \
+                 wait-for-connection=false \
+    t. ! queue leaky=downstream max-size-time=400000000 max-size-buffers=0 max-size-bytes=0 \
+       ! srtsink uri="srt://127.0.0.1:${AUDIO_PORT}?mode=caller&latency=${LATENCY_MS}" \
+                 wait-for-connection=false \
     || true
   echo "guest_av_listen: fan-out exited (contributor gone or leg churn) — rebuilding" >&2
   sleep 2

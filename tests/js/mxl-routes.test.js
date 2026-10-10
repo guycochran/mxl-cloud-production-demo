@@ -77,6 +77,60 @@ test('startup warning is logged when no token is set', () => {
   assert.ok(warns.some((m) => /MXL_CONTROL_TOKEN is not set/.test(m)));
 });
 
+// ── Never-interrupt: auto announce must NOT re-wire a healthy selector ───────────
+test('/repair {auto:1}: healthy selector -> SKIP cascade (no selector rebuild, PGM untouched)', async () => {
+  const app = mkApp(); registerMxlRoutes(app, { env: {}, log: silent });
+  const realST = global.setTimeout; global.setTimeout = (f) => realST(f, 0);
+  // selector reports running with inputs wired; everything else default-ok
+  const healthySel = JSON.stringify({ running: true, error: null, input_flow_uuids: ['a', 'b', 'c', 'd'], active_input: 1 });
+  global.fetch = async (url) => ({ ok: true, text: async () => (String(url).includes(':9604/pipeline/status') ? healthySel : '{}') });
+  const calls = [];
+  const orig = global.fetch;
+  global.fetch = async (url, opts) => { calls.push(String(url)); return orig(url, opts); };
+  try {
+    const res = await call(app, 'POST /api/mxl/repair', { headers: {}, body: { auto: 1 }, ip: '3.3.3.3' });
+    assert.strictEqual(res.code, 200);
+    assert.ok(res.body.skipped, 'should report skipped');
+    // the whole point: NO selector stop/start, NO active-input, NO keyer/encoder rebuild
+    assert.ok(!calls.some((u) => /\/pipeline\/(stop|start|active-input)/.test(u)),
+      'auto announce on a healthy selector must not stop/start/re-cut anything');
+  } finally { global.setTimeout = realST; }
+});
+
+test('/repair {auto:1}: selector DOWN -> full cascade still runs (recovery intact)', async () => {
+  const app = mkApp(); registerMxlRoutes(app, { env: {}, log: silent });
+  const realST = global.setTimeout; global.setTimeout = (f) => realST(f, 0);
+  const downSel = JSON.stringify({ running: false, error: 'stopped', input_flow_uuids: [] });
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    return { ok: true, text: async () => (String(url).includes(':9604/pipeline/status') ? downSel : '{}') };
+  };
+  try {
+    const res = await call(app, 'POST /api/mxl/repair', { headers: {}, body: { auto: 1 }, ip: '4.4.4.4' });
+    assert.strictEqual(res.code, 200);
+    assert.ok(!res.body.skipped, 'a down selector must NOT be skipped');
+    assert.ok(calls.some((u) => /:9604\/pipeline\/start/.test(u)), 'full cascade restarts the selector');
+  } finally { global.setTimeout = realST; }
+});
+
+test('/repair manual (no auto): always rebuilds even if selector is healthy', async () => {
+  const app = mkApp(); registerMxlRoutes(app, { env: {}, log: silent });
+  const realST = global.setTimeout; global.setTimeout = (f) => realST(f, 0);
+  const healthySel = JSON.stringify({ running: true, error: null, input_flow_uuids: ['a', 'b'] });
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    return { ok: true, text: async () => (String(url).includes(':9604/pipeline/status') ? healthySel : '{}') };
+  };
+  try {
+    const res = await call(app, 'POST /api/mxl/repair', { headers: {}, body: { slot: 0 }, ip: '5.5.5.5' });
+    assert.strictEqual(res.code, 200);
+    assert.ok(!res.body.skipped, 'manual repair is never skipped');
+    assert.ok(calls.some((u) => /:9604\/pipeline\/start/.test(u)), 'manual repair runs the cascade');
+  } finally { global.setTimeout = realST; }
+});
+
 // ── Review-fix regression tests (R3 pattern slot, R4 input validation, R5 timeout) ──
 
 // a fetch mock that records {url, body} and can return per-URL responses
@@ -203,4 +257,48 @@ test('Take flip-flops PVW↔PGM: the old program drops back to preview', async (
   assert.strictEqual(took.code, 200);
   assert.strictEqual(took.body.input, 1, 'program is now the armed source (slot 1)');
   assert.strictEqual(took.body.pvw, 0, 'preview is now the OLD program (slot 0) — the flip-flop');
+});
+
+// ── Keyer-tolerant cut (public-demo robustness) ────────────────────────────────
+// The CUT is the selector's active-input move. A down/bypassed keyer must never
+// fail it. Before this, the cut path did `await mxlApi(9605,...)` unconditionally,
+// so a stopped keyer (:9605 unreachable or 400) sank an otherwise-good cut.
+
+test('cut succeeds even when the keyer (:9605) is DOWN', async () => {
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_PREWARM: '0' }, log: silent });
+  const calls = mkFetch((url) => {
+    if (url.includes(':9605/')) throw new Error('connect ECONNREFUSED'); // keyer down
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 1, input_flow_uuids: [CAM] }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 'cam' }, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 200, 'cut must succeed despite the keyer being down');
+  // the real cut (active-input) still went out
+  assert.ok(calls.some((c) => c.url.includes(':9604/pipeline/active-input')), 'the selector cut was issued');
+});
+
+test('MXL_KEYER_BYPASS=1: a cut never pokes the keyer (:9605)', async () => {
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';
+  const app = mkApp(); registerMxlRoutes(app, { env: { MXL_PREWARM: '0', MXL_KEYER_BYPASS: '1' }, log: silent });
+  const calls = mkFetch((url) => {
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 1, input_flow_uuids: [CAM] }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  const res = await call(app, 'POST /api/mxl/input', { headers: {}, body: { input: 'cam' }, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 200, 'cut succeeds in bypass mode');
+  assert.ok(!calls.some((c) => c.url.includes(':9605/')), 'bypass mode must not touch the keyer at all');
+});
+
+test('status survives a down keyer (:9605) — the Skin keeps polling', async () => {
+  const CAM = 'ca111e00-aaaa-4bbb-8ccc-000000000001';
+  const app = mkApp(); registerMxlRoutes(app, { env: {}, log: silent });
+  mkFetch((url) => {
+    if (url.includes(':9605/')) throw new Error('ECONNREFUSED');       // keyer down
+    if (url.includes(':9600/')) throw new Error('ECONNREFUSED');       // test-gen down too
+    if (url.includes(':9604/pipeline/status')) return { ok: true, text: async () => JSON.stringify({ active_input: 0, input_flow_uuids: [CAM] }) };
+    return { ok: true, text: async () => '{}' };
+  });
+  const res = await call(app, 'GET /api/mxl/status', { headers: {}, ip: '1.1.1.1' });
+  assert.strictEqual(res.code, 200, 'status must still return 200 with keyer+testgen down');
 });
