@@ -45,6 +45,7 @@ CORE_URL="${MXL_CORE_URL:-http://127.0.0.1:3100}"
 THUMBS_HEAL="${MXL_THUMBS_HEAL:-1}"       # 0 disables the thumbs-probe heal
 THUMBS_STRIKES="${MXL_THUMBS_STRIKES:-3}" # consecutive mismatched polls before restart
 _thumbs_strike=0; _thumbs_last_heal=0
+_sel_api_last_heal=0   # cooldown for the "selector HTTP API died" container restart
 
 # Use `docker` directly if we can (quickstart runs as root), else `sudo docker`.
 if docker ps >/dev/null 2>&1; then DOCKER="docker"; else DOCKER="sudo docker"; fi
@@ -105,7 +106,29 @@ keyer_out_flow(){
 # ── heal 1: selector down → restart with its inputs + re-cut to slot 0 ──────────
 heal_selector(){
   local st running
-  st=$(_get 9604 /pipeline/status) || return 0
+  st=$(_get 9604 /pipeline/status)
+  # API UNREACHABLE (empty body / http 000) while the container is up = the selector's HTTP
+  # control server died but the router thread keeps running (HW Oct 10: container "Up 7h",
+  # nothing listening on 9604, PGM frozen, every cut/status 000 — selfheal's own probes blind).
+  # A /pipeline/start can't fix a dead API; the container must be restarted to respawn it.
+  # Guard: only restart if the container is actually running (don't fight a stopped container)
+  # and respect the publish cooldown pattern via a dedicated timestamp to avoid restart storms.
+  if [ -z "$st" ]; then
+    local now; now=$(date +%s)
+    if [ $((now - _sel_api_last_heal)) -ge 120 ] && $DOCKER ps --format '{{.Names}}' 2>/dev/null | grep -qx "$SEL_CTR"; then
+      log "SELECTOR API UNREACHABLE (container up, :9604 dead) — restarting $SEL_CTR"
+      $DOCKER restart "$SEL_CTR" >/dev/null 2>&1
+      _sel_api_last_heal=$now
+      # wait for the API to answer, then let the next pass (or pgm-heal) re-wire + republish
+      local i=0; while [ "$i" -lt 20 ]; do curl -s -m3 "http://127.0.0.1:9604/pipeline/status" >/dev/null 2>&1 && break; i=$((i+1)); sleep 2; done
+      # after an API restart the router comes up but the encoder must be re-pointed at the
+      # selector output (its flow object was recreated) — republish via the proven path.
+      local out; out=$(sel_out_flow)
+      [ -n "$out" ] && _enc_restart "$out"
+      log "selector API restarted + encoder republished"
+    fi
+    return 0
+  fi
   running=$(printf '%s' "$st" | _json running)
   [ "$running" = "True" ] && return 0   # healthy
   local inputs; inputs=$(selector_inputs_json)
